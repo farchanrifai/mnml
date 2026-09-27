@@ -21,6 +21,14 @@ final class Browser: NSObject, ObservableObject {
     /// Tabs picked with ⌘- and ⇧-click in the column, for its menu to act
     /// on together.
     @Published var chosen: Set<Tab.ID> = []
+    /// Tabs whose chat panel is open (Ask.swift): each tab keeps its own.
+    @Published var chatting: Set<Tab.ID> = []
+    /// Each tab's chat, made the first time its panel opens. ponytail: kept
+    /// after the tab closes, until history takes them.
+    var chats: [Tab.ID: Chat] = [:]
+    /// ⌘E opened the panel: its box takes the keys once it's up. Not set
+    /// by a tab switch, which leaves the keys with the page.
+    var askTyping = false
     /// A tab held out of the column over the page, to open beside the one
     /// on screen (Split.swift), and the picture of it the hand carries.
     @Published var splitDrag: SplitDrag?

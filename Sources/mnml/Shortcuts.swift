@@ -187,6 +187,7 @@ struct Command: Identifiable {
             Command("view.inspector", "Web Inspector", .view, KeyCombo("i", option: true), "The page's code, styles and network, beside it.") { $0.toggleInspector() },
             Command("view.console", "JavaScript Console", .view, KeyCombo("j", option: true), "The Web Inspector, open at its console.") { $0.showConsole() },
             Command("view.inspect", "Inspect Element", .view, KeyCombo("c", option: true), "Point at something on the page to see it in the Web Inspector.") { $0.inspectElement() },
+            Command("view.ask", "Ask About This Tab", .view, KeyCombo("e"), "A chat beside the page about what's on it, this tab's own.") { $0.toggleAsk() },
             Command("view.reload", "Reload Page", .view, KeyCombo("r"), "Loads the page again.") { $0.reload() },
             Command("view.reader", "Reading Mode", .view, KeyCombo("r", shift: true), "Just the article, set for reading.") { $0.toggleReader() },
             Command("view.float", "Float Video", .view, KeyCombo("p", shift: true), "The video on this page in a window of its own, above everything.") { $0.toggleFloat() },

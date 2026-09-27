@@ -28,7 +28,7 @@ enum Web {
     /// included, and registering a name twice is a hard crash.
     @MainActor static func release(_ controller: WKUserContentController) {
         for name in [ScrollRelay.name, VeilRelay.name, FormRelay.name, ImageRelay.name,
-                     StoreRelay.name, PasskeyRelay.name, MiddleRelay.name] {
+                     StoreRelay.name, PasskeyRelay.name, MiddleRelay.name, SelectionRelay.name] {
             controller.removeScriptMessageHandler(forName: name, contentWorld: world)
             controller.removeScriptMessageHandler(forName: name, contentWorld: .page)
         }
@@ -353,6 +353,10 @@ final class Tab: ObservableObject, Identifiable {
     private let veils_ = VeilRelay()
     private let forms = FormRelay()
     private let images = ImageRelay()
+    private let selections = SelectionRelay()
+    /// What's highlighted on the page right now, in whichever frame, for the
+    /// chat's Selected Text chip (Ask.swift); nil when nothing is.
+    @Published var picked: Picked?
     private let shop = StoreRelay()
     private let middles = MiddleRelay()
     private let passkeyRelay = PasskeyRelay()
@@ -497,6 +501,8 @@ final class Tab: ObservableObject, Identifiable {
         hovered.tab = self
         controller.add(hovered, contentWorld: .defaultClient, name: HoveredLink.name)
         controller.add(middles, contentWorld: Web.world, name: MiddleRelay.name)
+        selections.tab = self
+        controller.add(selections, contentWorld: Web.world, name: SelectionRelay.name)
         Shield.shared.protect(controller)
         built = web
         // A tab muted before it went to sleep wakes muted.
@@ -516,6 +522,9 @@ final class Tab: ObservableObject, Identifiable {
                     // a pinned tab lost the only thing that could bring it
                     // back, and vanished from the session altogether.
                     guard fresh.absoluteString != "about:blank" else { return }
+                    // Another page: its highlight went with the old one. Not on
+                    // a change of hash or query only — Gmail's compose is one.
+                    if fresh.host() != self.address?.host() || fresh.path != self.address?.path { self.picked = nil }
                     let moved = fresh.host() != self.address?.host()
                     self.address = fresh
                     if moved { self.adoptIcon() }
@@ -603,6 +612,11 @@ final class Tab: ObservableObject, Identifiable {
         )
         controller.addUserScript(
             WKUserScript(source: ImageRelay.watch, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: Web.world)
+        )
+        // Every frame: text is highlighted in a mail's compose box as often
+        // as in the page around it.
+        controller.addUserScript(
+            WKUserScript(source: SelectionRelay.watch, injectionTime: .atDocumentEnd, forMainFrameOnly: false, in: Web.world)
         )
         // The store's "Add to mnml" only where mnml can add extensions.
         // Before macOS 15.4 it was drawn all the same, and pressing it did

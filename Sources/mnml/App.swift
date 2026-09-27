@@ -66,6 +66,7 @@ struct MnmlApp: App {
                     }
                 }
                 Divider()
+                item("view.ask")
                 item("view.reload")
                 item("view.reader")
                 item("view.float")
@@ -276,6 +277,9 @@ struct ContentView: View {
             // the strip's height is still resized once.
             stage
                 .padding(.leading, chrome.width)
+                // This tab's chat, beside the page (AskPanel.swift), followed
+                // frame by frame like the column.
+                .padding(.trailing, browser.askShowing ? AskPanel.width : 0)
                 .padding(.top, roomed.height)
                 .offset(y: chrome.height - roomed.height)
 
@@ -293,6 +297,14 @@ struct ContentView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
 
+            if browser.askShowing, let tab = browser.active {
+                AskPanel(browser: browser, tab: tab, chat: browser.chat(for: tab), prefs: browser.prefs)
+                    .id(tab.id)
+                    .padding(.top, chrome.height)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                    .transition(.move(edge: .trailing))
+            }
+
             // The bookmarks bar, under the strip or beside the column's top.
             if barShown {
                 BookmarksBar(browser: browser, bookmarks: browser.bookmarks)
@@ -303,6 +315,7 @@ struct ContentView: View {
         }
         .ignoresSafeArea()
         .animation(Motion.glide, value: browser.prefs.sidebar)
+        .animation(.spring(response: 0.34, dampingFraction: 1), value: browser.askShowing)
         .animation(.easeOut(duration: 0.12), value: browser.active?.immersed)
         .onAppear { if room == nil { room = chrome } }
         .onChange(of: chrome) { old, new in make(room: new, after: old) }

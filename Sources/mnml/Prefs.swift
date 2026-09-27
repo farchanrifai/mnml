@@ -206,6 +206,10 @@ final class Preferences: ObservableObject {
     /// it (see StatusLine.swift). Off unless asked for.
     /// Shift-click on a link opens it in a panel over the page (see
     /// Peek.swift). Off unless asked for.
+    /// The Gemini model the chat beside a page asks (Ask.swift).
+    @Published var askModel: String {
+        didSet { store.set(askModel, forKey: "ask.model") }
+    }
     @Published var peeksLinks: Bool {
         didSet { store.set(peeksLinks, forKey: "links.peek") }
     }
@@ -337,6 +341,7 @@ final class Preferences: ObservableObject {
         floatsAway = store.object(forKey: "float.away") as? Bool ?? true
         floatsOnLeave = store.object(forKey: "float.leave") as? Bool ?? true
         installsUpdates = store.object(forKey: Updater.installKey) as? Bool ?? true
+        askModel = store.string(forKey: "ask.model") ?? Gemini.models[0].0
         peeksLinks = store.bool(forKey: "links.peek")
         littleLinks = store.bool(forKey: "links.little")
         bookmarksBar = store.bool(forKey: "bookmarks.bar")
