@@ -17,6 +17,9 @@ enum Session {
         var split: Bool?
         /// The pinned URL (Tab.home).
         var home: String?
+        /// Its chat (Ask.swift), and whether its panel was open.
+        var chat: UUID?
+        var asking: Bool?
     }
 
     struct Shape: Codable {

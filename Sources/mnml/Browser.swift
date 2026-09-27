@@ -1018,6 +1018,10 @@ final class Browser: NSObject, ObservableObject {
             prepare(tab)
             tab.restore(url: url, title: entry.title, name: entry.name)
             tab.pin = entry.pin
+            if let id = entry.chat, let chat = Chat.load(id) {
+                chats[tab.id] = chat
+                if entry.asking == true { chatting.insert(tab.id) }
+            }
             tab.home = entry.home.flatMap(URL.init(string:))
             tab.group = entry.group
             if entry.split == true { tab.partner = tabs.last?.id }
@@ -1180,7 +1184,8 @@ final class Browser: NSObject, ObservableObject {
             written.append(tab.id)
             return Session.Entry(
                 url: url.absoluteString, title: tab.title, pin: tab.pin, group: tab.group, name: tab.name,
-                split: split ? true : nil, home: tab.home?.absoluteString
+                split: split ? true : nil, home: tab.home?.absoluteString,
+                chat: chats[tab.id]?.id, asking: chatting.contains(tab.id) ? true : nil
             )
         }
         Session.write(
@@ -1667,6 +1672,10 @@ final class Browser: NSObject, ObservableObject {
             prepare(tab)
             tab.restore(url: url, title: entry.title, name: entry.name)
             tab.pin = entry.pin
+            if let id = entry.chat, let chat = Chat.load(id) {
+                chats[tab.id] = chat
+                if entry.asking == true { chatting.insert(tab.id) }
+            }
             tab.home = entry.home.flatMap(URL.init(string:))
             if entry.split == true { tab.partner = row.last?.id }
             row.append(tab)

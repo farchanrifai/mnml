@@ -14,6 +14,8 @@ struct AskPanel: View {
     static let width: CGFloat = 320
 
     @State private var question = ""
+    /// The list of past chats in place of this one.
+    @State private var recalling = false
     @State private var key = ""
     @FocusState private var typing: Bool
 
@@ -24,7 +26,17 @@ struct AskPanel: View {
         VStack(spacing: 0) {
             header
             Group {
-                if chat.turns.isEmpty {
+                if recalling {
+                    ChatHistory(current: chat.id) { saved in
+                        chat.stop()
+                        if let picked = Chat.load(saved.id) {
+                            browser.chats[tab.id] = picked
+                            browser.objectWillChange.send()
+                            browser.rememberSession()
+                        }
+                        recalling = false
+                    }
+                } else if chat.turns.isEmpty {
                     empty
                 } else {
                     thread
@@ -40,7 +52,7 @@ struct AskPanel: View {
                 }
             }
             .animation(Motion.quick, value: menuShowing)
-            composer
+            if !recalling { composer }
         }
         .frame(width: AskPanel.width)
         .frame(maxHeight: .infinity)
@@ -69,8 +81,11 @@ struct AskPanel: View {
                 chat.stop()
                 browser.chats[tab.id] = Chat()
                 browser.objectWillChange.send()
+                browser.rememberSession()
+                recalling = false
                 typing = true
             }
+            Door(icon: "clock", on: recalling, help: "Past chats") { recalling.toggle() }
             Spacer()
             Picker("", selection: $prefs.askModel) {
                 ForEach(Gemini.models, id: \.0) { Text($0.1).tag($0.0) }
@@ -79,7 +94,10 @@ struct AskPanel: View {
             .pickerStyle(.menu)
             .fixedSize()
             .controlSize(.small)
-            Door(icon: "xmark", help: "Close   ⌘E") { browser.chatting.remove(tab.id) }
+            Door(icon: "xmark", help: "Close   ⌘E") {
+                browser.chatting.remove(tab.id)
+                browser.rememberSession()
+            }
         }
         .padding(.horizontal, 10)
         .frame(height: Metrics.strip)
@@ -830,3 +848,87 @@ private struct Thinking: View {
     }
 }
 
+
+/// Past chats, newest first, to open one on this tab.
+private struct ChatHistory: View {
+    let current: UUID
+    let open: (Chat.Saved) -> Void
+    @State private var all = Chat.history()
+    @State private var search = ""
+    @State private var hovered: UUID?
+
+    private var shown: [Chat.Saved] {
+        guard !search.isEmpty else { return all }
+        return all.filter {
+            $0.title.localizedCaseInsensitiveContains(search) || $0.site.localizedCaseInsensitiveContains(search)
+                || $0.turns.contains { $0.text.localizedCaseInsensitiveContains(search) }
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            TextField("Search past chats", text: $search)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .padding(.horizontal, 9)
+                .padding(.vertical, 6)
+                .background(Palette.ink.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .padding(.horizontal, 10)
+            if all.isEmpty {
+                Spacer()
+                Text("No past chats yet").font(.system(size: 12)).foregroundStyle(Palette.muted)
+                Spacer()
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 1) {
+                        ForEach(shown) { row($0) }
+                    }
+                    .padding(.horizontal, 6)
+                }
+                HStack {
+                    Spacer()
+                    Button("Delete All…") {
+                        let alert = NSAlert()
+                        alert.messageText = "Delete all past chats?"
+                        alert.informativeText = "They can't be brought back. Chats open on tabs stay until you close them."
+                        alert.addButton(withTitle: "Delete All")
+                        alert.addButton(withTitle: "Cancel")
+                        guard alert.runModal() == .alertFirstButtonReturn else { return }
+                        Chat.forgetAll()
+                        all = []
+                    }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Palette.muted)
+                }
+                .padding(.horizontal, 14)
+                .padding(.bottom, 10)
+            }
+        }
+    }
+
+    private func row(_ saved: Chat.Saved) -> some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(saved.title).font(.system(size: 12)).foregroundStyle(Palette.ink).lineLimit(1)
+                Text([saved.site, saved.updated.formatted(.relative(presentation: .named))]
+                        .filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.system(size: 10.5)).foregroundStyle(Palette.muted).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            if hovered == saved.id, saved.id != current {
+                Door(icon: "trash", help: "Delete") {
+                    Chat.forget(saved.id)
+                    all.removeAll { $0.id == saved.id }
+                }
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(saved.id == current ? SideBar.liveFill : hovered == saved.id ? SideBar.hoverFill : .clear,
+                    in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .contentShape(Rectangle())
+        .onHover { if $0 { hovered = saved.id } else if hovered == saved.id { hovered = nil } }
+        .onTapGesture { open(saved) }
+    }
+}

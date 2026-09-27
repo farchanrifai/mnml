@@ -12,8 +12,8 @@ import WebKit
 
 @MainActor
 final class Chat: ObservableObject {
-    struct Turn: Identifiable, Equatable {
-        let id = UUID()
+    struct Turn: Identifiable, Equatable, Codable {
+        var id = UUID()
         var mine: Bool
         var text: String
         /// What it was asked about, shown over the question.
@@ -25,6 +25,16 @@ final class Chat: ObservableObject {
         var selection: String?
         var pin: String?
     }
+
+    let id: UUID
+    /// The site it began on, for the history list.
+    private(set) var site = ""
+    private(set) var updated = Date()
+
+    init(id: UUID = UUID()) { self.id = id }
+
+    /// Its name in history: the first question.
+    var title: String { turns.first { $0.mine }.map { String($0.text.prefix(80)) } ?? "New chat" }
 
     /// Frames holding a pinned highlight, by pin.
     private var frames: [String: WKFrameInfo] = [:]
@@ -58,6 +68,7 @@ final class Chat: ObservableObject {
         }
         let title = tab.label
         let site = tab.address?.host() ?? ""
+        if turns.isEmpty { self.site = site }
         var about = [title] + named + files.map(\.name)
         let files = files
         var pin: String?
@@ -77,7 +88,7 @@ final class Chat: ObservableObject {
         let before = turns.dropLast().filter { !$0.failed }.map { (mine: $0.mine, text: $0.text) }
         working = true
         request = Task {
-            defer { working = false }
+            defer { working = false; updated = Date(); save() }
             // Sleeping ones woken all at once, then read as each is ready.
             let asleep = others.filter(\.asleep).prefix(Self.wakeable)
             asleep.forEach { $0.wake() }
@@ -85,8 +96,23 @@ final class Chat: ObservableObject {
             var texts = [own.text]
             var sent = files + (own.file.map { [$0] } ?? [])
             for other in others {
-                if asleep.contains(where: { $0 === other }) { await Self.settle(other) }
-                let page = other.asleep ? (text: "", file: nil) : await Self.page(other)
+                let woken = asleep.contains { $0 === other }
+                // Out of the window, WebKit barely runs a page: Xero never drew
+                // its bill. In it for the reading, unseen (as SystemPiP parks
+                // a page), and taken back after unless a stage has it by then.
+                var lent: (NSView, NSView)?
+                if let view = other.built, view.window == nil, let content = tab.built?.window?.contentView {
+                    view.frame = content.bounds
+                    view.alphaValue = 0
+                    content.addSubview(view, positioned: .below, relativeTo: nil)
+                    lent = (view, content)
+                }
+                if woken { await Self.settle(other) }
+                let page = other.asleep ? (text: "", file: nil) : await Self.page(other, patient: woken || lent != nil)
+                if let (view, content) = lent, view.superview === content {
+                    view.removeFromSuperview()
+                    view.alphaValue = 1
+                }
                 texts.append(page.text)
                 if let file = page.file { sent.append(file) }
             }
@@ -145,6 +171,57 @@ final class Chat: ObservableObject {
 
     func stop() { request?.cancel() }
 
+    // MARK: history
+
+    /// A chat as it's kept on disk: what was said, what it was about, and
+    /// the mentions that outlive a relaunch (groups, all, a site — a tab's
+    /// id doesn't). ponytail: attachments and Replace's pins aren't kept.
+    struct Saved: Codable, Identifiable {
+        var id: UUID
+        var title: String
+        var site: String
+        var updated: Date
+        var turns: [Turn]
+        var mentions: [Mention]
+    }
+
+    private static let folder = Store.file("chats")
+    private static func file(_ id: UUID) -> URL { folder.appendingPathComponent("\(id.uuidString).json") }
+
+    func save() {
+        guard turns.contains(where: \.mine) else { return }
+        let saved = Saved(id: id, title: title, site: site, updated: updated,
+                          turns: turns.filter { !$0.text.isEmpty }.map { var t = $0; t.pin = nil; return t },
+                          mentions: mentions.filter { if case .tab = $0 { return false }; return true })
+        DispatchQueue.global(qos: .utility).async {
+            guard let data = try? JSONEncoder().encode(saved) else { return }
+            try? FileManager.default.createDirectory(at: Self.folder, withIntermediateDirectories: true)
+            try? data.write(to: Self.file(saved.id), options: .atomic)
+        }
+    }
+
+    static func load(_ id: UUID) -> Chat? {
+        guard let data = try? Data(contentsOf: file(id)),
+              let saved = try? JSONDecoder().decode(Saved.self, from: data) else { return nil }
+        let chat = Chat(id: saved.id)
+        chat.turns = saved.turns
+        chat.mentions = saved.mentions
+        chat.site = saved.site
+        chat.updated = saved.updated
+        return chat
+    }
+
+    /// Every kept chat, newest first. ponytail: read whole each time the
+    /// list opens; an index file when there are thousands.
+    static func history() -> [Saved] {
+        let files = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []
+        return files.compactMap { try? JSONDecoder().decode(Saved.self, from: Data(contentsOf: $0)) }
+            .sorted { $0.updated > $1.updated }
+    }
+
+    static func forget(_ id: UUID) { try? FileManager.default.removeItem(at: file(id)) }
+    static func forgetAll() { try? FileManager.default.removeItem(at: folder) }
+
     /// The answer written over the highlight it was asked about, where it
     /// was — a compose box, a field — as if typed, so the page's own undo
     /// takes it back.
@@ -192,11 +269,9 @@ final class Chat: ObservableObject {
     /// A woken tab's page loaded, or given up on: 15 seconds at most, and a
     /// moment more for a page that draws itself after loading.
     private static func settle(_ tab: Tab) async {
-        for _ in 0..<75 {
-            if tab.built != nil, !tab.loading { break }
-            try? await Task.sleep(for: .milliseconds(200))
-        }
-        try? await Task.sleep(for: .milliseconds(800))
+        // Its load begun — just woken, it may not have yet — and then done.
+        for _ in 0..<10 where !tab.loading { try? await Task.sleep(for: .milliseconds(200)) }
+        for _ in 0..<75 where tab.loading { try? await Task.sleep(for: .milliseconds(200)) }
     }
 
     /// How many characters each page gets when together they're too many:
@@ -216,8 +291,19 @@ final class Chat: ObservableObject {
     }
 
     /// A tab's text — or, for a PDF, which answers no script, the file itself.
-    private static func page(_ tab: Tab) async -> (text: String, file: Attachment?) {
-        let text = await read(tab)
+    /// `patient`: a page just woken or brought in to be read, which may draw
+    /// itself a while after loading — asked again until it says something,
+    /// ten seconds at most.
+    private static func page(_ tab: Tab, patient: Bool = false) async -> (text: String, file: Attachment?) {
+        var answer = await read(tab)
+        if patient {
+            // Not asked again when it didn't answer at all: a PDF never will.
+            for _ in 0..<20 where answer != nil && answer!.count < 300 {
+                try? await Task.sleep(for: .milliseconds(500))
+                answer = await read(tab)
+            }
+        }
+        let text = answer ?? ""
         guard text.isEmpty, let url = tab.address else { return (text, nil) }
         return ("", await pdf(at: url, for: tab))
     }
@@ -247,8 +333,9 @@ final class Chat: ObservableObject {
 
     /// The page's text, as a reader sees it. ponytail: nothing from a PDF or
     /// a canvas — the file and a screenshot come in a later step.
-    private static func read(_ tab: Tab) async -> String {
-        guard let web = tab.built else { return "" }
+    /// Nil when it doesn't answer.
+    private static func read(_ tab: Tab) async -> String? {
+        guard let web = tab.built else { return nil }
         // A page that never answers — a PDF, one hung — isn't waited on.
         return await withCheckedContinuation { done in
             var answered = false
@@ -260,7 +347,7 @@ final class Chat: ObservableObject {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 guard !answered else { return }
                 answered = true
-                done.resume(returning: "")
+                done.resume(returning: nil)
             }
         }
     }
@@ -399,6 +486,7 @@ extension Browser {
             askTyping = true
             chatting.insert(tab.id)
         }
+        rememberSession()
     }
 
     var askShowing: Bool { active.map { chatting.contains($0.id) } ?? false }
@@ -504,7 +592,7 @@ final class SelectionRelay: NSObject, WKScriptMessageHandler {
 // MARK: - @
 
 /// Another tab, a group of them, or every tab (on this site), added to a chat.
-enum Mention: Hashable {
+enum Mention: Hashable, Codable {
     case tab(Tab.ID), group(UUID), all, site(String)
 }
 

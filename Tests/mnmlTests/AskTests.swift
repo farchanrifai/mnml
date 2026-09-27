@@ -51,4 +51,13 @@ final class AskTests: XCTestCase {
         // Own tab alone and too long.
         XCTAssertEqual(Chat.shares([500], budget: 100), [100])
     }
+
+    func testSavedChatRoundTrip() throws {
+        let saved = Chat.Saved(id: UUID(), title: "Total qty?", site: "go.xero.com", updated: Date(timeIntervalSince1970: 0),
+                               turns: [Chat.Turn(mine: true, text: "Total qty?", about: ["Bill"])],
+                               mentions: [.all, .site("go.xero.com"), .group(UUID())])
+        let back = try JSONDecoder().decode(Chat.Saved.self, from: JSONEncoder().encode(saved))
+        XCTAssertEqual(back.turns, saved.turns)
+        XCTAssertEqual(back.mentions, saved.mentions)
+    }
 }
