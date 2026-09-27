@@ -95,6 +95,7 @@ extension Browser {
         guard let web = tab.built else { return "no page" }
         if tab.loading { return "still loading" }
         if tab.noisy { return "playing sound" }
+        if let host = tab.address?.host(), Notify.allowed(host) { return "sends notifications" }
         if tab.floating || floating == tab.id || systemPiP == tab.id { return "its video is out" }
         if web.cameraCaptureState != .none || web.microphoneCaptureState != .none { return "on a call" }
         if downloading.contains(where: { $0.webView === web }) { return "downloading" }

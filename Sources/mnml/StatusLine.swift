@@ -106,7 +106,9 @@ final class LinkStatus: ObservableObject {
         let point = page.convert(window.mouseLocationOutsideOfEventStream, from: nil)
         let size = page.bounds.size
         let fromBottom = page.isFlipped ? size.height - point.y : point.y
-        let right = fromBottom < 50 && point.x < min(size.width * 0.6, 640) + 22
+        // From where the page shows, with a column over its left edge.
+        let left = Under.covered(page).left
+        let right = fromBottom < 50 && point.x - left < min((size.width - left) * 0.6, 640) + 22
         if onRight != right { onRight = right }
     }
 }

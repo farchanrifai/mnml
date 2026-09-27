@@ -1,5 +1,35 @@
 # Plan: the page under the sidebar and top bar (Safari 26 bleed)
 
+## Where it ended up (2026-09-26, on the Mac)
+
+Working in mnml Test; the notes further down are the plan and the attempts
+before it, kept for the reasons things were dropped.
+
+- **Column:** SwiftUI's `.backgroundExtensionEffect()` on the page, with the
+  column's width as leading safe area (`Bleed` in `Stage.swift`). The page is
+  placed beside the column; a mirrored copy of its edge fills the strip under
+  it, live. A gradient in the window's ground over that copy keeps the colour
+  to `Bleed.reach` (84 pt) from the page's edge.
+- **Top strip and bookmarks bar:** WebKit's public `obscuredContentInsets`
+  (fill off) lets the page scroll up beneath; `TopGlass` in `Under.swift`
+  blurs it with Core Animation's private backdrop layer (radius 20) under a
+  90 % tint of the ground. Liquid Glass where that layer isn't.
+- **The double page** — a copy of the page painted over its own top-left
+  quarter, whatever did the extending — was the binary's recorded SDK:
+  SwiftPM stamps it with the deployment target (14.0), so macOS 26+ kept
+  mnml on the old behaviour. `build.sh` now writes the real SDK in with
+  `vtool` (the minimum stays 14). Every other app-wide macOS 26 behaviour
+  comes with it: look for changes anywhere.
+- **Dropped on the way:** WebKit's inset fill (one flat colour), a
+  `CAReplicatorLayer` (a web view copies as nothing), AppKit's
+  `NSBackgroundExtensionView` (upside-down copy that scrolled the wrong way,
+  and the double page), a portal layer of our own (scrambled WebKit tiles),
+  an `NSSplitViewController` rewrite (worked, but SwiftUI's modifier does
+  the same inside mnml's own window), and for the top bar the window
+  materials, SwiftUI's glass and a Core Image background filter (none of
+  them blur a web view) and AppKit's Liquid Glass (too light).
+- Probes for each are in `docs/mnml/scratch/`.
+
 **Goal:** the page's colours bleed live into the sidebar and the top bar, as in
 Safari 26 (and like YouTube's ambient mode), while the bars keep the native Mac
 material. Page content must never be hidden behind a bar.
@@ -109,3 +139,59 @@ as a smear, and wasn't live).
   feel; commit to `main` only once they've tried it.
 - Match the surrounding code: comments explain *why*, in plain sentences, in
   the voice of the file (see `SystemPiP.swift`, `Stage.swift`).
+
+## Progress (branch `claude/safari-style-window-sidebar-feto94`)
+
+Written without a Mac: nothing below has been built or run.
+
+- **Step 1:** `docs/mnml/scratch/InsetProbe.swift`, run with
+  `swiftc -parse-as-library docs/mnml/scratch/InsetProbe.swift -o /tmp/probe && /tmp/probe`.
+  Run it first: if the left inset is ignored, the column half comes out.
+- **Steps 2–5:** `Sources/mnml/Under.swift` holds the WebKit calls (asked by
+  name, so any SDK builds) and `Browser.pageUnder`. Settings › Tabs › Page
+  under the sidebar (`tabs.under`), off by default, and only with the Mac
+  window material on. The stage keeps no room beside the chrome; `Page` /
+  `WebStage` / `StageView.under` carry the covered strip to the web view.
+  The inset follows `roomed`, not `chrome`, so it changes once a slide, as
+  the page's size did: going away uncovers at once, arriving covers once the
+  slide is over.
+- **Split view keeps today's layout.** Its pages sit on cards with a margin
+  and a ground colour of their own, so they never meet the column; a left
+  inset for the leftmost card would only add a strip of fill beside a gap.
+- **Blending:** `.withinWindow` when the page is under.
+  `defaults write com.farchan.mnml.test under.behindWindow -bool YES` puts
+  back `.behindWindow` for comparing; remove the key once chosen.
+- **Step 6, checked:** find bar, account list, link bubble (and where it
+  moves to dodge the pointer), history disc and list, the failure and
+  floating messages are kept clear of the chrome. The floating window
+  clears the inset and keeps the width the page showed. Peek and the split
+  drop layer already pad by the chrome. Picture-in-picture, `park` and
+  `placed()` measure the web view itself, which no longer moves: no change.
+  Fold, tab previews, immersed video: chrome is zero or floats as before.
+- **Bookmarks bar** wears the material too with the page under, rather than
+  an opaque band inside see-through chrome.
+- **Tab previews** (switcher, hover cards, split picker) leave the covered
+  strip out: `WKSnapshotConfiguration.rect` is the part of the page that
+  shows. The picture a sleeping tab keeps stays whole, since it is laid over
+  the whole web view as the `cover` when the tab wakes.
+- **The switch is hidden** where WebKit can't be told (before macOS 26).
+- **Checked here:** every changed file parses (tree-sitter's Swift grammar;
+  `App.swift` has the same three grammar quirks it had before). Not
+  type-checked or built: no Swift toolchain can be fetched in this session.
+
+## To try on the Mac
+
+1. The probe (above). Left inset honoured? Fill visible? Page width right?
+2. `./build.sh release test`, fix anything that doesn't compile.
+3. Settings › Tabs › Page under the sidebar on. YouTube in the sidebar
+   layout, then the strip layout, with and without the bookmarks bar.
+4. Hide and show the column (and fold it): content moves clear once the
+   slide is over, and is uncovered at once going away.
+5. Find (⌘F), a login field's accounts, hovering a link (bubble in the
+   page's corner, not under the column), swipe back, a failed load.
+6. Float a video, bring it back; picture-in-picture in and out; full screen.
+7. The tab switcher's previews: no strip of fill on their left.
+8. Waking a sleeping tab: its picture lines up with the page.
+9. Google Sheets and a page wider than the window: nothing under the column.
+10. `defaults write com.farchan.mnml.test under.behindWindow -bool YES`,
+    compare, choose; then the key comes out.

@@ -300,6 +300,10 @@ struct SettingsPanel: View {
                 Switch(on: $prefs.showsNewTab)
             }
             Rule()
+            Line("⌘T opens the command bar", "Type where to go over the page you're on, as in Arc: a tab is made when you press Return, and an open tab you name is switched to. Off, ⌘T opens a blank tab at once") {
+                Switch(on: $prefs.commandBar)
+            }
+            Rule()
             Line("Tabs show", "Beside the title, and on a pinned square") {
                 Segmented(options: Glyph.allCases.map { ($0, $0.title) }, selection: $prefs.glyph)
             }
@@ -335,6 +339,29 @@ struct SettingsPanel: View {
                 Switch(on: $prefs.frostedSidebar)
             }
             Rule()
+            Line("Tint", "A colour over the sidebar, or the bar across the top, with the material still showing through") {
+                TintPicker(hex: $prefs.chromeTint)
+            }
+            Rule()
+            Line("Tint in dark mode") {
+                TintPicker(hex: $prefs.chromeTintDark, offersSame: true)
+            }
+            Rule()
+            if !prefs.chromeTint.isEmpty || !["", Tint.same].contains(prefs.chromeTintDark) {
+                Line("Tint strength") {
+                    Slider(value: $prefs.chromeTintStrength, in: Tint.strengths)
+                        .frame(width: 160)
+                }
+                Rule()
+            }
+            // Only where WebKit can keep the page clear of the chrome: before
+            // macOS 26 the switch would do nothing.
+            if Under.possible {
+                Line("Page under the sidebar", "The page runs on beneath the sidebar, or the bar across the top, its colours showing through the Mac window material as you scroll, as in Safari. Needs the material") {
+                    Switch(on: $prefs.pageUnder)
+                }
+                Rule()
+            }
             Line("Sleep tabs you aren't using", "After half an hour away, two hours for pinned tabs, and beyond the ten used last; a background page past 2 GB sleeps at once. They come back where you left them. Sound, calls and anything typed stay awake.") {
                 Switch(on: $prefs.sleepsTabs)
             }
@@ -779,5 +806,59 @@ private struct AISettings: View {
         key = GeminiKey.read()
         typed = ""
         changing = false
+    }
+}
+
+/// The tint's swatches, none first, and the Mac's colour picker for any other.
+private struct TintPicker: View {
+    @Binding var hex: String
+    /// The dark mode's row: first, following the light tint.
+    var offersSame = false
+
+    var body: some View {
+        HStack(spacing: 7) {
+            if offersSame {
+                Button { hex = Tint.same } label: {
+                    Text("Same")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Palette.ink)
+                        .padding(.horizontal, 7)
+                        .frame(height: 22)
+                        .overlay { Capsule().strokeBorder(hex == Tint.same ? Palette.ink : Palette.muted, lineWidth: hex == Tint.same ? 1.5 : 1) }
+                }
+                .buttonStyle(.plain)
+                .help("As in light mode")
+            }
+            ForEach(Tint.presets, id: \.self) { preset in
+                Button { hex = preset } label: { swatch(preset) }
+                    .buttonStyle(.plain)
+                    .help(preset.isEmpty ? "No tint" : "#\(preset)")
+            }
+            // A colour of your own; chosen, it is the one ringed.
+            ColorPicker("", selection: Binding(
+                get: { Tint.color(hex) ?? .gray },
+                set: { hex = Tint.hex($0) }
+            ), supportsOpacity: false)
+            .labelsHidden()
+            .overlay { if !hex.isEmpty && hex != Tint.same && !Tint.presets.contains(hex) { ring } }
+        }
+    }
+
+    private func swatch(_ preset: String) -> some View {
+        ZStack {
+            if let color = Tint.color(preset) {
+                Circle().fill(color)
+            } else {
+                Circle().strokeBorder(Palette.muted, lineWidth: 1)
+                Rectangle().fill(Palette.muted).frame(width: 1, height: 14).rotationEffect(.degrees(45))
+            }
+        }
+        .frame(width: 16, height: 16)
+        .padding(3)
+        .overlay { if hex == preset { ring } }
+    }
+
+    private var ring: some View {
+        Circle().strokeBorder(Palette.ink, lineWidth: 1.5)
     }
 }

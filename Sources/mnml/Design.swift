@@ -210,16 +210,61 @@ struct Shake: GeometryEffect {
 /// Finder's, Mail's and Notes' sidebars are.
 struct Frosted: NSViewRepresentable {
     var material: NSVisualEffectView.Material = .sidebar
+    /// The desktop behind the window, or, with the page running under the
+    /// chrome (Under.swift), the page beneath it.
+    var blending: NSVisualEffectView.BlendingMode = .behindWindow
 
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
         view.material = material
-        view.blendingMode = .behindWindow
+        view.blendingMode = blending
         view.state = .followsWindowActiveState
         return view
     }
 
     func updateNSView(_ view: NSVisualEffectView, context: Context) {
         view.material = material
+        view.blendingMode = blending
+    }
+}
+
+/// A colour over the chrome's material, Arc's way (Settings › Tabs): a wash
+/// laid on top, so the blur and the page beneath still come through.
+enum Tint {
+    /// Offered first; "" is none. Anything else from the colour picker.
+    static let presets = ["", "8B5CF6", "3B82F6", "14B8A6", "22C55E", "F59E0B", "F43F5E", "EC4899"]
+    /// The dark-mode tint that follows the light one.
+    static let same = "="
+    /// Where the strength starts, and its slider's ends.
+    static let strength = 0.22
+    static let strengths = 0.05...0.6
+
+    static func color(_ hex: String) -> Color? {
+        guard hex.count == 6, let value = UInt32(hex, radix: 16) else { return nil }
+        return Color(.sRGB,
+                     red: Double((value >> 16) & 0xFF) / 255,
+                     green: Double((value >> 8) & 0xFF) / 255,
+                     blue: Double(value & 0xFF) / 255)
+    }
+
+    static func hex(_ color: Color) -> String {
+        guard let rgb = NSColor(color).usingColorSpace(.sRGB) else { return "" }
+        return String(format: "%02X%02X%02X",
+                      Int((rgb.redComponent * 255).rounded()),
+                      Int((rgb.greenComponent * 255).rounded()),
+                      Int((rgb.blueComponent * 255).rounded()))
+    }
+}
+
+/// The wash itself, in the light or dark mode's colour, or nothing.
+struct TintWash: View {
+    @ObservedObject var prefs: Preferences
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let dark = prefs.chromeTintDark == Tint.same ? prefs.chromeTint : prefs.chromeTintDark
+        if let color = Tint.color(scheme == .dark ? dark : prefs.chromeTint) {
+            color.opacity(prefs.chromeTintStrength).allowsHitTesting(false)
+        }
     }
 }

@@ -14,6 +14,9 @@ struct Omnibox: View {
     /// that `field` lays out — so the list can sit below it without being
     /// stacked with it.
     private static let fieldHeight: CGFloat = 22 + 14 * 2
+    /// The shadow's weight with the bar over a page: all that sets it apart.
+    // ponytail: tuned by eye, light and dark; adjust by feel.
+    private static let lift = 0.28
 
     @State private var shake: CGFloat = 0
     @State private var refused = false
@@ -21,10 +24,11 @@ struct Omnibox: View {
     var body: some View {
         ZStack {
             if over {
-                // The page is still there, just out of the way.
-                Rectangle()
-                    .fill(Palette.ground.opacity(0.74))
+                // The page stays as it is behind the bar, as in Arc: the
+                // bar's shadow sets it apart. A click on the page puts it away.
+                Color.clear
                     .ignoresSafeArea()
+                    .contentShape(Rectangle())
                     .onTapGesture { browser.dismiss() }
                     .transition(.opacity)
             }
@@ -46,8 +50,10 @@ struct Omnibox: View {
                 }
                 // Lifted a little above centre: dead centre reads as low,
                 // because the strip at the top isn't part of what the eye is
-                // measuring.
-                .padding(.bottom, 60)
+                // measuring. Over a page, higher still — in the upper part of
+                // the window, where a command bar is looked for.
+                .padding(.bottom, over ? 0 : 60)
+                .modifier(Raised(on: over))
                 // The list's arrival and its leaving are animated from here,
                 // briefly: nothing that changes the suggestions does it inside
                 // an animation of its own. Its rows follow what was typed or
@@ -83,7 +89,7 @@ struct Omnibox: View {
                     )
                     .allowsHitTesting(false)
             )
-            .shadow(color: .black.opacity(0.06), radius: 24, y: 8)
+            .shadow(color: .black.opacity(over ? Self.lift : 0.06), radius: over ? 36 : 24, y: over ? 14 : 8)
             .modifier(Shake(travel: shake))
             .onChange(of: browser.refusals) { _, _ in
                 shake = 0
@@ -116,7 +122,7 @@ struct Omnibox: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(Palette.hairline, lineWidth: 1)
         )
-        .shadow(color: .black.opacity(0.07), radius: 20, y: 6)
+        .shadow(color: .black.opacity(over ? Self.lift : 0.07), radius: over ? 36 : 20, y: over ? 14 : 6)
         .transition(.scale(scale: 0.98, anchor: .top).combined(with: .opacity))
     }
 
@@ -158,6 +164,17 @@ struct Omnibox: View {
                         .truncationMode(.tail)
                 }
                 Spacer(minLength: 0)
+                if offer.kind == .open {
+                    // Named, it is gone back to, not opened a second time.
+                    HStack(spacing: 4) {
+                        Text("Switch to Tab")
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 9, weight: .semibold))
+                    }
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Palette.muted)
+                    .fixedSize()
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
@@ -283,6 +300,17 @@ struct AddressField: NSViewRepresentable {
     func updateNSView(_ field: NSTextField, context: Context) {
         let coordinator = context.coordinator
         coordinator.browser = browser
+        // ⌘T's bar says where Return will go.
+        let prompt = browser.opening ? "Search or enter an address, in a new tab" : "Enter a web address"
+        if field.placeholderAttributedString?.string != prompt {
+            field.placeholderAttributedString = NSAttributedString(
+                string: prompt,
+                attributes: [
+                    .font: NSFont.systemFont(ofSize: 15.5),
+                    .foregroundColor: NSColor(Palette.ink.opacity(0.3)),
+                ]
+            )
+        }
 
         // Only when something other than typing changed it — ⌘L arriving with
         // an address, a walk through the list, a submit clearing it.
@@ -385,6 +413,25 @@ struct AddressField: NSViewRepresentable {
             default:
                 return false
             }
+        }
+    }
+}
+
+/// The field over a page: its top a fifth of the way down the window.
+private struct Raised: ViewModifier {
+    let on: Bool
+    // ponytail: one proportion for every window height; tune by feel.
+    static let from: CGFloat = 0.2
+
+    func body(content: Content) -> some View {
+        if on {
+            GeometryReader { space in
+                content
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, space.size.height * Self.from)
+            }
+        } else {
+            content
         }
     }
 }

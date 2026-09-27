@@ -91,10 +91,10 @@ struct GroupBlock<Row: View>: View {
     private var washed: Bool { coloured && !shown.isEmpty }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
+        VStack(alignment: .leading, spacing: 3) {
             header
             ForEach(shown) { tab in
-                row(tab).padding(.leading, 12)
+                row(tab).padding(.leading, 10)
             }
         }
         // The wash reaches out around the rows rather than pushing them in:
@@ -127,7 +127,7 @@ struct GroupBlock<Row: View>: View {
             if browser.renamingGroup == group.id {
                 TextField("Group name", text: $draft)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(.system(size: 13.5, weight: .semibold))
                     .focused($naming)
                     .onSubmit { finishNaming() }
                     .onExitCommand { browser.renamingGroup = nil }
@@ -138,7 +138,7 @@ struct GroupBlock<Row: View>: View {
                     .onChange(of: naming) { _, focused in if !focused { finishNaming() } }
             } else {
                 Text(group.name)
-                    .font(.system(size: 12.5, weight: .semibold))
+                    .font(.system(size: 13.5, weight: .semibold))
                     .lineLimit(1)
                     // In ink, always: the wash and the icon carry the colour,
                     // and a coloured name is harder to read.
@@ -152,7 +152,7 @@ struct GroupBlock<Row: View>: View {
             Spacer(minLength: 0)
         }
         .padding(.leading, 10)
-        .frame(height: 28)
+        .frame(height: 32)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)

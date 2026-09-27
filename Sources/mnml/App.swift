@@ -27,6 +27,8 @@ struct MnmlApp: App {
                     .disabled(browser.ghosts.isEmpty)
                 Divider()
                 item("file.openAddress")
+                item("file.openPeek")
+                    .disabled(browser.peekTab == nil)
                 Divider()
                 item("file.closeTab")
             }
@@ -273,16 +275,22 @@ struct ContentView: View {
             // it and is resized once, not on every frame of the slide: laid out
             // again thirty times a second, the page juddered along its right
             // edge and overshot the window with the spring (see `room`).
-            // Trying again (column-slide): the page's width follows the
-            // column on every frame of the slide, as the chat panel's does;
-            // the strip's height is still resized once.
+            //
+            // Unless the page is to run under them, as in Safari (Under.swift):
+            // then it is the window's size, still, and told how much of it
+            // they cover instead.
+            //
+            // Beside them, its width follows the column on every frame of the
+            // slide (column-slide), as the chat panel's does; the strip's
+            // height is still resized once. ChatGPT's picture-over-the-page
+            // slide was tried too (d249ef0): see docs/mnml/sidebar-slide.md.
             stage
-                .padding(.leading, chrome.width)
+                .padding(.leading, under ? 0 : chrome.width)
                 // This tab's chat, beside the page (AskPanel.swift), followed
                 // frame by frame like the column.
                 .padding(.trailing, browser.askRoom)
-                .padding(.top, roomed.height)
-                .offset(y: chrome.height - roomed.height)
+                .padding(.top, beside.height)
+                .offset(y: under ? 0 : chrome.height - roomed.height)
 
             // The column of tabs, in the way that has one. It takes the full
             // height, so the traffic lights sit in its own corner rather than
@@ -343,16 +351,16 @@ struct ContentView: View {
     @ViewBuilder
     private var stage: some View {
         if let pick = browser.splitPicking, let tab = browser.tab(pick.tab) {
-            SplitPickStage(browser: browser, pick: pick) { pane(tab, corner: SplitStage<EmptyView>.corner) }
+            SplitPickStage(browser: browser, pick: pick) { pane(tab, corner: SplitStage<EmptyView>.corner, under: EdgeInsets()) }
         } else if let split = browser.shownSplit {
-            SplitStage(browser: browser, split: split) { pane($0, corner: SplitStage<EmptyView>.corner) }
+            SplitStage(browser: browser, split: split) { pane($0, corner: SplitStage<EmptyView>.corner, under: EdgeInsets()) }
                 .overlay {
                     if browser.prefs.showsLinks { LinkBubble(status: browser.linkStatus) }
                 }
         } else if let tab = browser.active {
-            pane(tab)
+            pane(tab, under: covered)
                 .overlay {
-                    if browser.prefs.showsLinks { LinkBubble(status: browser.linkStatus) }
+                    if browser.prefs.showsLinks { LinkBubble(status: browser.linkStatus).padding(covered) }
                 }
         } else {
             Palette.ground
@@ -360,19 +368,22 @@ struct ContentView: View {
     }
 
     /// One page, with what floats over it: find, and the accounts a field
-    /// offers.
-    private func pane(_ tab: Tab, corner: CGFloat = 0) -> some View {
-        Page(tab: tab, corner: corner)
+    /// offers — both clear of the chrome the page may run under.
+    private func pane(_ tab: Tab, corner: CGFloat = 0, under: EdgeInsets) -> some View {
+        Page(tab: tab, corner: corner, under: under)
             .overlay(alignment: .topTrailing) {
                 if browser.finding, tab.id == browser.activeID {
                     FindBar(browser: browser)
                         .transition(.move(edge: .top).combined(with: .opacity))
+                        .padding(.top, under.top)
                 }
             }
             .overlay(alignment: .topLeading) {
                 if let asked = browser.suggesting, asked.tab == tab.id {
                     AccountList(browser: browser, asked: asked)
                         .transition(.opacity)
+                        .padding(.leading, under.leading)
+                        .padding(.top, under.top)
                 }
             }
             .animation(Motion.quick, value: browser.suggesting)
@@ -394,10 +405,29 @@ struct ContentView: View {
     /// The room the page is laid out to leave them, which is not animated.
     private var roomed: CGSize { room ?? chrome }
 
+    /// The page runs under the column and the strip (Under.swift).
+    private var under: Bool { browser.pageUnder }
+
+    /// The room the stage leaves beside the chrome: none, with the page
+    /// running under it.
+    private var beside: CGSize { under ? .zero : roomed }
+
+    /// How much of the page the chrome covers, with the page under it. The
+    /// room, not the chrome: it changes when the room does, once a slide,
+    /// never on its frames — each change lays the page out again. So the
+    /// column going away uncovers the page at once and it reflows as the
+    /// column slides off it; the column arriving slides over the page as it
+    /// is, which moves its content clear once the slide is over.
+    private var covered: EdgeInsets {
+        under ? EdgeInsets(top: roomed.height, leading: roomed.width, bottom: 0, trailing: 0) : EdgeInsets()
+    }
+
     /// Chrome going away gives the page its room at once, the page sliding
     /// out from under it at its new size. Chrome arriving slides over a page
     /// still at its old size, which gives up the room once the slide is over.
     /// A column being dragged wider or narrower is followed as it goes.
+    /// (Beside the column, the page's width follows `chrome` instead; this
+    /// room is its height, and what the page under the chrome is told.)
     private func make(room new: CGSize, after old: CGSize) {
         let now = roomed
         let arriving = (old.width == 0 && new.width > 0, old.height == 0 && new.height > 0)
@@ -450,12 +480,15 @@ struct ContentView: View {
     @ViewBuilder
     private var field: some View {
         if browser.fieldShowing {
-            Omnibox(browser: browser, over: !(browser.active?.isBlank ?? true))
-                // Centred on the page, not on the window. The column of tabs
-                // is not what the field is standing over, and dimming it along
-                // with the page says otherwise.
-                .padding(.leading, sidebar ? browser.prefs.sideWidth : 0)
-                .transition(.scale(scale: 0.97).combined(with: .opacity))
+            let over = !(browser.active?.isBlank ?? true)
+            Omnibox(browser: browser, over: over)
+                // On a blank tab, centred on the page, which is all the tab
+                // has. Raised over a page (⌘T, ⌘L, ⌘K), a bar over the whole
+                // window, as Arc's is, column and all.
+                .padding(.leading, sidebar && !over ? browser.prefs.sideWidth : 0)
+                // A fade, not a grow: grown, the dimming behind the field came
+                // in as a smaller box with hard edges before it filled the window.
+                .transition(.opacity)
         }
     }
 
@@ -620,15 +653,18 @@ struct ContentView: View {
     /// A page asking to see or hear you. Named by the site, in its own words,
     /// with the answer remembered so it is asked once and not every call.
     private func captureAsking(_ ask: Browser.CaptureAsk) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: ask.wants == "microphone" ? "mic" : "video")
+        let off = ask.wants == "notifications off"
+        return HStack(spacing: 12) {
+            Image(systemName: ask.wants.hasPrefix("notifications") ? (off ? "bell.slash" : "bell") : ask.wants == "microphone" ? "mic" : "video")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Palette.muted)
-            Text("\(ask.host) wants to use your \(ask.wants)")
+            Text(off ? "\(ask.host) wants to notify you, but notifications for mnml are off in System Settings"
+                 : ask.wants == "notifications" ? "\(ask.host) wants to send you notifications"
+                 : "\(ask.host) wants to use your \(ask.wants)")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Palette.ink)
             Button { browser.allowCapture() } label: {
-                Text("Allow")
+                Text(off ? "Open Settings" : "Allow")
                     .font(.system(size: 12))
                     .foregroundStyle(Palette.ground)
                     .padding(.horizontal, 11)
@@ -637,7 +673,7 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             Button { browser.denyCapture() } label: {
-                Text("Don't allow")
+                Text(off ? "Not now" : "Don't allow")
                     .font(.system(size: 12))
                     .foregroundStyle(Palette.muted)
             }
@@ -1054,7 +1090,7 @@ struct ContentView: View {
     /// nothing is open over it.
     private func pageHasFocus(_ event: NSEvent) -> Bool {
         guard let page = browser.active?.built, let window = event.window,
-              window.firstResponder === page, !browser.fieldShowing
+              window.firstResponder === page, !browser.fieldShowing, browser.peekTab == nil
         else { return false }
         return nothingOver
     }
@@ -1101,11 +1137,14 @@ struct ContentView: View {
 /// what Esc is for in a browser. It gets there from the page through WebKit
 /// and from a text field through AppKit, both past any responder put in its
 /// way, and SwiftUI tells its window to leave without going through Cancel.
-/// So the window's leaving refuses while the event being handled is Esc.
+/// So the window's leaving refuses while the event being handled is Esc, or
+/// for a moment after one: a heavy page (Google Sheets) answers WebKit late,
+/// and by then the current event is a mouse move or a timer, not the key.
 /// ⌃⌘F, the green button and the menu still leave, and a video's own full
 /// screen is WebKit's window, not this one, which Esc still ends.
 enum FullScreenEsc {
     private static var done = false
+    private static var lastEsc = Date.distantPast
 
     static func keep(_ window: NSWindow) {
         guard !done else { return }
@@ -1113,12 +1152,20 @@ enum FullScreenEsc {
         guard let cls = NSClassFromString("SwiftUI.AppKitWindow"),
               let method = class_getInstanceMethod(cls, leave) else { return }
         done = true
+        NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { event in
+            if event.keyCode == 53 { lastEsc = Date() }
+            return event
+        }
         typealias Leave = @convention(c) (NSWindow, Selector, Any?) -> Void
         let before = unsafeBitCast(method_getImplementation(method), to: Leave.self)
         let block: @convention(block) (NSWindow, Any?) -> Void = { window, sender in
-            // Down or up: from a page the leaving comes once WebKit has
-            // answered, and by then the key may have come back up.
-            if let event = NSApp.currentEvent, [.keyDown, .keyUp].contains(event.type), event.keyCode == 53 { return }
+            let event = NSApp.currentEvent
+            if let event, [.keyDown, .keyUp].contains(event.type), event.keyCode == 53 { return }
+            // Something asked for since the Esc — another key (⌃⌘F), a click
+            // (the green button, the menu) — is let through.
+            // ponytail: 1.5 s window; a page slower than that still slips out.
+            let asked = event.map { [.keyDown, .leftMouseDown, .leftMouseUp].contains($0.type) } ?? false
+            if !asked, Date().timeIntervalSince(lastEsc) < 1.5 { return }
             before(window, leave, sender)
         }
         method_setImplementation(method, imp_implementationWithBlock(block))

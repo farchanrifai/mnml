@@ -58,7 +58,7 @@ struct TabBar: View {
                 DragStrip()
                     .frame(width: browser.lightsRoom)
 
-                // In full screen the lights are the window's own, sliding in
+                // In full screen AppKit's buttons slide in
                 // while the pointer is at the menu bar (see FullScreenLights).
                 if browser.fullScreen {
                     TrafficLights()
@@ -175,11 +175,17 @@ struct TabBar: View {
         }
         // The Mac's sidebar material, as the column has it (Frosted).
         .background {
-            if browser.prefs.frostedSidebar {
-                Frosted().overlay { if landing { SideBar.hoverFill } }
-            } else {
-                landing ? Palette.hover : Color.clear
+            Group {
+                if browser.prefs.frostedSidebar {
+                    Group {
+                        if browser.pageUnder { TopGlass() } else { Frosted(blending: .behindWindow) }
+                    }
+                    .overlay { if landing { SideBar.hoverFill } }
+                } else {
+                    landing ? Palette.hover : Color.clear
+                }
             }
+            .overlay { TintWash(prefs: browser.prefs) }
         }
         .animation(Motion.quick, value: landing)
         .animation(browser.prefs.slidesHighlight ? Motion.glide : nil, value: browser.activeID)

@@ -278,6 +278,79 @@ struct SiteCard: View {
                 after { browser.printPage() }
             }
             zoom
+            if let host = tab.address?.host(), !host.isEmpty {
+                Separator()
+                Permission(title: "Notifications", choice: .notifications, host: host)
+                Permission(title: "Camera", choice: .camera, host: host)
+                Permission(title: "Microphone", choice: .microphone, host: host)
+            }
+        }
+    }
+
+    /// What the site may do without asking: the answers the bars at the
+    /// bottom of the window keep (Browser.answerCapture, Notify), seen and
+    /// changed in one place. Ask forgets the answer, so the site asks again.
+    private struct Permission: View {
+        enum Choice { case notifications, camera, microphone }
+        let title: String
+        let choice: Choice
+        let host: String
+
+        @State private var answer: Bool?
+
+        var body: some View {
+            HStack(spacing: 0) {
+                Text(title)
+                    .font(MenuMetrics.font)
+                    .foregroundStyle(Color(nsColor: .labelColor))
+                Spacer(minLength: 24)
+                Menu {
+                    Button("Ask") { set(nil) }
+                    Button("Allow") { set(true) }
+                    Button("Block") { set(false) }
+                } label: {
+                    Text(answer == nil ? "Ask" : answer == true ? "Allow" : "Block")
+                        .font(MenuMetrics.font)
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            }
+            .padding(.leading, MenuMetrics.text)
+            .padding(.trailing, MenuMetrics.inset + 4)
+            .frame(height: MenuMetrics.row)
+            .onAppear { answer = Self.read(choice, host) }
+        }
+
+        /// The camera and the microphone are each asked for alone or both at
+        /// once (WKMediaCaptureType 0, 1, 2), and each question kept apart.
+        private static func keys(_ choice: Choice, _ host: String) -> [String] {
+            switch choice {
+            case .notifications: return [Notify.key(host)]
+            case .camera: return ["capture.\(host)|0", "capture.\(host)|2"]
+            case .microphone: return ["capture.\(host)|1", "capture.\(host)|2"]
+            }
+        }
+
+        private static func read(_ choice: Choice, _ host: String) -> Bool? {
+            keys(choice, host).lazy.compactMap { Store.settings.object(forKey: $0) as? Bool }.first
+        }
+
+        private func set(_ value: Bool?) {
+            answer = value
+            let keys = Self.keys(choice, host)
+            // An answer given to both at once is the other's too: kept as its
+            // own before the two part ways.
+            if keys.count > 1, let both = Store.settings.object(forKey: keys[1]) as? Bool {
+                let other: Choice = choice == .camera ? .microphone : .camera
+                let alone = Self.keys(other, host)[0]
+                if Store.settings.object(forKey: alone) == nil { Store.settings.set(both, forKey: alone) }
+            }
+            if let value { Store.settings.set(value, forKey: keys[0]) } else { Store.settings.removeObject(forKey: keys[0]) }
+            // The both-at-once answer holds only while the two agree.
+            guard keys.count > 1 else { return }
+            let other: Choice = choice == .camera ? .microphone : .camera
+            let otherAlone = Store.settings.object(forKey: Self.keys(other, host)[0]) as? Bool
+            if let value, otherAlone == value { Store.settings.set(value, forKey: keys[1]) } else { Store.settings.removeObject(forKey: keys[1]) }
         }
     }
 

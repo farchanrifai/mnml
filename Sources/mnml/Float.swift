@@ -127,7 +127,10 @@ final class Float {
         // scroll position lost. So it stays as wide as it was, at the
         // window's shape, and is drawn smaller: the holder's bounds are the
         // page's size, its frame the window's, and AppKit scales between.
-        let wide = max(page.frame.width, size.width)
+        //
+        // As wide as the page shows, that is: one running under the column
+        // is told nothing covers it here, and is laid out to the edge.
+        let wide = max(page.frame.width - Under.clear(page).left, size.width)
         let inner = NSSize(width: wide, height: (wide * size.height / size.width).rounded())
         let holder = NSView(frame: ground.bounds)
         holder.autoresizingMask = [.width, .height]

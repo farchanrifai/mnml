@@ -752,7 +752,7 @@ final class Bench {
             guard Store.testing else { answer(["error": "bookmark only works on a --test run — it would load a page in your tab"]); return }
             guard let url = (request["url"] as? String).flatMap(Address.url(from:)) else { answer(["error": "bookmark needs a url"]); return }
             // "new": into a new tab, whose page has yet to be built.
-            if request["new"] as? Bool == true { browser.newTab() }
+            if request["new"] as? Bool == true { browser.newTab(bar: false) }
             guard let tab = browser.active else { answer(["error": "no tab to open it in"]); return }
             browser.bookmarksOpen = true
             let built = tab.built != nil

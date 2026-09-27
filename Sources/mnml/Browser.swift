@@ -204,7 +204,10 @@ final class Browser: NSObject, ObservableObject {
 
     /// The address field, raised over a page by ⌘L. A blank tab shows it
     /// without being asked — there is nothing else for that tab to show.
-    @Published var editing = false
+    @Published var editing = false {
+        // The field put away by any means ends ⌘T's bar with it.
+        didSet { if !editing { opening = false } }
+    }
     /// What is in the field. Every change re-reads the history, because the
     /// list under the field and the grey ending inside it are both just
     /// answers to this string.
@@ -226,6 +229,10 @@ final class Browser: NSObject, ObservableObject {
     /// one question — which of the pages I already have open — and answering it
     /// with somewhere you went last week would be answering a different one.
     @Published private(set) var summoning = false
+    /// True while the field is ⌘T's, Arc's way: it floats over the page you
+    /// are on, and a tab is only made when Return goes somewhere new. An open
+    /// page named in it is switched to; Esc leaves everything as it was.
+    @Published private(set) var opening = false
     /// True between the first ⌘K and letting go of ⌘.
     var cycling = false
 
@@ -631,7 +638,7 @@ final class Browser: NSObject, ObservableObject {
     private func answerCapture(_ decision: WKPermissionDecision) {
         guard let decide else { return }
         // Remembered per site, so a call you take every week asks once.
-        Store.settings.set(decision == .grant, forKey: "capture." + askedAbout)
+        if !askedAbout.isEmpty { Store.settings.set(decision == .grant, forKey: "capture." + askedAbout) }
         decide(decision)
         self.decide = nil
         askedAbout = ""
@@ -1221,7 +1228,8 @@ final class Browser: NSObject, ObservableObject {
 
     // MARK: - tabs
 
-    func newTab() {
+    /// `bar` false: the blank tab itself, even with ⌘T's bar turned on.
+    func newTab(bar: Bool = true) {
         // On a private tab, a new one is private too: ⌘T from a page that
         // keeps nothing and landing on one that keeps everything is how a
         // private search ends up in the history.
@@ -1229,6 +1237,19 @@ final class Browser: NSObject, ObservableObject {
             newShyTab()
             return
         }
+        // The command bar over the page, rather than a blank tab at once —
+        // unless there is nothing on show to float it over.
+        if bar, prefs.commandBar, active?.isBlank == false {
+            reviewing = false
+            cancelTabEdit()
+            summoning = false
+            opening = true
+            typed = ""
+            editing = true
+            focusRequest += 1
+            return
+        }
+        opening = false
         // An extension's new tab page, if one asked and you said yes.
         if #available(macOS 15.4, *), let page = Extensions.shared.newTabPage {
             open(page, foreground: true)
@@ -1334,7 +1355,7 @@ final class Browser: NSObject, ObservableObject {
             if let back = (loose.isEmpty ? others : loose).max(by: { $0.touched < $1.touched }) {
                 select(back)
             } else {
-                newTab()
+                newTab(bar: false)
             }
             writeSession(now: true)
             return
@@ -2004,6 +2025,7 @@ final class Browser: NSObject, ObservableObject {
     func summon() {
         reviewing = false
         cancelTabEdit()
+        opening = false
         summoning = true
         typed = ""
         editing = true
@@ -2020,8 +2042,12 @@ final class Browser: NSObject, ObservableObject {
             return
         }
 
+        // ⌘T's bar: the pages already open first, so naming one goes back
+        // to it; on an empty field, only those.
+        let open = opening ? openPages(matching: typed) : []
+
         guard !typed.trimmingCharacters(in: .whitespaces).isEmpty else {
-            offers = []
+            offers = open
             ending = nil
             picked = nil
             return
@@ -2030,7 +2056,9 @@ final class Browser: NSObject, ObservableObject {
         // Three places and, if it can't be a place, a search. No open pages:
         // ⌘K exists for those, and mixing them in here made the list long
         // enough that reading it cost more than typing the address would have.
-        var list = history.suggestions(for: typed, limit: 3)
+        var list = open
+        let places = Set(open.map(\.url))
+        list += history.suggestions(for: typed, limit: 3).filter { !places.contains($0.url) }
         // Last in the list, and only when what was typed cannot be a place.
         if !typed.isEmpty,
            Address.url(from: typed) == nil,
@@ -2078,8 +2106,12 @@ final class Browser: NSObject, ObservableObject {
     /// resting cursor would otherwise rewrite the field before you had moved.
     func take(_ offer: Suggestion) {
         summoning = false
+        let fresh = opening
+        opening = false
         if let id = offer.tab, let tab = tabs.first(where: { $0.id == id }) {
             select(tab)
+        } else if fresh {
+            _ = open(offer.url, foreground: true)
         } else {
             (active ?? tabs.first)?.go(to: offer.url)
         }
@@ -2117,6 +2149,7 @@ final class Browser: NSObject, ObservableObject {
     /// and Escape puts it back.
     func edit() {
         summoning = false
+        opening = false
         typed = active?.address?.absoluteString ?? ""
         editing = true
         focusRequest += 1
@@ -2124,6 +2157,7 @@ final class Browser: NSObject, ObservableObject {
 
     func dismiss() {
         summoning = false
+        opening = false
         cycling = false
         // A blank tab has nothing behind the field to go back to.
         guard active?.isBlank == false else { return }
@@ -2140,6 +2174,7 @@ final class Browser: NSObject, ObservableObject {
            let id = offers[picked].tab,
            let tab = tabs.first(where: { $0.id == id }) {
             summoning = false
+            opening = false
             select(tab)
             editing = false
             typed = ""
@@ -2158,6 +2193,14 @@ final class Browser: NSObject, ObservableObject {
             }
         }
 
+        // ⌘T's bar with nothing typed: the blank tab ⌘T used to give.
+        if opening, typed.trimmingCharacters(in: .whitespaces).isEmpty {
+            opening = false
+            editing = false
+            newTab(bar: false)
+            return
+        }
+
         let target: URL?
         if let picked, offers.indices.contains(picked) {
             target = offers[picked].url
@@ -2171,7 +2214,12 @@ final class Browser: NSObject, ObservableObject {
             refusals += 1
             return
         }
-        (active ?? tabs.first)?.go(to: url)
+        if opening {
+            opening = false
+            _ = open(url, foreground: true)
+        } else {
+            (active ?? tabs.first)?.go(to: url)
+        }
         editing = false
         typed = ""
     }
@@ -2274,13 +2322,12 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
             if flags.contains(.command) {
                 let opened = open(url, foreground: flags.contains(.shift), from: tab(for: webView))
                 // With Settings › Tabs › Group links you ⌘-click: the page
-                // and the link, as a group named for the page's site. A page
+                // and the link, named by the Mac's model when available and
+                // by the page's site otherwise. A page
                 // already in a group has the link join it (see open).
-                if prefs.groupsLinks, let source = tab(for: webView), source.pin == nil, source.group == nil,
-                   let group = makeGroup(of: [source, opened]) {
-                    renamingGroup = nil
+                if prefs.groupsLinks, let source = tab(for: webView), source.pin == nil, source.group == nil {
                     let site = source.address?.host()?.replacingOccurrences(of: "www.", with: "")
-                    rename(group, to: site ?? source.label)
+                    makeGroup(of: [source, opened], fallbackName: site ?? source.label)
                 }
                 decisionHandler(.cancel)
                 return
@@ -2473,6 +2520,26 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         decide = decisionHandler
         askedAbout = key
         asking = CaptureAsk(host: host, wants: Browser.name(for: type))
+    }
+
+    /// A page asking to send notifications (Notify.swift), put to you as the
+    /// camera is and remembered the same way. Nil: not asked, another
+    /// question already up.
+    func askNotifications(host: String, answer: @escaping (Bool?) -> Void) {
+        guard decide == nil else { return answer(nil) }
+        decide = { answer($0 == .grant) }
+        askedAbout = "notify:" + host
+        asking = CaptureAsk(host: host, wants: "notifications")
+    }
+
+    /// The same bar when the Mac has mnml's notifications off: a site can't be
+    /// allowed what the Mac won't show, so it offers the way to System
+    /// Settings instead, and nothing is remembered.
+    func askNotificationsOff(host: String) {
+        guard decide == nil else { return }
+        decide = { if $0 == .grant, let url = Notify.settings { NSWorkspace.shared.open(url) } }
+        askedAbout = ""
+        asking = CaptureAsk(host: host, wants: "notifications off")
     }
 
     private static func name(for type: WKMediaCaptureType) -> String {
@@ -2679,6 +2746,5 @@ extension Browser: WKDownloadDelegate {
         return candidate
     }
 }
-
 
 

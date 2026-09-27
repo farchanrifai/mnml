@@ -65,6 +65,17 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BINARY" "$APP/Contents/MacOS/$NAME"
 
+# The SDK the binary says it was built with. SwiftPM writes down the oldest
+# macOS it runs on (14.0) there as well, and macOS takes that as an app built
+# for 14 and keeps it on the old behaviour of whatever changed since. The
+# page under the sidebar (Under.swift) is one: SwiftUI's background
+# extension, for an app built for 14, painted its copy of the page over the
+# page itself. The real SDK goes in; the oldest macOS it runs on stays 14.
+SDK_VERSION="$(xcrun --show-sdk-version)"
+xcrun vtool -set-build-version macos "$MINIMUM" "$SDK_VERSION" -replace \
+  -output "$APP/Contents/MacOS/$NAME.sdk" "$APP/Contents/MacOS/$NAME"
+mv "$APP/Contents/MacOS/$NAME.sdk" "$APP/Contents/MacOS/$NAME"
+
 # Symbols stay out of the app. The linker leaves every function's name and a
 # map back to the source in the binary — 15,000 entries, more than half of
 # what the app weighed (6.5 MB of binary, 2.7 without them), and nothing the

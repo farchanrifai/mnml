@@ -107,6 +107,11 @@ final class Preferences: ObservableObject {
         didSet { store.set(dragHaptics, forKey: "tabs.dragHaptics") }
     }
     /// Control-Tab's recently used switcher. On unless turned off.
+    /// ⌘T puts the command bar over the page, Arc's way, instead of a blank
+    /// tab at once (Browser.opening).
+    @Published var commandBar: Bool {
+        didSet { store.set(commandBar, forKey: "tabs.commandBar") }
+    }
     @Published var mruSwitcher: Bool {
         didSet { store.set(mruSwitcher, forKey: "tabs.mru") }
     }
@@ -117,6 +122,25 @@ final class Preferences: ObservableObject {
             store.set(frostedSidebar, forKey: "tabs.frosted")
             SideBar.frosted = frostedSidebar
         }
+    }
+    /// The page runs on under the column and the strip, its colours seen
+    /// through their material, as in Safari (Under.swift). Off unless
+    /// turned on, and only ever with the material.
+    @Published var pageUnder: Bool {
+        didSet { store.set(pageUnder, forKey: "tabs.under") }
+    }
+    /// A colour washed over the column and the bar across the top, the
+    /// material still showing through, as in Arc (Tint). Hex; empty, none.
+    @Published var chromeTint: String {
+        didSet { store.set(chromeTint, forKey: "tabs.tint") }
+    }
+    /// The tint in dark mode: `Tint.same` follows the one above, "" is none.
+    @Published var chromeTintDark: String {
+        didSet { store.set(chromeTintDark, forKey: "tabs.tint.dark") }
+    }
+    /// How strongly the tint covers the material, 0–1.
+    @Published var chromeTintStrength: Double {
+        didSet { store.set(chromeTintStrength, forKey: "tabs.tint.strength") }
     }
 
     /// The highlight glides from the tab left to the one chosen; off, it is
@@ -313,6 +337,7 @@ final class Preferences: ObservableObject {
         customEngine = store.string(forKey: "search.custom") ?? ""
         sleepsTabs = store.object(forKey: "tabs.sleep") as? Bool ?? true
         mruSwitcher = store.object(forKey: "tabs.mru") as? Bool ?? true
+        commandBar = store.object(forKey: "tabs.commandBar") as? Bool ?? true
         groupsLinks = store.bool(forKey: "tabs.groupLinks")
         dragHaptics = store.object(forKey: "tabs.dragHaptics") as? Bool ?? true
         showsReading = store.object(forKey: "tabs.reading") as? Bool ?? true
@@ -320,6 +345,10 @@ final class Preferences: ObservableObject {
         let frosted = store.object(forKey: "tabs.frosted") as? Bool ?? true
         frostedSidebar = frosted
         SideBar.frosted = frosted
+        pageUnder = store.bool(forKey: "tabs.under")
+        chromeTint = store.string(forKey: "tabs.tint") ?? ""
+        chromeTintDark = store.string(forKey: "tabs.tint.dark") ?? Tint.same
+        chromeTintStrength = store.object(forKey: "tabs.tint.strength") as? Double ?? Tint.strength
         shielded = store.object(forKey: "shield") as? Bool ?? true
         extensionsInPrivate = store.bool(forKey: "extensions.private")
         // Offered by default only in a build that can actually do them —

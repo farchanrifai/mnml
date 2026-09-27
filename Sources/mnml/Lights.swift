@@ -106,7 +106,7 @@ final class Lights: NSObject {
 /// pointer reaches the menu bar — a grey bar with the traffic lights on it,
 /// over the tabs. Here that strip is never seen: its contents are hidden and
 /// it lets clicks through, and it is only watched, so that as it comes the
-/// window's own lights (TrafficLights) slide into the tabs' row, which makes
+/// the app's native buttons (TrafficLights) slide into the tabs' row, which makes
 /// room for them (Browser.lightsOut).
 @MainActor
 final class FullScreenLights: NSObject {
@@ -182,42 +182,28 @@ final class FullScreenLights: NSObject {
     }
 }
 
-/// The window's own traffic lights in full screen, where macOS's would have
-/// come down in a bar of their own: in the column's corner, always, and in
-/// the tabs' row while the pointer is at the menu bar. macOS's own flat
-/// colours, all three marks under the pointer at once. Close, minimise
-/// (which full screen can't do, so it does nothing) and leave full screen.
-struct TrafficLights: View {
-    @State private var hovering = false
-
-    var body: some View {
-        HStack(spacing: 8) {
-            light(Color(red: 236 / 255, green: 106 / 255, blue: 94 / 255), mark: "xmark") {
-                Links.window?.performClose(nil)
-            }
-            light(Color(red: 244 / 255, green: 191 / 255, blue: 79 / 255), mark: "minus") {}
-            light(Color(red: 97 / 255, green: 197 / 255, blue: 84 / 255), mark: "arrow.down.right.and.arrow.up.left") {
-                Links.window?.toggleFullScreen(nil)
-            }
-        }
-        .contentShape(Rectangle())
-        .onHover { hovering = $0 }
+/// AppKit's standard buttons in the full-screen row. The system supplies
+/// their appearance, hover treatment and accessibility labels.
+struct TrafficLights: NSViewRepresentable {
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSView, context: Context) -> CGSize? {
+        CGSize(width: 54, height: 14)
     }
 
-    private func light(_ colour: Color, mark: String, act: @escaping () -> Void) -> some View {
-        Button(action: act) {
-            Circle()
-                .fill(colour)
-                .overlay {
-                    if hovering {
-                        Image(systemName: mark)
-                            .font(.system(size: 7, weight: .bold))
-                            .foregroundStyle(.black.opacity(0.5))
-                    }
-                }
-                .frame(width: 12, height: 12)
-                .contentShape(Circle())
+    func makeNSView(context: Context) -> NSView {
+        let row = NSView(frame: NSRect(x: 0, y: 0, width: 54, height: 14))
+        for (index, kind) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
+            guard let button = NSWindow.standardWindowButton(kind, for: [.titled, .resizable, .fullScreen]) else { continue }
+            button.setFrameOrigin(NSPoint(x: CGFloat(index) * 20, y: 0))
+            button.action = [#selector(NSWindow.performClose(_:)), #selector(NSWindow.miniaturize(_:)), #selector(NSWindow.toggleFullScreen(_:))][index]
+            button.isEnabled = kind != .miniaturizeButton
+            row.addSubview(button)
         }
-        .buttonStyle(.plain)
+        return row
+    }
+
+    func updateNSView(_ row: NSView, context: Context) {
+        for button in row.subviews.compactMap({ $0 as? NSButton }) {
+            button.target = Links.window
+        }
     }
 }

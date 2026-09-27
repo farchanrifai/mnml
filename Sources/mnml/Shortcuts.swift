@@ -173,6 +173,11 @@ struct Command: Identifiable {
             Command("file.newPrivateTab", "New Private Tab", .file, KeyCombo("n", shift: true), "A tab that keeps no history and no cookies once closed.") { $0.newShyTab() },
             Command("file.reopen", "Reopen Closed Tab", .file, KeyCombo("t", shift: true), "Brings back the tab you closed last.") { $0.reopen() },
             Command("file.openAddress", "Open Address…", .file, KeyCombo("l"), "Puts the address field up to type where to go.") { $0.edit() },
+            .when("file.openPeek", "Open Peek as Tab", .file, KeyCombo("o"), "Keeps the peek as a regular tab.") { browser in
+                guard browser.peekTab != nil else { return false }
+                browser.keepPeek()
+                return true
+            },
             Command("file.closeTab", "Close Tab", .file, KeyCombo("w"), "Closes the tab you're on.") { browser in
                 if let tab = browser.active { browser.close(tab) }
             },

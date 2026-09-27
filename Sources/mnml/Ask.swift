@@ -500,7 +500,7 @@ extension Browser {
     /// the page it began on (mentioned); the page's own chat starts afresh.
     func askInNewTab(from tab: Tab) {
         guard let chat = chats[tab.id] else { return }
-        newTab()
+        newTab(bar: false)
         guard let blank = active, blank.isBlank, blank !== tab else { return }
         if !tab.isBlank, !chat.mentions.contains(.tab(tab.id)) { chat.mentions.insert(.tab(tab.id), at: 0) }
         chats[tab.id] = Chat()
@@ -513,7 +513,7 @@ extension Browser {
 
     /// ⇧⌘E: a new tab that is a chat, about nothing yet.
     func newChatTab() {
-        newTab()
+        newTab(bar: false)
         guard let blank = active, blank.isBlank else { return }
         if chats[blank.id]?.turns.isEmpty == false { chats[blank.id] = Chat() }
         askTyping = true
