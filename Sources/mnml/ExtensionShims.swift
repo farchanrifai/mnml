@@ -3718,8 +3718,10 @@ enum ExtensionShims {
         // Resolved, not appended: a path can carry a query — Claude's names
         // the tab its panel is for, sidepanel.html?tabId=… — which appended
         // would be escaped into the file's name.
-        guard let url = ExtensionShims.page(path, in: context) else { return }
-        owner.browser?.open(url, foreground: true)
+        guard let url = ExtensionShims.page(path, in: context),
+              let browser = owner.browser, let tab = browser.active else { return }
+        // Docked beside the tab, as Chrome's (SidePanel.swift).
+        SidePanels.shared.open(url, context: context, for: tab, in: browser)
     }
 
     // MARK: - bookmarks, as Chrome shapes them

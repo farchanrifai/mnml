@@ -326,6 +326,16 @@ struct ContentView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
 
+            // An extension's side panel, docked where the chat goes.
+            if #available(macOS 15.4, *), let tab = browser.active, let id = browser.docked[tab.id] {
+                ExtensionSidePanel(browser: browser, prefs: browser.prefs, tab: tab, extensionID: id)
+                    .id(tab.id)
+                    .padding(.top, chrome.height)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                    .transition(.offset(x: browser.prefs.askWidth))
+                    .zIndex(2)
+            }
+
             if browser.askShowing, let tab = browser.active {
                 let mode = browser.askMode(for: tab)
                 let panel = AskPanel(browser: browser, tab: tab, chat: browser.chat(for: tab), prefs: browser.prefs, mode: mode)
@@ -369,6 +379,7 @@ struct ContentView: View {
         .ignoresSafeArea()
         .animation(Motion.glide, value: browser.prefs.sidebar)
         .animation(.spring(response: 0.34, dampingFraction: 1), value: browser.askShowing)
+        .animation(.spring(response: 0.34, dampingFraction: 1), value: browser.active.flatMap { browser.docked[$0.id] })
         .animation(.easeOut(duration: 0.12), value: browser.active?.immersed)
         .onAppear { if room == nil { room = chrome } }
         .onChange(of: chrome) { old, new in make(room: new, after: old) }
@@ -1121,9 +1132,11 @@ struct ContentView: View {
             return true
         }
 
-        // A shortcut an extension registered — ⌥⇧D, ⌃⇧Y — before ours, since
-        // none of ours use those.
+        // A shortcut an extension registered — ⌥⇧D, ⌃⇧Y — before the rest,
+        // but never one of mnml's own: Claude for Chrome's ⌘E is the chat's
+        // here. Its key can be changed in Settings › Shortcuts › Extensions.
         if #available(macOS 15.4, *), !flags.intersection([.command, .option, .control]).isEmpty,
+           KeyCombo(event: event).map({ browser.shortcuts.command(matching: $0) == nil }) ?? true,
            Extensions.shared.take(event) {
             return true
         }

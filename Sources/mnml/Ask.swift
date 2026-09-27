@@ -494,6 +494,8 @@ extension Browser {
             chatting.remove(tab.id)
         } else {
             askTyping = true
+            // One thing in the slot at a time: an extension's panel steps aside.
+            if #available(macOS 15.4, *), docked[tab.id] != nil { SidePanels.shared.close(tab.id, in: self) }
             chatting.insert(tab.id)
         }
         rememberSession()
@@ -532,7 +534,9 @@ extension Browser {
 
     /// The room the chat takes from the page's right: only beside it.
     var askRoom: CGFloat {
-        guard askShowing, let tab = active, askMode(for: tab) == .side else { return 0 }
+        guard let tab = active else { return 0 }
+        if docked[tab.id] != nil { return prefs.askWidth }
+        guard askShowing, askMode(for: tab) == .side else { return 0 }
         return prefs.askWidth
     }
 }

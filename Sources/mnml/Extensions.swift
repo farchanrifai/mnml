@@ -336,6 +336,8 @@ final class Extensions: NSObject, ObservableObject {
                 }
             }
             try controller.load(context)
+            // Keys you gave its commands in Settings › Shortcuts.
+            ExtensionKeys.apply(to: context)
             watch(context)
             if contexts[item.id] == nil, loadsThisRun.contains(item.id) { loadedBefore.insert(item.id) }
             loadsThisRun.insert(item.id)

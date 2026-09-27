@@ -80,7 +80,7 @@ struct AskPanel: View {
         .overlay(alignment: .leading) {
             if mode == .side {
                 Rectangle().fill(Palette.hairline).frame(width: 1)
-                    .overlay { Edge { prefs.askWidth = min(640, max(280, prefs.askWidth - $0)) } }
+                    .overlay { WidthGrip { prefs.askWidth = min(640, max(280, prefs.askWidth - $0)) } }
             }
         }
 
@@ -1008,7 +1008,7 @@ private struct ChatHistory: View {
 
 /// The side panel's left edge, to drag it wider or narrower. Tells how far
 /// it moved since last told.
-private struct Edge: View {
+struct WidthGrip: View {
     let moved: (CGFloat) -> Void
     @State private var last: CGFloat = 0
 

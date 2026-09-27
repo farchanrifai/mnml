@@ -31,6 +31,9 @@ final class Browser: NSObject, ObservableObject {
     var askTyping = false
     /// The chat's box has the keys (AskPanel), and a nudge to give it them.
     var askFocused = false
+    /// Tabs with an extension's side panel docked beside them (SidePanel.swift),
+    /// by the extension's id.
+    @Published var docked: [Tab.ID: String] = [:]
     @Published var askFocusTick = 0
     /// A tab held out of the column over the page, to open beside the one
     /// on screen (Split.swift), and the picture of it the hand carries.
@@ -1503,6 +1506,7 @@ final class Browser: NSObject, ObservableObject {
     /// behind; closing that blank tab closes the window.
     func close(_ tab: Tab) {
         guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
+        if #available(macOS 15.4, *), docked[tab.id] != nil { SidePanels.shared.close(tab.id, in: self) }
         heldDialogs.removeValue(forKey: tab.id)?.forEach { $0.dismiss() }
 
         // A tab whose page is out in the little window takes the window with
