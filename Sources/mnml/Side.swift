@@ -118,7 +118,7 @@ struct SideBar: View {
                 // row to put them at in this mode.
                 HStack(spacing: 0) {
                     Color.clear.frame(width: browser.sideLightsRoom)
-                        // In full screen, the window's own lights, always
+                        // In full screen, AppKit's buttons, always
                         // there in the column, where a window's sit (see
                         // FullScreenLights).
                         .overlay(alignment: .leading) {

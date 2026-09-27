@@ -58,7 +58,7 @@ struct TabBar: View {
                 DragStrip()
                     .frame(width: browser.lightsRoom)
 
-                // In full screen the lights are the window's own, sliding in
+                // In full screen AppKit's buttons slide in
                 // while the pointer is at the menu bar (see FullScreenLights).
                 if browser.fullScreen {
                     TrafficLights()
