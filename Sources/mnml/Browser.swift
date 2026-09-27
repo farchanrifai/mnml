@@ -29,6 +29,9 @@ final class Browser: NSObject, ObservableObject {
     /// ⌘E opened the panel: its box takes the keys once it's up. Not set
     /// by a tab switch, which leaves the keys with the page.
     var askTyping = false
+    /// The chat's box has the keys (AskPanel), and a nudge to give it them.
+    var askFocused = false
+    @Published var askFocusTick = 0
     /// A tab held out of the column over the page, to open beside the one
     /// on screen (Split.swift), and the picture of it the hand carries.
     @Published var splitDrag: SplitDrag?

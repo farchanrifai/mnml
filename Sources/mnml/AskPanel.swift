@@ -86,6 +86,9 @@ struct AskPanel: View {
 
         // Files and pictures from Finder or another app, anywhere on the panel.
         .onDrop(of: [.fileURL, .image], isTargeted: $dropping, perform: drop)
+        .onChange(of: typing) { _, on in browser.askFocused = on }
+        .onChange(of: browser.askFocusTick) { _, _ in typing = true }
+        .onDisappear { browser.askFocused = false }
         .onAppear {
             guard browser.askTyping else { return }
             browser.askTyping = false
@@ -359,8 +362,15 @@ struct AskPanel: View {
                 .onKeyPress(.upArrow) { move(-1) }
                 .onKeyPress(.tab) { pickLit() }
                 .onKeyPress(.escape) {
-                    guard menuShowing else { return .ignored }
-                    menuShut = true
+                    if menuShowing {
+                        menuShut = true
+                        return .handled
+                    }
+                    // The floating card goes with Escape, as a small window
+                    // does; beside the page, Escape is left alone.
+                    guard mode == .float else { return .ignored }
+                    browser.chatting.remove(tab.id)
+                    browser.rememberSession()
                     return .handled
                 }
                 .onChange(of: question) { _, _ in menuShut = false; lit = 0 }

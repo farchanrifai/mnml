@@ -488,6 +488,9 @@ extension Browser {
             return
         }
         if chatting.contains(tab.id) {
+            // Open but the keys elsewhere — on the page: ⌘E is to type in
+            // it, not to put it away. In it already, ⌘E closes it.
+            guard askFocused else { return askFocusTick += 1 }
             chatting.remove(tab.id)
         } else {
             askTyping = true
