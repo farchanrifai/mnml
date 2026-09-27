@@ -1,0 +1,166 @@
+diff --git a/Sources/mnml/App.swift b/Sources/mnml/App.swift
+index 65e9222..07a83b9 100644
+--- a/Sources/mnml/App.swift
++++ b/Sources/mnml/App.swift
+@@ -253,6 +253,9 @@ struct ContentView: View {
+     /// animation (see `make(room:after:)`); nil only before the window is up.
+     @State private var room: CGSize?
+     @State private var roomTicket = 0
++    @State private var slideCover: (tab: UUID, image: NSImage, left: CGFloat, top: CGFloat, widthChange: CGFloat)?
++    @State private var slideCoverVisible = false
++    @State private var slideCoverProgress: CGFloat = 0
+ 
+ 
+     /// The window: room at the top, one stage for the page, and the row when
+@@ -280,6 +283,17 @@ struct ContentView: View {
+                 .padding(.top, beside.height)
+                 .offset(x: under ? 0 : chrome.width - roomed.width, y: under ? 0 : chrome.height - roomed.height)
+ 
++            if let cover = slideCover, cover.tab == browser.activeID {
++                let width = cover.image.size.width - cover.widthChange * slideCoverProgress
++                Image(nsImage: cover.image)
++                    .resizable()
++                    .frame(width: width, height: cover.image.size.height)
++                    .position(x: cover.left + cover.widthChange * slideCoverProgress + width / 2,
++                              y: cover.top + cover.image.size.height / 2)
++                    .opacity(slideCoverVisible ? 1 : 0)
++                    .allowsHitTesting(false)
++            }
++
+             // The column of tabs, in the way that has one. It takes the full
+             // height, so the traffic lights sit in its own corner rather than
+             // over the page.
+@@ -383,25 +397,57 @@ struct ContentView: View {
+         under ? EdgeInsets(top: roomed.height, leading: roomed.width, bottom: 0, trailing: 0) : EdgeInsets()
+     }
+ 
+-    /// Chrome going away gives the page its room at once, the page sliding
+-    /// out from under it at its new size. Chrome arriving slides over a page
+-    /// still at its old size, which gives up the room once the slide is over.
+-    /// A column being dragged wider or narrower is followed as it goes.
++    /// Resize once at the start of a column slide. The old picture moves
++    /// across that one layout change while the column moves beside it.
+     private func make(room new: CGSize, after old: CGSize) {
+         let now = roomed
+-        let arriving = (old.width == 0 && new.width > 0, old.height == 0 && new.height > 0)
+-        var at = now
+-        if !arriving.0 { at.width = new.width }
+-        if !arriving.1 { at.height = new.height }
+         roomTicket += 1
++        slideCover = nil
+         var still = Transaction()
+         still.disablesAnimations = true
+-        withTransaction(still) { room = at }
+-        guard arriving.0 || arriving.1 else { return }
+-        let ticket = roomTicket
+-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) {
++        if now != new, old.width != new.width, (old.width == 0 || new.width == 0) {
++            resize(to: new, ticket: roomTicket, transaction: still)
++        } else {
++            withTransaction(still) { room = new }
++        }
++    }
++
++    /// Keep the already drawn page over WebKit's one layout change. Its own
++    /// view cache includes video without waiting for a WebKit snapshot.
++    private func resize(to size: CGSize, ticket: Int, transaction: Transaction) {
++        guard let tab = browser.active, !tab.isBlank, !tab.asleep, !tab.floating,
++              browser.shownSplit == nil, browser.splitPicking == nil,
++              let web = tab.built, web.window != nil,
++              let bitmap = web.bitmapImageRepForCachingDisplay(in: web.bounds) else {
++            withTransaction(transaction) { room = size }
++            return
++        }
++        web.cacheDisplay(in: web.bounds, to: bitmap)
++        let image = NSImage(size: web.bounds.size)
++        image.addRepresentation(bitmap)
++        let top = under ? 0 : roomed.height
++        let widthChange = size.width - roomed.width
++        withTransaction(transaction) {
++            slideCover = (tab.id, image, roomed.width, top, widthChange)
++            slideCoverVisible = true
++            slideCoverProgress = 0
++            room = size
++        }
++        // Keep the picture's edge with the column as it slides, so the newly
++        // uncovered strip cannot show a second copy of the live page.
++        DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
++            guard ticket == roomTicket else { return }
++            withAnimation(Motion.glide) { slideCoverProgress = 1 }
++        }
++        // WebKit's video surface can go blank briefly after the resize. Keep
++        // the old frame over it until it catches up, then fade it quickly.
++        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
++            guard ticket == roomTicket else { return }
++            withAnimation(.easeOut(duration: 0.10)) { slideCoverVisible = false }
++        }
++        DispatchQueue.main.asyncAfter(deadline: .now() + 0.36) {
+             guard ticket == roomTicket else { return }
+-            withTransaction(still) { room = chrome }
++            slideCover = nil
+         }
+     }
+ 
+diff --git a/docs/mnml/sidebar-slide-handoff.md b/docs/mnml/sidebar-slide-handoff.md
+index 3eb3abf..15278bd 100644
+--- a/docs/mnml/sidebar-slide-handoff.md
++++ b/docs/mnml/sidebar-slide-handoff.md
+@@ -47,9 +47,9 @@ the ground gradient, being part of the resizing page, lagged too. Reverted;
+ Lesson: anything that lets the covered strip and the column move
+ separately exposes the mirror. Don't animate the safe area on its own.
+ 
+-## Proposed next step: a snapshot cross-fade over the resize
++## Original proposal: a snapshot cross-fade over the resize
+ 
+-Works with page-under on or off and doesn't touch the mirror.
++This was intended to work with page-under on or off without touching the mirror.
+ 
+ 1. Just before the stage's size changes for the slide (in `make(room:)`, or
+    where `room` is set), take a snapshot of the page as shown:
+@@ -76,6 +76,46 @@ the column's hide/show transition (`SideBar` in `App.swift` `window_`,
+ `.transition(.move(edge: .leading))`, plus `Fold.swift`) reworked to move
+ exactly with the page. Riskier.
+ 
++## Follow-up experiments (2026-09-27, uncommitted)
++
++The snapshot proposal was tried in `mnml Test` on the Big Buck Bunny YouTube
++page. `WKWebView.takeSnapshot` took 1.52 s, and 1.39 s with
++`WKSnapshotConfiguration.afterScreenUpdates = false`. Both exceed the 0.42 s
++slide. A 0.12 s timeout meant the old one-step resize still showed; waiting
++for the image would stall the sidebar. The snapshot code was removed.
++
++The shared-edge alternative was tried next. A persistent sidebar was offset
++by the page's `roomed.width`, and the leading safe area was animated to the
++same target. In a slowed test slide, the sidebar had nearly left while the
++mirrored strip still occupied hundreds of pixels. Matching target values did
++not make SwiftUI's presentation of the two effects stay together.
++
++Finally, both edges were driven explicitly from one 60 Hz width value with
++animations disabled on each update. The mirror stayed covered in the midpoint
++frame, but the YouTube video went black while WebKit was resized repeatedly.
++That experiment was removed too. App code and the installed test copy were
++restored to the baseline before the next experiment. No commit was made.
++
++`NSView.cacheDisplay(in:to:)` on the active web view then captured the full
++YouTube page, including the video picture, in 0.075 s. A synchronous cache
++and short crossfade around the existing one-step resize were tried in
++`mnml Test`. The user's `10.08.11 AM.mov` recording shows that the page still
++holds its old position while the sidebar moves, then re-centres near the end.
++Safari's `1.59.29 AM.mov` instead moves the content through the transition.
++
++The current uncommitted `App.swift` experiment resizes WebKit once at the
++start and covers it with a cached picture during the sidebar's spring. The
++user's 10.45.22 AM recording showed two readable copies of YouTube during the 0.22 s fade. Shortening it to 0.10 s
++exposed a blank WebKit video surface in the 10.49.56 AM recording while the
++rest of the page stayed drawn. The 11.01.54 AM recording showed a second page
++in the strip uncovered by the sidebar: moving the cached image only half the
++sidebar width left that strip exposed. The cached image now moves its leading
++edge the full sidebar width and changes width with it, while WebKit resizes
++once underneath. It stays opaque for 0.20 s, then fades over 0.10 s.
++**This geometry still needs visual review** with a playing video, quick reversals, and page-under off. If it
++looks wrong, remove it; `takeSnapshot` and per-frame WebKit resizing have
++already failed.
++
+ ## How to work here (the user's rules)
+ 
+ - Build experiments into the test copy: `./build.sh release test` →

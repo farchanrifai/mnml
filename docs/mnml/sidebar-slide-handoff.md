@@ -47,9 +47,9 @@ the ground gradient, being part of the resizing page, lagged too. Reverted;
 Lesson: anything that lets the covered strip and the column move
 separately exposes the mirror. Don't animate the safe area on its own.
 
-## Proposed next step: a snapshot cross-fade over the resize
+## Original proposal: a snapshot cross-fade over the resize
 
-Works with page-under on or off and doesn't touch the mirror.
+This was intended to work with page-under on or off without touching the mirror.
 
 1. Just before the stage's size changes for the slide (in `make(room:)`, or
    where `room` is set), take a snapshot of the page as shown:
@@ -75,6 +75,46 @@ column and the page's covered strip (so the mirror is never exposed) — needs
 the column's hide/show transition (`SideBar` in `App.swift` `window_`,
 `.transition(.move(edge: .leading))`, plus `Fold.swift`) reworked to move
 exactly with the page. Riskier.
+
+## Follow-up experiments (2026-09-27, uncommitted)
+
+The snapshot proposal was tried in `mnml Test` on the Big Buck Bunny YouTube
+page. `WKWebView.takeSnapshot` took 1.52 s, and 1.39 s with
+`WKSnapshotConfiguration.afterScreenUpdates = false`. Both exceed the 0.42 s
+slide. A 0.12 s timeout meant the old one-step resize still showed; waiting
+for the image would stall the sidebar. The snapshot code was removed.
+
+The shared-edge alternative was tried next. A persistent sidebar was offset
+by the page's `roomed.width`, and the leading safe area was animated to the
+same target. In a slowed test slide, the sidebar had nearly left while the
+mirrored strip still occupied hundreds of pixels. Matching target values did
+not make SwiftUI's presentation of the two effects stay together.
+
+Finally, both edges were driven explicitly from one 60 Hz width value with
+animations disabled on each update. The mirror stayed covered in the midpoint
+frame, but the YouTube video went black while WebKit was resized repeatedly.
+That experiment was removed too. App code and the installed test copy were
+restored to the baseline before the next experiment. No commit was made.
+
+`NSView.cacheDisplay(in:to:)` on the active web view then captured the full
+YouTube page, including the video picture, in 0.075 s. A synchronous cache
+and short crossfade around the existing one-step resize were tried in
+`mnml Test`. The user's `10.08.11 AM.mov` recording shows that the page still
+holds its old position while the sidebar moves, then re-centres near the end.
+Safari's `1.59.29 AM.mov` instead moves the content through the transition.
+
+The current uncommitted `App.swift` experiment resizes WebKit once at the
+start and covers it with a cached picture during the sidebar's spring. The
+user's 10.45.22 AM recording showed two readable copies of YouTube during the 0.22 s fade. Shortening it to 0.10 s
+exposed a blank WebKit video surface in the 10.49.56 AM recording while the
+rest of the page stayed drawn. The 11.01.54 AM recording showed a second page
+in the strip uncovered by the sidebar: moving the cached image only half the
+sidebar width left that strip exposed. The cached image now moves its leading
+edge the full sidebar width and changes width with it, while WebKit resizes
+once underneath. It stays opaque for 0.20 s, then fades over 0.10 s.
+**This geometry still needs visual review** with a playing video, quick reversals, and page-under off. If it
+looks wrong, remove it; `takeSnapshot` and per-frame WebKit resizing have
+already failed.
 
 ## How to work here (the user's rules)
 

@@ -253,6 +253,9 @@ struct ContentView: View {
     /// animation (see `make(room:after:)`); nil only before the window is up.
     @State private var room: CGSize?
     @State private var roomTicket = 0
+    @State private var slideCover: (tab: UUID, image: NSImage, left: CGFloat, top: CGFloat, widthChange: CGFloat)?
+    @State private var slideCoverVisible = false
+    @State private var slideCoverProgress: CGFloat = 0
 
 
     /// The window: room at the top, one stage for the page, and the row when
@@ -279,6 +282,17 @@ struct ContentView: View {
                 .padding(.leading, beside.width)
                 .padding(.top, beside.height)
                 .offset(x: under ? 0 : chrome.width - roomed.width, y: under ? 0 : chrome.height - roomed.height)
+
+            if let cover = slideCover, cover.tab == browser.activeID {
+                let width = cover.image.size.width - cover.widthChange * slideCoverProgress
+                Image(nsImage: cover.image)
+                    .resizable()
+                    .frame(width: width, height: cover.image.size.height)
+                    .position(x: cover.left + cover.widthChange * slideCoverProgress + width / 2,
+                              y: cover.top + cover.image.size.height / 2)
+                    .opacity(slideCoverVisible ? 1 : 0)
+                    .allowsHitTesting(false)
+            }
 
             // The column of tabs, in the way that has one. It takes the full
             // height, so the traffic lights sit in its own corner rather than
@@ -383,25 +397,57 @@ struct ContentView: View {
         under ? EdgeInsets(top: roomed.height, leading: roomed.width, bottom: 0, trailing: 0) : EdgeInsets()
     }
 
-    /// Chrome going away gives the page its room at once, the page sliding
-    /// out from under it at its new size. Chrome arriving slides over a page
-    /// still at its old size, which gives up the room once the slide is over.
-    /// A column being dragged wider or narrower is followed as it goes.
+    /// Resize once at the start of a column slide. The old picture moves
+    /// across that one layout change while the column moves beside it.
     private func make(room new: CGSize, after old: CGSize) {
         let now = roomed
-        let arriving = (old.width == 0 && new.width > 0, old.height == 0 && new.height > 0)
-        var at = now
-        if !arriving.0 { at.width = new.width }
-        if !arriving.1 { at.height = new.height }
         roomTicket += 1
+        slideCover = nil
         var still = Transaction()
         still.disablesAnimations = true
-        withTransaction(still) { room = at }
-        guard arriving.0 || arriving.1 else { return }
-        let ticket = roomTicket
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) {
+        if now != new, old.width != new.width, (old.width == 0 || new.width == 0) {
+            resize(to: new, ticket: roomTicket, transaction: still)
+        } else {
+            withTransaction(still) { room = new }
+        }
+    }
+
+    /// Keep the already drawn page over WebKit's one layout change. Its own
+    /// view cache includes video without waiting for a WebKit snapshot.
+    private func resize(to size: CGSize, ticket: Int, transaction: Transaction) {
+        guard let tab = browser.active, !tab.isBlank, !tab.asleep, !tab.floating,
+              browser.shownSplit == nil, browser.splitPicking == nil,
+              let web = tab.built, web.window != nil,
+              let bitmap = web.bitmapImageRepForCachingDisplay(in: web.bounds) else {
+            withTransaction(transaction) { room = size }
+            return
+        }
+        web.cacheDisplay(in: web.bounds, to: bitmap)
+        let image = NSImage(size: web.bounds.size)
+        image.addRepresentation(bitmap)
+        let top = under ? 0 : roomed.height
+        let widthChange = size.width - roomed.width
+        withTransaction(transaction) {
+            slideCover = (tab.id, image, roomed.width, top, widthChange)
+            slideCoverVisible = true
+            slideCoverProgress = 0
+            room = size
+        }
+        // Keep the picture's edge with the column as it slides, so the newly
+        // uncovered strip cannot show a second copy of the live page.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
             guard ticket == roomTicket else { return }
-            withTransaction(still) { room = chrome }
+            withAnimation(Motion.glide) { slideCoverProgress = 1 }
+        }
+        // WebKit's video surface can go blank briefly after the resize. Keep
+        // the old frame over it until it catches up, then fade it quickly.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) {
+            guard ticket == roomTicket else { return }
+            withAnimation(.easeOut(duration: 0.10)) { slideCoverVisible = false }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.36) {
+            guard ticket == roomTicket else { return }
+            slideCover = nil
         }
     }
 
