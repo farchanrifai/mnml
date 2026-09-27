@@ -23,11 +23,23 @@ struct AskPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            if chat.turns.isEmpty {
-                empty
-            } else {
-                thread
+            Group {
+                if chat.turns.isEmpty {
+                    empty
+                } else {
+                    thread
+                }
             }
+            .frame(maxHeight: .infinity)
+            // The @ menu, rising from the box into the room above it.
+            .overlay(alignment: .bottom) {
+                if menuShowing {
+                    menu
+                        .padding(.horizontal, 10)
+                        .transition(.opacity.combined(with: .offset(y: 4)))
+                }
+            }
+            .animation(Motion.quick, value: menuShowing)
             composer
         }
         .frame(width: AskPanel.width)
@@ -225,31 +237,27 @@ struct AskPanel: View {
 
     private var composer: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
-            HStack(spacing: 7) {
-                Group {
-                    if let icon = tab.icon {
-                        Image(nsImage: icon).resizable()
-                    } else {
-                        Image(systemName: "globe").foregroundStyle(Palette.muted)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    Chip(title: tab.label, detail: tab.address?.host() ?? "") { TabIcon(tab: tab) }
+                    ForEach(chat.mentions, id: \.self) { mention in
+                        mentionChip(mention)
+                            .transition(.scale(scale: 0.9, anchor: .leading).combined(with: .opacity))
+                    }
+                    if let picked = tab.picked {
+                        Chip(title: picked.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                                .replacingOccurrences(of: "\n", with: " "),
+                             detail: "Selected Text", leave: { tab.picked = nil }) {
+                            Image(systemName: "text.cursor")
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundStyle(Palette.muted)
+                        }
+                        .transition(.scale(scale: 0.9, anchor: .leading).combined(with: .opacity))
                     }
                 }
-                .frame(width: 14, height: 14)
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(tab.label).font(.system(size: 11)).foregroundStyle(Palette.ink).lineLimit(1)
-                    Text(tab.address?.host() ?? "").font(.system(size: 10)).foregroundStyle(Palette.muted).lineLimit(1)
-                }
-            }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .frame(maxWidth: tab.picked == nil ? 190 : 130, alignment: .leading)
-            .background(Palette.ink.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            if let picked = tab.picked {
-                SelectionChip(text: picked.text) { tab.picked = nil }
-                    .transition(.scale(scale: 0.9, anchor: .leading).combined(with: .opacity))
-            }
             }
             .animation(Motion.quick, value: tab.picked?.text)
+            .animation(Motion.quick, value: chat.mentions)
 
             TextField(chat.turns.isEmpty ? "Ask a question about this page…" : "Ask another question…",
                       text: $question, axis: .vertical)
@@ -258,8 +266,18 @@ struct AskPanel: View {
                 .lineLimit(1...8)
                 .focused($typing)
                 .onSubmit(send)
+                .onKeyPress(.downArrow) { move(1) }
+                .onKeyPress(.upArrow) { move(-1) }
+                .onKeyPress(.tab) { pickLit() }
+                .onKeyPress(.escape) {
+                    guard menuShowing else { return .ignored }
+                    menuShut = true
+                    return .handled
+                }
+                .onChange(of: question) { _, _ in menuShut = false; lit = 0 }
 
             HStack {
+                Text("@ to add tabs").font(.system(size: 10.5)).foregroundStyle(Palette.muted.opacity(0.8))
                 Spacer()
                 Button(action: chat.working ? chat.stop : send) {
                     Image(systemName: chat.working ? "stop.fill" : "arrow.up")
@@ -279,10 +297,245 @@ struct AskPanel: View {
         .padding(10)
     }
 
+    private func mentionChip(_ mention: Mention) -> some View {
+        let tabs = browser.tabs(for: mention, besides: tab)
+        let cut = tabs.contains { chat.trimmed.contains($0.id) }
+        let detail: String
+        switch mention {
+        case .tab(let id): detail = browser.tabs.first { $0.id == id }?.address?.host() ?? ""
+        default: detail = "\(tabs.count) tab\(tabs.count == 1 ? "" : "s")"
+        }
+        return Chip(title: browser.name(of: mention), detail: cut ? "\(detail) · trimmed" : detail,
+                    leave: { chat.mentions.removeAll { $0 == mention } }) {
+            switch mention {
+            case .tab(let id):
+                if let other = browser.tabs.first(where: { $0.id == id }) { TabIcon(tab: other) }
+            case .group(let id):
+                Circle().fill(TabGroup.tint(browser.groups.first { $0.id == id }?.colour ?? 0)).frame(width: 8, height: 8)
+            case .all, .site:
+                Image(systemName: "square.on.square").font(.system(size: 10)).foregroundStyle(Palette.muted)
+            }
+        }
+    }
+
+    // MARK: - the @ menu
+
+    @State private var lit = 0
+    @State private var more = false
+    @State private var menuShut = false
+
+    /// What's typed after the last @, while it's being typed.
+    private var mentionQuery: String? {
+        guard let at = question.lastIndex(of: "@") else { return nil }
+        let after = question[question.index(after: at)...]
+        guard !after.contains(where: \.isWhitespace) else { return nil }
+        // An address, not a mention: name@host.
+        if at > question.startIndex, !question[question.index(before: at)].isWhitespace { return nil }
+        return after.lowercased()
+    }
+
+    private var menuShowing: Bool { mentionQuery != nil && !menuShut && !rows.isEmpty }
+
+    private enum Row: Hashable {
+        case group(UUID), tab(Tab.ID), more, all, site(String)
+    }
+
+    private var rows: [Row] {
+        guard let query = mentionQuery else { return [] }
+        func fits(_ s: String) -> Bool { query.isEmpty || s.lowercased().contains(query) }
+        let open = browser.tabs.filter { !$0.shy && !$0.isBlank && $0 !== tab }
+        var out: [Row] = browser.groups
+            .filter { g in fits(g.name) && open.contains { $0.group == g.id } }
+            .map { .group($0.id) }
+        let tabs = open.filter { fits($0.label) || fits($0.address?.host() ?? "") }
+        out += tabs.prefix(more || !query.isEmpty ? 30 : 5).map { .tab($0.id) }
+        if !more, query.isEmpty, tabs.count > 5 { out.append(.more) }
+        if query.isEmpty || fits("all open tabs") {
+            out.append(.all)
+            if let host = tab.address?.host(), open.contains(where: { $0.address?.host() == host }) {
+                out.append(.site(host))
+            }
+        }
+        return out.filter { row in
+            switch row {
+            case .group(let id): return !chat.mentions.contains(.group(id))
+            case .tab(let id): return !chat.mentions.contains(.tab(id))
+            case .all: return !chat.mentions.contains(.all)
+            case .site(let h): return !chat.mentions.contains(.site(h))
+            case .more: return true
+            }
+        }
+    }
+
+    private var menu: some View {
+        let rows = rows
+        return ScrollViewReader { scroller in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 1) {
+                    ForEach(Array(rows.enumerated()), id: \.element) { n, row in
+                        if n == 0, case .group = row { heading("Groups") }
+                        if case .tab = row, n == 0 || { if case .group = rows[n - 1] { return true }; return false }() {
+                            heading("Tabs")
+                        }
+                        menuRow(row, lit: n == min(lit, rows.count - 1))
+                            .id(n)
+                            .onTapGesture { pick(row) }
+                    }
+                }
+                .padding(5)
+            }
+            .frame(maxHeight: 260)
+            .fixedSize(horizontal: false, vertical: true)
+            .onChange(of: lit) { _, n in scroller.scrollTo(n) }
+        }
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Palette.hairline, lineWidth: 1))
+        .shadow(color: .black.opacity(0.18), radius: 14, y: 4)
+    }
+
+    private func heading(_ text: String) -> some View {
+        Text(text.uppercased())
+            .font(.system(size: 9.5, weight: .semibold))
+            .foregroundStyle(Palette.muted)
+            .padding(.horizontal, 7)
+            .padding(.top, 6)
+            .padding(.bottom, 2)
+    }
+
+    private func menuRow(_ row: Row, lit: Bool) -> some View {
+        HStack(spacing: 8) {
+            switch row {
+            case .group(let id):
+                let group = browser.groups.first { $0.id == id }
+                Circle().fill(TabGroup.tint(group?.colour ?? 0)).frame(width: 8, height: 8).frame(width: 14)
+                Text(group?.name ?? "Group")
+            case .tab(let id):
+                if let other = browser.tabs.first(where: { $0.id == id }) {
+                    TabIcon(tab: other)
+                    Text(other.label)
+                }
+            case .more:
+                Image(systemName: "ellipsis").frame(width: 14)
+                Text("View more")
+            case .all:
+                Image(systemName: "square.on.square").frame(width: 14)
+                Text("All open tabs (\(browser.tabs(for: .all, besides: tab).count))")
+            case .site(let host):
+                Image(systemName: "globe").frame(width: 14)
+                Text("All open \(host) tabs (\(browser.tabs(for: .site(host), besides: tab).count))")
+            }
+            Spacer(minLength: 0)
+        }
+        .font(.system(size: 12))
+        .lineLimit(1)
+        .foregroundStyle(lit ? .white : Palette.ink)
+        .padding(.horizontal, 7)
+        .frame(height: 24)
+        .background(lit ? Color.accentColor : .clear, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .contentShape(Rectangle())
+    }
+
+    private func move(_ by: Int) -> KeyPress.Result {
+        guard menuShowing else { return .ignored }
+        lit = max(0, min(rows.count - 1, lit + by))
+        return .handled
+    }
+
+    private func pickLit() -> KeyPress.Result {
+        guard menuShowing else { return .ignored }
+        let rows = rows
+        pick(rows[min(lit, rows.count - 1)])
+        return .handled
+    }
+
+    private func pick(_ row: Row) {
+        let mention: Mention
+        switch row {
+        case .more:
+            more = true
+            return
+        case .group(let id): mention = .group(id)
+        case .tab(let id): mention = .tab(id)
+        case .all: mention = .all
+        case .site(let host): mention = .site(host)
+        }
+        if let at = question.lastIndex(of: "@") { question = String(question[..<at]) }
+        chat.mentions.append(mention)
+        more = false
+        typing = true
+    }
+
     private func send() {
+        if menuShowing {
+            _ = pickLit()
+            return
+        }
         guard !chat.working, !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
-        chat.send(question, about: tab, model: browser.prefs.askModel, picked: tab.picked)
+        var others: [Tab] = []
+        for mention in chat.mentions {
+            for other in browser.tabs(for: mention, besides: tab) where !others.contains(where: { $0 === other }) {
+                others.append(other)
+            }
+        }
+        chat.send(question, about: tab, also: others, named: chat.mentions.map(browser.name(of:)),
+                  model: browser.prefs.askModel, picked: tab.picked)
         question = ""
+    }
+}
+
+/// A tab's own icon, or a globe for one without.
+private struct TabIcon: View {
+    @ObservedObject var tab: Tab
+    var body: some View {
+        Group {
+            if let icon = tab.icon {
+                Image(nsImage: icon).resizable()
+            } else {
+                Image(systemName: "globe").foregroundStyle(Palette.muted)
+            }
+        }
+        .frame(width: 14, height: 14)
+    }
+}
+
+/// One thing a question is about, over the box: an icon, a name, a line
+/// under it, and — for what can be left out — a × on hover.
+private struct Chip<Icon: View>: View {
+    let title: String
+    let detail: String
+    var leave: (() -> Void)?
+    @ViewBuilder let icon: () -> Icon
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 7) {
+            icon().frame(width: 14, height: 14)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(title).font(.system(size: 11)).foregroundStyle(Palette.ink).lineLimit(1)
+                Text(detail).font(.system(size: 10)).foregroundStyle(Palette.muted).lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .frame(maxWidth: 130, alignment: .leading)
+        .background(Palette.ink.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(alignment: .topTrailing) {
+            if hovering, let leave {
+                Button(action: leave) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(Palette.ground)
+                        .frame(width: 14, height: 14)
+                        .background(Palette.muted, in: Circle())
+                }
+                .buttonStyle(.plain)
+                .offset(x: 4, y: -4)
+                .help("Leave it out")
+            }
+        }
+        .padding(.top, 5)
+        .padding(.trailing, 5)
+        .onHover { hovering = $0 }
     }
 }
 
@@ -301,10 +554,11 @@ struct Markdown: View {
         case paragraph(String), heading(String), item(String, marker: String), code(String), table([[String]])
         /// Finished text to paste — a ```text block, asked for (Ask.swift).
         case draft(String)
+        case rule
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 9) {
             let blocks = Markdown.blocks(text)
             ForEach(Array(blocks.enumerated()), id: \.offset) { n, block in
                 view(block, fade: n == blocks.count - 1 ? fade : 0)
@@ -320,7 +574,10 @@ struct Markdown: View {
     private func view(_ block: Block, fade: Int) -> some View {
         switch block {
         case .paragraph(let s): Text(Markdown.inline(s, fade: fade)).fixedSize(horizontal: false, vertical: true)
-        case .heading(let s): Text(Markdown.inline(s, fade: fade)).fontWeight(.semibold)
+        case .heading(let s):
+            Text(Markdown.inline(s, fade: fade))
+                .font(.system(size: 13, weight: .semibold))
+                .padding(.top, 4)
         case .item(let s, let marker):
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(marker).foregroundStyle(Palette.muted)
@@ -341,19 +598,27 @@ struct Markdown: View {
                 .background(Palette.ink.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Palette.hairline, lineWidth: 1))
         case .table(let rows):
-            ScrollView(.horizontal, showsIndicators: false) {
-                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 5) {
-                    ForEach(Array(rows.enumerated()), id: \.offset) { n, row in
-                        GridRow {
-                            ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
-                                Text(Markdown.inline(cell)).fontWeight(n == 0 ? .semibold : .regular)
-                            }
+            // Wrapped to the panel's width, the columns sharing it: scrolled
+            // sideways, all but the first column went unseen.
+            Grid(alignment: .topLeading, horizontalSpacing: 10, verticalSpacing: 6) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { n, row in
+                    GridRow {
+                        ForEach(Array(row.enumerated()), id: \.offset) { _, cell in
+                            Text(Markdown.inline(cell))
+                                .fontWeight(n == 0 ? .semibold : .regular)
+                                .foregroundStyle(n == 0 ? Palette.muted : Palette.ink)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        if n == 0 { Divider() }
                     }
+                    if n < rows.count - 1 { Divider().opacity(n == 0 ? 1 : 0.4) }
                 }
-                .font(.system(size: 11.5))
             }
+            .font(.system(size: 11.5))
+            .padding(10)
+            .background(Palette.ink.opacity(0.04), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        case .rule:
+            Divider().padding(.vertical, 2)
         }
     }
 
@@ -407,6 +672,9 @@ struct Markdown: View {
                 continue
             }
             if line.isEmpty { flush(); continue }
+            if line.count >= 3, line.allSatisfy({ $0 == "-" || $0 == "*" || $0 == "_" }) {
+                flush(); out.append(.rule); continue
+            }
             if let hashes = line.firstIndex(where: { $0 != "#" }), hashes != line.startIndex,
                line[hashes] == " " {
                 flush(); out.append(.heading(String(line[hashes...]).trimmingCharacters(in: .whitespaces))); continue
@@ -448,7 +716,10 @@ private struct Streaming: View {
 
     var body: some View {
         let count = text.count
-        Markdown(text: shown >= count ? text : String(text.prefix(shown)), fade: shown >= count && !live ? 0 : 24)
+        // Once it's all come, all of it: the pacing below only lasts while
+        // words are arriving. Kept to the loop, an answer stopped part way
+        // when SwiftUI cancelled it.
+        Markdown(text: !live || shown >= count ? text : String(text.prefix(shown)), fade: live ? 24 : 0)
             .onChange(of: count) { _, new in target = new }
             .task(id: live) {
                 while !Task.isCancelled {
@@ -485,42 +756,3 @@ private struct Thinking: View {
     }
 }
 
-/// What you've highlighted on the page, as it goes with the question.
-private struct SelectionChip: View {
-    let text: String
-    let dismiss: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        HStack(spacing: 7) {
-            Image(systemName: "text.cursor")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(Palette.muted)
-                .frame(width: 14, height: 14)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " "))
-                    .font(.system(size: 11)).foregroundStyle(Palette.ink).lineLimit(1)
-                Text("Selected Text").font(.system(size: 10)).foregroundStyle(Palette.muted)
-            }
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 5)
-        .frame(maxWidth: 130, alignment: .leading)
-        .background(Palette.ink.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(alignment: .topTrailing) {
-            if hovering {
-                Button(action: dismiss) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 7, weight: .bold))
-                        .foregroundStyle(Palette.ground)
-                        .frame(width: 14, height: 14)
-                        .background(Palette.muted, in: Circle())
-                }
-                .buttonStyle(.plain)
-                .offset(x: 5, y: -5)
-                .help("Leave it out")
-            }
-        }
-        .onHover { hovering = $0 }
-    }
-}

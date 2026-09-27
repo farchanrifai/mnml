@@ -40,4 +40,15 @@ final class AskTests: XCTestCase {
         XCTAssertEqual(Chat.finished("Fixed:\n```text\nHi Ana,\nThanks.\n```\nNote: tone."), "Hi Ana,\nThanks.")
         XCTAssertEqual(Chat.finished("  Just this. "), "Just this.")
     }
+
+    func testShares() {
+        // Under budget: untouched.
+        XCTAssertEqual(Chat.shares([10, 20, 30], budget: 100), [10, 20, 30])
+        // The others share alike, the small one whole; own tab keeps half.
+        XCTAssertEqual(Chat.shares([80, 10, 60, 90], budget: 100), [50, 10, 20, 20])
+        // Own tab small: the others get the rest.
+        XCTAssertEqual(Chat.shares([10, 200, 200], budget: 100), [10, 45, 45])
+        // Own tab alone and too long.
+        XCTAssertEqual(Chat.shares([500], budget: 100), [100])
+    }
 }
