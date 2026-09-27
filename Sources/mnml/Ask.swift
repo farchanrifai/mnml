@@ -1,4 +1,6 @@
 import Foundation
+import AppKit
+import UniformTypeIdentifiers
 import Security
 import WebKit
 
@@ -30,6 +32,9 @@ final class Chat: ObservableObject {
     /// Other tabs this chat is also about, from @: kept for every question
     /// after, until their chip is taken away.
     @Published var mentions: [Mention] = []
+    /// Images and files added to this chat (dropped, pasted, picked, or a
+    /// screenshot): kept, like mentions, until their chip is taken away.
+    @Published var files: [Attachment] = []
     /// Tabs cut short to fit the last question's budget.
     @Published private(set) var trimmed: Set<Tab.ID> = []
 
@@ -53,7 +58,8 @@ final class Chat: ObservableObject {
         }
         let title = tab.label
         let site = tab.address?.host() ?? ""
-        var about = [title] + named
+        var about = [title] + named + files.map(\.name)
+        let files = files
         var pin: String?
         if let picked {
             about.append("“\(picked.text.prefix(40))”")
@@ -75,17 +81,24 @@ final class Chat: ObservableObject {
             // Sleeping ones woken all at once, then read as each is ready.
             let asleep = others.filter(\.asleep).prefix(Self.wakeable)
             asleep.forEach { $0.wake() }
-            var texts = [await Self.read(tab)]
+            let own = await Self.page(tab)
+            var texts = [own.text]
+            var sent = files + (own.file.map { [$0] } ?? [])
             for other in others {
                 if asleep.contains(where: { $0 === other }) { await Self.settle(other) }
-                texts.append(other.asleep ? "" : await Self.read(other))
+                let page = other.asleep ? (text: "", file: nil) : await Self.page(other)
+                texts.append(page.text)
+                if let file = page.file { sent.append(file) }
             }
+            // What Gemini takes in one request: 20 MB, a third more as base64.
+            var room = 14_000_000
+            sent = sent.filter { room -= $0.data.count; return room >= 0 }
             guard !Task.isCancelled else { return }
             let shares = Self.shares(texts.map(\.count), budget: Self.budget)
             trimmed = Set(zip([tab] + others, zip(texts, shares)).filter { $1.1 < $1.0.count }.map(\.0.id))
             let text = String(texts[0].prefix(shares[0]))
             let mentioned = others.enumerated().map { n, other in
-                let body = texts[n + 1].isEmpty ? "(asleep or unreadable — only its title is known)"
+                let body = texts[n + 1].isEmpty ? "(no text: a file attached below, or asleep and only its title known)"
                     : String(texts[n + 1].prefix(shares[n + 1]))
                 return "<tab title=\"\(other.label)\" url=\"\(other.address?.absoluteString ?? "")\">\n\(body)\n</tab>"
             }.joined(separator: "\n")
@@ -95,7 +108,7 @@ final class Chat: ObservableObject {
             let prompt = """
                 The tab: \(title) — \(tab.address?.absoluteString ?? site)
                 <page>
-                \(text.isEmpty ? "(no text could be read from this page)" : text)
+                \(text.isEmpty ? (own.file != nil ? "(the page is the attached \(own.file!.name))" : "(no text could be read from this page)") : text)
                 </page>
                 \(mentioned.isEmpty ? "" : "\nOther tabs the user added to this chat:\n\(mentioned)\n")\(highlighted)
                 \(asked)
@@ -111,7 +124,7 @@ final class Chat: ObservableObject {
                     if wait > 0 { try await Task.sleep(for: .seconds(wait)) }
                     do {
                         for try await piece in Gemini.stream(model: asking, key: key, system: Self.system,
-                                                             turns: before + [(mine: true, text: prompt)]) {
+                                                             turns: before + [(mine: true, text: prompt)], files: sent) {
                             turns[at].text += piece
                         }
                         if asking != model { turns[at].note = "Answered by Flash-Lite — Flash was busy" }
@@ -202,15 +215,54 @@ final class Chat: ObservableObject {
         return [min(own, budget - given.reduce(0, +))] + given
     }
 
+    /// A tab's text — or, for a PDF, which answers no script, the file itself.
+    private static func page(_ tab: Tab) async -> (text: String, file: Attachment?) {
+        let text = await read(tab)
+        guard text.isEmpty, let url = tab.address else { return (text, nil) }
+        return ("", await pdf(at: url, for: tab))
+    }
+
+    /// The file at a tab's address if it's a PDF: from disk, or fetched again
+    /// with the tab's cookies, so a PDF behind a sign-in comes too.
+    private static func pdf(at url: URL, for tab: Tab) async -> Attachment? {
+        let data: Data
+        if url.isFileURL {
+            guard url.pathExtension.lowercased() == "pdf", let read = try? Data(contentsOf: url) else { return nil }
+            data = read
+        } else {
+            guard let web = tab.built, url.scheme?.hasPrefix("http") == true else { return nil }
+            let cookies = await web.configuration.websiteDataStore.httpCookieStore.allCookies()
+            var request = URLRequest(url: url, timeoutInterval: 20)
+            HTTPCookie.requestHeaderFields(with: cookies.filter { cookie in
+                url.host()?.hasSuffix(cookie.domain.trimmingCharacters(in: CharacterSet(charactersIn: "."))) == true
+            }).forEach { request.setValue($1, forHTTPHeaderField: $0) }
+            guard let (got, response) = try? await URLSession.shared.data(for: request),
+                  response.mimeType == "application/pdf" || got.starts(with: Data("%PDF".utf8))
+            else { return nil }
+            data = got
+        }
+        let name = url.lastPathComponent.isEmpty ? tab.label : url.lastPathComponent
+        return Attachment(name: name, mime: "application/pdf", data: data)
+    }
+
     /// The page's text, as a reader sees it. ponytail: nothing from a PDF or
     /// a canvas — the file and a screenshot come in a later step.
     private static func read(_ tab: Tab) async -> String {
-        guard let web = tab.built,
-              let value = try? await web.evaluateJavaScript(
-                "document.body ? document.body.innerText : ''", contentWorld: .defaultClient),
-              let text = value as? String
-        else { return "" }
-        return text
+        guard let web = tab.built else { return "" }
+        // A page that never answers — a PDF, one hung — isn't waited on.
+        return await withCheckedContinuation { done in
+            var answered = false
+            web.evaluateJavaScript("document.body ? document.body.innerText : ''", in: nil, in: .defaultClient) { result in
+                guard !answered else { return }
+                answered = true
+                done.resume(returning: (try? result.get()) as? String ?? "")
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                guard !answered else { return }
+                answered = true
+                done.resume(returning: "")
+            }
+        }
     }
 }
 
@@ -232,8 +284,9 @@ enum Gemini {
     }
 
     /// The answer as it's written, a piece at a time.
+    /// `files` go with the last turn.
     static func stream(model: String, key: String, system: String,
-                       turns: [(mine: Bool, text: String)]) -> AsyncThrowingStream<String, Error> {
+                       turns: [(mine: Bool, text: String)], files: [Attachment] = []) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { out in
             let job = Task {
                 do {
@@ -244,7 +297,13 @@ enum Gemini {
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
                     request.httpBody = try JSONSerialization.data(withJSONObject: [
                         "systemInstruction": ["parts": [["text": system]]],
-                        "contents": turns.map { ["role": $0.mine ? "user" : "model", "parts": [["text": $0.text]]] },
+                        "contents": turns.enumerated().map { n, turn in
+                            var parts: [[String: Any]] = [["text": turn.text]]
+                            if n == turns.count - 1 {
+                                parts += files.map { ["inlineData": ["mimeType": $0.mime, "data": $0.data.base64EncodedString()]] }
+                            }
+                            return ["role": turn.mine ? "user" : "model", "parts": parts]
+                        },
                     ])
                     let (bytes, response) = try await URLSession.shared.bytes(for: request)
                     let code = (response as? HTTPURLResponse)?.statusCode ?? 0
@@ -469,5 +528,54 @@ extension Browser {
         case .all: return "All open tabs"
         case .site(let host): return "All \(host) tabs"
         }
+    }
+}
+
+// MARK: - files
+
+/// An image or a file going with a chat's questions, as Gemini takes it.
+struct Attachment: Identifiable, Hashable {
+    let id = UUID()
+    var name: String
+    var mime: String
+    var data: Data
+    /// What its chip shows, for a picture.
+    var thumb: NSImage?
+
+    static func == (a: Attachment, b: Attachment) -> Bool { a.id == b.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+
+    /// A picture, no longer than 2000 px on its long side, as JPEG: a
+    /// Retina screenshot as PNG ran to megabytes and says no more.
+    static func image(_ image: NSImage, name: String) -> Attachment? {
+        guard var cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        let long = max(cg.width, cg.height)
+        if long > 2000 {
+            let scale = 2000 / Double(long)
+            let w = Int(Double(cg.width) * scale), h = Int(Double(cg.height) * scale)
+            guard let context = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                          space: CGColorSpaceCreateDeviceRGB(),
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+            context.interpolationQuality = .high
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+            guard let smaller = context.makeImage() else { return nil }
+            cg = smaller
+        }
+        guard let data = NSBitmapImageRep(cgImage: cg).representation(using: .jpeg, properties: [.compressionFactor: 0.82])
+        else { return nil }
+        return Attachment(name: name, mime: "image/jpeg", data: data, thumb: image)
+    }
+
+    /// A file from disk: a picture, a PDF, or plain text or CSV.
+    static func file(_ url: URL) -> Attachment? {
+        guard let type = UTType(filenameExtension: url.pathExtension) else { return nil }
+        if type.conforms(to: .image), let image = NSImage(contentsOf: url) {
+            return self.image(image, name: url.lastPathComponent)
+        }
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        if type.conforms(to: .pdf) { return Attachment(name: url.lastPathComponent, mime: "application/pdf", data: data) }
+        if type.conforms(to: .commaSeparatedText) { return Attachment(name: url.lastPathComponent, mime: "text/csv", data: data) }
+        if type.conforms(to: .plainText) { return Attachment(name: url.lastPathComponent, mime: "text/plain", data: data) }
+        return nil
     }
 }

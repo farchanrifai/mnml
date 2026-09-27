@@ -50,6 +50,8 @@ struct AskPanel: View {
         .overlay(alignment: .leading) {
             Rectangle().fill(Palette.hairline).frame(width: 1)
         }
+        // Files and pictures from Finder or another app, anywhere on the panel.
+        .onDrop(of: [.fileURL, .image], isTargeted: $dropping, perform: drop)
         .onAppear {
             guard browser.askTyping else { return }
             browser.askTyping = false
@@ -244,6 +246,18 @@ struct AskPanel: View {
                         mentionChip(mention)
                             .transition(.scale(scale: 0.9, anchor: .leading).combined(with: .opacity))
                     }
+                    ForEach(chat.files) { file in
+                        Chip(title: file.name, detail: file.mime == "application/pdf" ? "PDF" : file.thumb != nil ? "Image" : "File",
+                             leave: { chat.files.removeAll { $0 == file } }) {
+                            if let thumb = file.thumb {
+                                Image(nsImage: thumb).resizable().aspectRatio(contentMode: .fill)
+                                    .frame(width: 14, height: 14).clipShape(RoundedRectangle(cornerRadius: 3))
+                            } else {
+                                Image(systemName: "doc.text").font(.system(size: 11)).foregroundStyle(Palette.muted)
+                            }
+                        }
+                        .transition(.scale(scale: 0.9, anchor: .leading).combined(with: .opacity))
+                    }
                     if let picked = tab.picked {
                         Chip(title: picked.text.trimmingCharacters(in: .whitespacesAndNewlines)
                                 .replacingOccurrences(of: "\n", with: " "),
@@ -258,6 +272,7 @@ struct AskPanel: View {
             }
             .animation(Motion.quick, value: tab.picked?.text)
             .animation(Motion.quick, value: chat.mentions)
+            .animation(Motion.quick, value: chat.files)
 
             TextField(chat.turns.isEmpty ? "Ask a question about this page…" : "Ask another question…",
                       text: $question, axis: .vertical)
@@ -275,10 +290,15 @@ struct AskPanel: View {
                     return .handled
                 }
                 .onChange(of: question) { _, _ in menuShut = false; lit = 0 }
+                // A picture or a file pasted: attached. Text pastes as ever.
+                .onPasteCommand(of: [.fileURL, .png, .tiff]) { _ in attachPasted() }
 
-            HStack {
+            HStack(spacing: 2) {
+                Door(icon: "plus", help: "Add images or files") { pickFiles() }
+                    .padding(.leading, -6)
                 Text("@ to add tabs").font(.system(size: 10.5)).foregroundStyle(Palette.muted.opacity(0.8))
                 Spacer()
+                Door(icon: "camera", help: "Add a screenshot of the page") { screenshot() }
                 Button(action: chat.working ? chat.stop : send) {
                     Image(systemName: chat.working ? "stop.fill" : "arrow.up")
                         .font(.system(size: chat.working ? 9 : 11, weight: .bold))
@@ -292,9 +312,63 @@ struct AskPanel: View {
             }
         }
         .padding(10)
-        .background(Palette.ink.opacity(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(dropping ? accent.opacity(0.12) : Palette.ink.opacity(0.05), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.hairline, lineWidth: 1))
         .padding(10)
+    }
+
+    // MARK: - files
+
+    @State private var dropping = false
+
+    private func add(_ files: [Attachment]) {
+        guard !files.isEmpty else { return browser.announce("Only images, PDFs and text files can go in") }
+        chat.files += files
+        typing = true
+    }
+
+    private func pickFiles() {
+        let panel = NSOpenPanel()
+        panel.allowsMultipleSelection = true
+        panel.allowedContentTypes = [.image, .pdf, .plainText, .commaSeparatedText]
+        guard panel.runModal() == .OK else { return }
+        add(panel.urls.compactMap(Attachment.file))
+    }
+
+    /// What the page shows now, as a picture — for what its text doesn't
+    /// say: a chart, a grid drawn on a canvas, a scanned bill.
+    private func screenshot() {
+        guard let web = tab.built else { return }
+        web.takeSnapshot(with: nil) { image, _ in
+            guard let image, let shot = Attachment.image(image, name: "Screenshot of \(tab.label)") else { return }
+            add([shot])
+        }
+    }
+
+    private func attachPasted() {
+        let board = NSPasteboard.general
+        if let urls = board.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
+            add(urls.compactMap(Attachment.file))
+        } else if let image = NSImage(pasteboard: board), let shot = Attachment.image(image, name: "Pasted image") {
+            add([shot])
+        }
+    }
+
+    private func drop(_ providers: [NSItemProvider]) -> Bool {
+        for provider in providers {
+            if provider.canLoadObject(ofClass: URL.self) {
+                _ = provider.loadObject(ofClass: URL.self) { url, _ in
+                    guard let url, url.isFileURL else { return }
+                    DispatchQueue.main.async { add([Attachment.file(url)].compactMap { $0 }) }
+                }
+            } else if provider.canLoadObject(ofClass: NSImage.self) {
+                _ = provider.loadObject(ofClass: NSImage.self) { image, _ in
+                    guard let image = image as? NSImage else { return }
+                    DispatchQueue.main.async { add([Attachment.image(image, name: "Dropped image")].compactMap { $0 }) }
+                }
+            }
+        }
+        return true
     }
 
     private func mentionChip(_ mention: Mention) -> some View {
