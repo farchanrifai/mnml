@@ -11,7 +11,9 @@ struct AskPanel: View {
     @ObservedObject var chat: Chat
     @ObservedObject var prefs: Preferences
 
-    static let width: CGFloat = 320
+    let mode: AskMode
+    /// Floating: the card dragged by its top, and let go (true).
+    var dragged: ((DragGesture.Value, Bool) -> Void)?
 
     @State private var question = ""
     /// The list of past chats in place of this one.
@@ -54,14 +56,34 @@ struct AskPanel: View {
             .animation(Motion.quick, value: menuShowing)
             if !recalling { composer }
         }
-        .frame(width: AskPanel.width)
+        // Full page: a column down the middle, as a chat app's.
+        .frame(maxWidth: mode == .full ? 720 : .infinity)
+        .frame(maxWidth: .infinity)
+        .frame(width: mode == .side ? prefs.askWidth : nil)
         .frame(maxHeight: .infinity)
         .background {
-            if browser.prefs.frostedSidebar { Frosted() } else { Palette.ground }
+            if mode == .float {
+                RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Palette.ground)
+                    .shadow(color: .black.opacity(0.28), radius: 24, y: 10)
+            } else if browser.prefs.frostedSidebar {
+                Frosted()
+            } else {
+                Palette.ground
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: mode == .float ? 14 : 0, style: .continuous))
+        .overlay {
+            if mode == .float {
+                RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.hairline, lineWidth: 1)
+            }
         }
         .overlay(alignment: .leading) {
-            Rectangle().fill(Palette.hairline).frame(width: 1)
+            if mode == .side {
+                Rectangle().fill(Palette.hairline).frame(width: 1)
+                    .overlay { Edge { prefs.askWidth = min(640, max(280, prefs.askWidth - $0)) } }
+            }
         }
+
         // Files and pictures from Finder or another app, anywhere on the panel.
         .onDrop(of: [.fileURL, .image], isTargeted: $dropping, perform: drop)
         .onAppear {
@@ -87,6 +109,12 @@ struct AskPanel: View {
             }
             Door(icon: "clock", on: recalling, help: "Past chats") { recalling.toggle() }
             Spacer()
+                .frame(maxHeight: .infinity)
+                .contentShape(Rectangle())
+                // The floating card goes where it's dragged by its top.
+                .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .global)
+                    .onChanged { dragged?($0, false) }
+                    .onEnded { dragged?($0, true) })
             Picker("", selection: $prefs.askModel) {
                 ForEach(Gemini.models, id: \.0) { Text($0.1).tag($0.0) }
             }
@@ -94,6 +122,29 @@ struct AskPanel: View {
             .pickerStyle(.menu)
             .fixedSize()
             .controlSize(.small)
+            if !tab.isBlank {
+                Menu {
+                    ForEach(AskMode.allCases, id: \.self) { choice in
+                        Toggle(isOn: Binding(get: { prefs.askMode == choice }, set: { if $0 { prefs.askMode = choice } })) {
+                            Label(choice.title, systemImage: choice.icon)
+                        }
+                    }
+                    Divider()
+                    Button {
+                        browser.askInNewTab(from: tab)
+                    } label: {
+                        Label("Open in New Tab", systemImage: "plus.square.on.square")
+                    }
+                } label: {
+                    Image(systemName: mode.icon)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .foregroundStyle(Palette.muted)
+                .padding(.horizontal, 4)
+                .help("Sidebar, floating, or the whole page")
+            }
             Door(icon: "xmark", help: "Close   ⌘E") {
                 browser.chatting.remove(tab.id)
                 browser.rememberSession()
@@ -259,7 +310,10 @@ struct AskPanel: View {
         VStack(alignment: .leading, spacing: 8) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    Chip(title: tab.label, detail: tab.address?.host() ?? "") { TabIcon(tab: tab) }
+                    // The tab's own, there from the start; × leaves it out.
+                    if !tab.isBlank, !chat.leftOwn {
+                        Chip(title: tab.label, detail: tab.address?.host() ?? "", leave: { chat.leftOwn = true }) { TabIcon(tab: tab) }
+                    }
                     ForEach(chat.mentions, id: \.self) { mention in
                         mentionChip(mention)
                             .transition(.scale(scale: 0.9, anchor: .leading).combined(with: .opacity))
@@ -291,8 +345,9 @@ struct AskPanel: View {
             .animation(Motion.quick, value: tab.picked?.text)
             .animation(Motion.quick, value: chat.mentions)
             .animation(Motion.quick, value: chat.files)
+            .animation(Motion.quick, value: chat.leftOwn)
 
-            TextField(chat.turns.isEmpty ? "Ask a question about this page…" : "Ask another question…",
+            TextField(chat.turns.isEmpty ? (tab.isBlank || chat.leftOwn ? "Ask anything…" : "Ask a question about this page…") : "Ask another question…",
                       text: $question, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12.5))
@@ -435,7 +490,8 @@ struct AskPanel: View {
     private var rows: [Row] {
         guard let query = mentionQuery else { return [] }
         func fits(_ s: String) -> Bool { query.isEmpty || s.lowercased().contains(query) }
-        let open = browser.tabs.filter { !$0.shy && !$0.isBlank && $0 !== tab }
+        // The chat's own tab too, once it's been left out, to add it back.
+        let open = browser.tabs.filter { !$0.shy && !$0.isBlank && ($0 !== tab || chat.leftOwn) }
         var out: [Row] = browser.groups
             .filter { g in fits(g.name) && open.contains { $0.group == g.id } }
             .map { .group($0.id) }
@@ -547,6 +603,12 @@ struct AskPanel: View {
             more = true
             return
         case .group(let id): mention = .group(id)
+        case .tab(let id) where id == tab.id:
+            if let at = question.lastIndex(of: "@") { question = String(question[..<at]) }
+            chat.leftOwn = false
+            more = false
+            typing = true
+            return
         case .tab(let id): mention = .tab(id)
         case .all: mention = .all
         case .site(let host): mention = .site(host)
@@ -930,5 +992,86 @@ private struct ChatHistory: View {
         .contentShape(Rectangle())
         .onHover { if $0 { hovered = saved.id } else if hovered == saved.id { hovered = nil } }
         .onTapGesture { open(saved) }
+    }
+}
+
+/// The side panel's left edge, to drag it wider or narrower. Tells how far
+/// it moved since last told.
+private struct Edge: View {
+    let moved: (CGFloat) -> Void
+    @State private var last: CGFloat = 0
+
+    var body: some View {
+        Color.clear
+            .frame(width: 8)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .onHover { inside in if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() } }
+            .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global).onChanged { drag in
+                moved(drag.translation.width - last)
+                last = drag.translation.width
+            }.onEnded { _ in last = 0 })
+    }
+}
+
+/// The chat as a card over the window, in one of its corners. Dragged, only
+/// the card moves; let go, it springs to the corner the throw was heading
+/// for, as the floating video does. Its inner corner sizes it. Settings are
+/// written once, at the end — every frame of a drag, they redrew the window.
+struct AskFloat: View {
+    @ObservedObject var browser: Browser
+    @ObservedObject var tab: Tab
+    @ObservedObject var chat: Chat
+    @ObservedObject var prefs: Preferences
+    let room: CGSize
+
+    @State private var moving: CGSize = .zero
+    @State private var sizing: CGSize = .zero
+
+    private static let margin: CGFloat = 12
+
+    private var right: Bool { prefs.askCorner % 2 == 0 }
+    private var bottom: Bool { prefs.askCorner < 2 }
+
+    private var size: CGSize {
+        CGSize(width: min(room.width - 24, min(640, max(260, prefs.askFloat.width + sizing.width))),
+               height: min(room.height - 24, min(900, max(300, prefs.askFloat.height + sizing.height))))
+    }
+
+    /// Where the card's middle sits in its corner.
+    private func spot(_ corner: Int, _ size: CGSize) -> CGPoint {
+        let m = Self.margin
+        return CGPoint(x: corner % 2 == 0 ? room.width - m - size.width / 2 : m + size.width / 2,
+                       y: corner < 2 ? room.height - m - size.height / 2 : m + size.height / 2)
+    }
+
+    var body: some View {
+        let size = size
+        let home = spot(prefs.askCorner, size)
+        AskPanel(browser: browser, tab: tab, chat: chat, prefs: prefs, mode: .float) { drag, done in
+            guard done else { return moving = drag.translation }
+            let end = CGPoint(x: home.x + drag.predictedEndTranslation.width, y: home.y + drag.predictedEndTranslation.height)
+            let corner = (end.x < room.width / 2 ? 1 : 0) + (end.y < room.height / 2 ? 2 : 0)
+            withAnimation(.spring(response: 0.38, dampingFraction: 0.78)) {
+                prefs.askCorner = corner
+                moving = .zero
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        // Sized from the corner facing the middle of the window.
+        .overlay(alignment: Alignment(horizontal: right ? .leading : .trailing, vertical: bottom ? .top : .bottom)) {
+            Color.clear
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
+                .onHover { inside in if inside { NSCursor.crosshair.push() } else { NSCursor.pop() } }
+                .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global).onChanged { drag in
+                    sizing = CGSize(width: right ? -drag.translation.width : drag.translation.width,
+                                    height: bottom ? -drag.translation.height : drag.translation.height)
+                }.onEnded { _ in
+                    prefs.askFloat.size = self.size
+                    sizing = .zero
+                })
+        }
+        .position(x: home.x + moving.width, y: home.y + moving.height)
     }
 }

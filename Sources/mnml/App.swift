@@ -67,6 +67,7 @@ struct MnmlApp: App {
                 }
                 Divider()
                 item("view.ask")
+                item("view.askNew")
                 item("view.reload")
                 item("view.reader")
                 item("view.float")
@@ -279,7 +280,7 @@ struct ContentView: View {
                 .padding(.leading, chrome.width)
                 // This tab's chat, beside the page (AskPanel.swift), followed
                 // frame by frame like the column.
-                .padding(.trailing, browser.askShowing ? AskPanel.width : 0)
+                .padding(.trailing, browser.askRoom)
                 .padding(.top, roomed.height)
                 .offset(y: chrome.height - roomed.height)
 
@@ -298,11 +299,29 @@ struct ContentView: View {
             }
 
             if browser.askShowing, let tab = browser.active {
-                AskPanel(browser: browser, tab: tab, chat: browser.chat(for: tab), prefs: browser.prefs)
+                let mode = browser.askMode(for: tab)
+                let panel = AskPanel(browser: browser, tab: tab, chat: browser.chat(for: tab), prefs: browser.prefs, mode: mode)
                     .id(tab.id)
-                    .padding(.top, chrome.height)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                    .transition(.move(edge: .trailing))
+                switch mode {
+                case .side:
+                    panel
+                        .padding(.top, chrome.height)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                        .transition(.move(edge: .trailing))
+                case .full:
+                    // Over the page's room: the column and the strip stay.
+                    panel
+                        .padding(.leading, chrome.width)
+                        .padding(.top, chrome.height)
+                        .transition(.opacity)
+                case .float:
+                    // Over everything, the column too, kept in its corner.
+                    GeometryReader { room in
+                        AskFloat(browser: browser, tab: tab, chat: browser.chat(for: tab), prefs: browser.prefs, room: room.size)
+                            .id(tab.id)
+                    }
+                    .transition(.scale(scale: 0.96, anchor: .bottomTrailing).combined(with: .opacity))
+                }
             }
 
             // The bookmarks bar, under the strip or beside the column's top.

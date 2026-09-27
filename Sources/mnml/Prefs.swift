@@ -206,6 +206,24 @@ final class Preferences: ObservableObject {
     /// it (see StatusLine.swift). Off unless asked for.
     /// Shift-click on a link opens it in a panel over the page (see
     /// Peek.swift). Off unless asked for.
+    /// Where a tab's chat shows (AskPanel.swift): beside the page, floating
+    /// over the window, or filling the page's room.
+    @Published var askMode: AskMode {
+        didSet { store.set(askMode.rawValue, forKey: "ask.mode") }
+    }
+    /// The chat column's width beside the page.
+    @Published var askWidth: CGFloat {
+        didSet { store.set(Double(askWidth), forKey: "ask.width") }
+    }
+    /// The floating chat's size (its place is `askCorner`).
+    @Published var askFloat: CGRect {
+        didSet { store.set(NSStringFromRect(askFloat), forKey: "ask.float") }
+    }
+    /// The corner the floating chat sits in: 0 bottom right, 1 bottom left,
+    /// 2 top right, 3 top left.
+    @Published var askCorner: Int {
+        didSet { store.set(askCorner, forKey: "ask.corner") }
+    }
     /// The Gemini model the chat beside a page asks (Ask.swift).
     @Published var askModel: String {
         didSet { store.set(askModel, forKey: "ask.model") }
@@ -342,6 +360,11 @@ final class Preferences: ObservableObject {
         floatsOnLeave = store.object(forKey: "float.leave") as? Bool ?? true
         installsUpdates = store.object(forKey: Updater.installKey) as? Bool ?? true
         askModel = store.string(forKey: "ask.model") ?? Gemini.models[0].0
+        askCorner = store.integer(forKey: "ask.corner")
+        askMode = AskMode(rawValue: store.string(forKey: "ask.mode") ?? "") ?? .side
+        askWidth = (store.object(forKey: "ask.width") as? Double).map { CGFloat($0) } ?? 320
+        askFloat = store.string(forKey: "ask.float").map(NSRectFromString).flatMap { $0.width > 0 ? $0 : nil }
+            ?? CGRect(x: 16, y: 16, width: 300, height: 460)
         peeksLinks = store.bool(forKey: "links.peek")
         littleLinks = store.bool(forKey: "links.little")
         bookmarksBar = store.bool(forKey: "bookmarks.bar")

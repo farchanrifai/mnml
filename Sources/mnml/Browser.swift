@@ -230,7 +230,8 @@ final class Browser: NSObject, ObservableObject {
     var cycling = false
 
     var active: Tab? { tabs.first { $0.id == activeID } }
-    var fieldShowing: Bool { editing || active?.isBlank ?? true }
+    /// A blank tab with its chat open is the chat, not the field.
+    var fieldShowing: Bool { editing || (active?.isBlank ?? true) && !askShowing }
 
     /// Typed plus whatever the field is quietly finishing for you.
     var completed: String {
