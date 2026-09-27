@@ -126,7 +126,7 @@ enum ExtensionShims {
         if let entries = manifest["content_scripts"] as? [[String: Any]] {
             manifest["content_scripts"] = entries.map { entry -> [String: Any] in
                 var entry = entry
-                if var js = entry["js"] as? [String] {
+                if var js = entry["js"] as? [String], !js.contains(externalFile) {
                     if !js.contains(file) { js.insert(file, at: 0) }
                     if (entry["world"] as? String)?.uppercased() == "MAIN", !js.contains(passkeys) { js.insert(passkeys, at: 0) }
                     entry["js"] = js
@@ -143,7 +143,7 @@ enum ExtensionShims {
         if let pages = (manifest["externally_connectable"] as? [String: Any])?["matches"] as? [String], !pages.isEmpty {
             try external.write(to: folder.appendingPathComponent(externalFile), atomically: true, encoding: .utf8)
             var entries = manifest["content_scripts"] as? [[String: Any]] ?? []
-            entries.removeAll { ($0["js"] as? [String]) == [externalFile] }
+            entries.removeAll { ($0["js"] as? [String])?.contains(externalFile) == true }
             entries.append(["matches": pages, "js": [externalFile], "world": "MAIN", "run_at": "document_start"])
             // Its carrier: the shim, in the extension's own world there too.
             if !entries.contains(where: { entry in
@@ -239,10 +239,17 @@ enum ExtensionShims {
     (() => {
       if (window.__mnmlExternal) return;
       const waiting = new Map();
+      // The extensions here to carry a message: each one's script in the
+      // page says so as it starts, and again when asked (see the shim).
+      const here = new Set();
       let n = 0;
       window.__mnmlExternal = true;
       window.addEventListener("message", (event) => {
-        const r = event.source === window && event.data && event.data.__mnmlExternalReply;
+        const id = event.origin === location.origin && event.data && event.data.__mnmlExternalHere;
+        if (id) here.add(String(id));
+      });
+      window.addEventListener("message", (event) => {
+        const r = event.origin === location.origin && event.data && event.data.__mnmlExternalReply;
         const w = r && waiting.get(r.n);
         if (!w) return;
         waiting.delete(r.n);
@@ -253,17 +260,34 @@ enum ExtensionShims {
       if (typeof runtime.sendMessage === "function") return;
       runtime.sendMessage = function (extensionId, message, options, callback) {
         if (typeof options === "function") { callback = options; options = undefined; }
+        const to = String(extensionId);
         const asked = ++n;
+        const missing = () => new Error("Could not establish connection. Receiving end does not exist.");
         const answer = new Promise((resolve, reject) => {
           waiting.set(asked, { resolve, reject });
-          // No extension by that id here answers: Chrome's own error.
+          // An extension that isn't installed fails at once, as in Chrome:
+          // claude.ai tries each Claude extension's id in turn, and waited
+          // on the first one here. A moment first for one still starting.
+          const send = () => window.postMessage({ __mnmlExternal: { to, n: asked, message } }, location.origin);
+          if (here.has(to)) return send();
+          window.postMessage({ __mnmlExternalWho: true }, location.origin);
           setTimeout(() => {
-            if (waiting.delete(asked)) reject(new Error("Could not establish connection. Receiving end does not exist."));
-          }, 30000);
+            if (!waiting.has(asked)) return;
+            if (here.has(to)) return send();
+            waiting.delete(asked);
+            reject(missing());
+          }, 400);
+          // An extension that is here but never answers: Chrome's error too.
+          setTimeout(() => { if (waiting.delete(asked)) reject(missing()); }, 120000);
         });
-        window.postMessage({ __mnmlExternal: { to: String(extensionId), n: asked, message } }, location.origin);
         if (typeof callback === "function") {
-          answer.then((value) => callback(value), () => callback(undefined));
+          // Chrome's way to say it failed: chrome.runtime.lastError, set only
+          // while the callback runs. Without it a page that goes on to the
+          // next extension's id when one fails waited instead.
+          answer.then((value) => callback(value), (error) => {
+            runtime.lastError = { message: error.message };
+            try { callback(undefined); } finally { delete runtime.lastError; }
+          });
           return;
         }
         return answer;
@@ -1091,6 +1115,31 @@ enum ExtensionShims {
           if (typeof f === "function") put(runtime, name, f.bind(runtime));
         }
       }
+      // A website's chrome.runtime.sendMessage(extensionId, …), from
+      // search-external.js in the page's own world: this extension's script
+      // in the page carries it to the worker and the answer back. Before the
+      // content scripts' early return below, the one place it's needed.
+      // Once per page, however many of the extension's content scripts
+      // carry the shim: carried twice, a sign-in's code would be spent on
+      // the first and fail the second.
+      if (inContent && typeof window !== "undefined" && window.top === window && !root.__searchExternalRelay) {
+        root.__searchExternalRelay = true;
+        window.addEventListener("message", (event) => {
+          const asked = event.origin === location.origin && event.data && event.data.__mnmlExternal;
+          if (!asked || asked.to !== runtime.id) return;
+          const answer = (value, error) => window.postMessage({ __mnmlExternalReply: { n: asked.n, value, error } }, location.origin);
+          Promise.resolve(runtime.sendMessage({ __searchExternal: asked.message })).then((reply) => {
+            if (reply && reply.__searchExternalError) answer(undefined, "Could not establish connection. Receiving end does not exist.");
+            else answer(reply && reply.value);
+          }, (e) => answer(undefined, String(e && e.message || e)));
+        });
+        const hello = () => window.postMessage({ __mnmlExternalHere: runtime.id }, location.origin);
+        window.addEventListener("message", (event) => {
+          if (event.origin === location.origin && event.data && event.data.__mnmlExternalWho) hello();
+        });
+        hello();
+      }
+
       if (inContent) return;
 
       // In a website's frame, everything WebKit keeps to the extension's own
@@ -1266,24 +1315,6 @@ enum ExtensionShims {
       gather(runtime && runtime.onMessage, true);
       gather(runtime && runtime.onMessageExternal);
 
-      // A website's chrome.runtime.sendMessage(extensionId, …), from
-      // search-external.js in the page's own world: this extension's script
-      // in the page carries it to the worker and the answer back.
-      // Once per page, however many of the extension's content scripts
-      // carry the shim: carried twice, a sign-in's code would be spent on
-      // the first and fail the second.
-      if (inContent && typeof window !== "undefined" && window.top === window && !root.__searchExternalRelay) {
-        root.__searchExternalRelay = true;
-        window.addEventListener("message", (event) => {
-          const asked = event.source === window && event.data && event.data.__mnmlExternal;
-          if (!asked || asked.to !== runtime.id) return;
-          const answer = (value, error) => window.postMessage({ __mnmlExternalReply: { n: asked.n, value, error } }, location.origin);
-          Promise.resolve(runtime.sendMessage({ __searchExternal: asked.message })).then((reply) => {
-            if (reply && reply.__searchExternalError) answer(undefined, "Could not establish connection. Receiving end does not exist.");
-            else answer(reply && reply.value);
-          }, (e) => answer(undefined, String(e && e.message || e)));
-        });
-      }
 
       // Whole namespaces WebKit lacks, answered by the browser.
       const define = (name, methods, events = [], extra = {}) => {
