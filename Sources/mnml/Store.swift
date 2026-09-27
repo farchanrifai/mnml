@@ -58,6 +58,31 @@ enum Store {
         return WKWebsiteDataStore(forIdentifier: probeStore(1))
     }
 
+    /// Settings › Privacy › Prevent cross-site tracking, turned off. WebKit's
+    /// tracking prevention, as in Safari, clears what a site it has seen
+    /// redirect you — a sign-in through Google or Apple, say — left in local
+    /// storage once you haven't opened it for a week or a month of use, and a
+    /// site it counts as a tracker loses its cookies too: you are signed out.
+    /// Turned off, that stops, and so does the rest of it: a site framed in
+    /// another gets its cookies again, so trackers can follow you across
+    /// sites, as in Chrome. On unless turned off; until then its flag is not
+    /// touched.
+    @MainActor static var keepsSignIns = false {
+        didSet {
+            guard keepsSignIns != oldValue else { return }
+            Spaces.everyStore.forEach(followSignIns)
+        }
+    }
+
+    /// The switch through a name outside the public framework — Safari's
+    /// "Prevent cross-site tracking" is the same one.
+    @MainActor static func followSignIns(_ store: WKWebsiteDataStore) {
+        let set = NSSelectorFromString("_setResourceLoadStatisticsEnabled:")
+        guard store.responds(to: set) else { return }
+        typealias Setter = @convention(c) (AnyObject, Selector, Bool) -> Void
+        unsafeBitCast(store.method(for: set), to: Setter.self)(store, set, !keepsSignIns)
+    }
+
     /// A test copy of the app under a bundle id of its own has a WebKit
     /// container of its own too, so it can use WebKit's default store and
     /// extension configuration — the ones the real browser uses, which
@@ -143,5 +168,47 @@ enum Store {
             fresh.set(frame, forKey: "NSWindow Frame search")
         }
         fresh.set(true, forKey: "carried")
+    }
+}
+
+/// Files written in the background, one at a time and the newest last.
+///
+/// Each save used to go to a concurrent queue on its own: two saves of the
+/// same file a moment apart could land in either order, and the session
+/// written at quit could be overwritten by an older one still on its way —
+/// yesterday's tabs coming back instead of today's. Here every write joins
+/// one serial queue, and a write that a newer one of the same file has
+/// overtaken is dropped, including when the newer one was written at once
+/// on the way out.
+enum Disk {
+    private static let queue = DispatchQueue(label: "search.disk", qos: .utility)
+    private static let lock = NSLock()
+    /// The newest write asked for, by file.
+    nonisolated(unsafe) private static var newest: [URL: Int] = [:]
+    nonisolated(unsafe) private static var count = 0
+
+    /// `encode` runs where the write does. `now` writes on the calling
+    /// thread: quitting doesn't wait for a queue.
+    static func write(_ file: URL, now: Bool = false, _ encode: @escaping @Sendable () -> Data?) {
+        lock.lock()
+        count += 1
+        let turn = count
+        newest[file] = turn
+        lock.unlock()
+        let put: @Sendable () -> Void = {
+            guard let data = encode() else { return }
+            lock.lock()
+            defer { lock.unlock() }
+            // Overtaken: something newer of this file was asked for since.
+            guard newest[file] == turn else { return }
+            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? data.write(to: file, options: .atomic)
+        }
+        if now { put() } else { queue.async(execute: put) }
+    }
+
+    /// Everything asked for so far, written — for the way out.
+    static func drain() {
+        queue.sync {}
     }
 }

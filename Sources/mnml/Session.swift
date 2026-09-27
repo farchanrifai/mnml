@@ -57,18 +57,26 @@ enum Session {
     /// background queue, and a session handed to one on the way out is a
     /// session that may never reach the disk.
     static func write(now: Bool = false, space: UUID = Space.firstID, _ shape: Shape) {
-        let file = file(space)
-        let put = {
-            guard let data = try? JSONEncoder().encode(shape) else { return }
-            try? FileManager.default.createDirectory(
-                at: file.deletingLastPathComponent(), withIntermediateDirectories: true
-            )
-            try? data.write(to: file, options: .atomic)
-        }
-        if now {
-            put()
-        } else {
-            DispatchQueue.global(qos: .utility).async(execute: put)
-        }
+        // One after another, the newest last (see Disk).
+        Disk.write(file(space), now: now) { try? JSONEncoder().encode(shape) }
+    }
+}
+
+// The groups are the one part of the file an older or newer version may not
+// agree on, so they are read leniently: a value that doesn't make sense is
+// taken for no groups at all, never for a file that won't decode. That would
+// put the whole session in quarantine and bring back not a single tab. In an
+// extension, so the memberwise initialiser stays. (Upstream reads each entry
+// by hand too; mnml's entries keep the synthesised reader, which knows their
+// groups, splits and chats.)
+
+extension Session.Shape {
+    private enum Keys: String, CodingKey { case tabs, active, groups }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: Keys.self)
+        tabs = try c.decode([Session.Entry].self, forKey: .tabs)
+        active = try c.decode(Int.self, forKey: .active)
+        groups = try? c.decodeIfPresent([TabGroup].self, forKey: .groups)
     }
 }

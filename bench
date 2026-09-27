@@ -53,22 +53,36 @@
                                        and whether a drag from there would move the window;
                                        double: test run, a double-click there (start the probe hidden)
     ./bench place ID INDEX             put a tab at another place in the row
+    ./bench group [ID new [NAME] | ID NAME | ID none | fold NAME]
+                                       test run: the tab groups; a tab into a new group, into one by name,
+                                       or out of its group; a group folded or opened
+    ./bench tospace ID N               test run: Move to Space, the tab to the Nth space
     ./bench field TEXT [type] [go]     test run: TEXT pasted into the address field (type: a key at a time),
                                        each timed until the window has caught up; go: then Return, timed
                                        until the page is loading
     ./bench pull DX [STEPS] [MS]       test run: two fingers DX points sideways over the page (back is +) — where it went
     ./bench keyeq CHARS CODE [shift]   test run: ⌘CHARS pressed while the page has the keyboard — who took it
+    ./bench import BROWSER [WHAT…] [--profile NAME|all]
+                                     test run: bookmarks, history, passwords from a made-up profile in the world's Import/
+                                     (the one used most recently, unless a profile is named, or all)
+    ./bench import-preview           test run: each browser found, its profiles, the one used most recently, and what
+                                     it holds as the Bring things over sheet counts it — without asking for a key
+    ./bench import-file PATH         test run: a bookmarks .html, a passwords .csv or Safari's export .zip, as File… brings it
     ./bench menu [open]                test run: the Bookmarks menu as it is about to open, and its first
                                        folder (open: its first bookmark picked)
     ./bench bookmark URL [new]         test run: a bookmark picked from the list, timed until it loads
                                        (new: into a new tab, whose page isn't built yet)
+    ./bench middle ID X Y              test run: the middle button clicked at X Y of a tab's page
+    ./bench pin ID [off|home]          test run: pin a tab, unpin it, or double-click it (home)
+    ./bench fill [STEPS]               test run: the page reporting its scroll STEPS times, each timed until the window rests
     ./bench peek URL|close             test run: the peek panel over the tab in front, as a shift-click opens it
     ./bench window                     test run: open the browser's window if a hidden probe came up without it
     ./bench pages on|off               test run: let a hidden probe's pages be painted, off every screen (for picture)
     ./bench picture PATH               test run: the whole window, pages included, drawn to a PNG (start the probe hidden)
     ./bench film peek|unpeek|fold PATH [N] [SECS]  the window drawn N times while it animates → PATH-00.png… — --test runs only
     ./bench ui KEY VALUE               settings/passwords/welcome/history/downloads/bookmarks/hidden on|off,
-                                       look light|dark|system, sidebar on|off, spaces on|off, hides on|off,
+                                       import on|off|extensions|BROWSER,
+                                       look light|dark|system, sidebar on|off, side left|right, spaces on|off, hides on|off,
                                        folded on|off, peek on|off, peeklink keep|close, pages120 on|off
 
 Needs Settings › General › "Let a script drive mnml" switched on in the
@@ -81,6 +95,12 @@ import json
 import os
 import socket
 import sys
+
+def clean(text):
+    """A page chooses its title: nothing in it may move the terminal's cursor,
+    change its colours, or turn the line around."""
+    import re
+    return re.sub(r"[\x00-\x1f\x7f\u200e\u200f\u202a-\u202e\u2066-\u2069]", "", str(text or ""))
 
 def folder(world):
     name = f"mnml ({world})" if world else "mnml"
@@ -152,7 +172,8 @@ def main(argv):
     elif verb == "ui":
         if len(args) != 2: sys.exit("usage: bench ui KEY VALUE")
         key, value = args
-        request[key] = value if key in ("look", "edittab", "peeklink") else value in ("on", "true", "1", "yes")
+        if key == "side" and value not in ("left", "right"): sys.exit("usage: bench ui side left|right")
+        request[key] = value if key in ("look", "edittab", "peeklink", "import", "side") else value in ("on", "true", "1", "yes")
     elif verb in ("ext-add", "ext-press", "ext-remove", "ext-reload"):
         if len(args) != 1: sys.exit(f"usage: bench {verb} ID")
         request["id"] = args[0]
@@ -245,6 +266,14 @@ def main(argv):
     elif verb == "place":
         if len(args) != 2: sys.exit("usage: bench place ID INDEX")
         request["id"], request["to"] = args[0], int(args[1])
+    elif verb == "group":
+        if args and args[0] == "fold" and len(args) == 2: request["fold"], request["name"] = True, args[1]
+        elif len(args) >= 2 and args[1] == "new": request["id"], request["new"], request["name"] = args[0], True, " ".join(args[2:])
+        elif len(args) >= 2: request["id"], request["name"] = args[0], " ".join(args[1:])
+        elif args: sys.exit("usage: bench group [ID new [NAME] | ID NAME | ID none | fold NAME]")
+    elif verb == "tospace":
+        if len(args) != 2: sys.exit("usage: bench tospace ID N")
+        request["id"], request["index"] = args[0], int(args[1])
     elif verb == "field":
         if not args or any(a not in ("type", "go") for a in args[1:]): sys.exit("usage: bench field TEXT [type] [go]")
         request["text"] = args[0]
@@ -254,6 +283,19 @@ def main(argv):
         if len(args) not in (1, 2) or (len(args) == 2 and args[1] != "new"): sys.exit("usage: bench bookmark URL [new]")
         request["url"] = args[0]
         request["new"] = len(args) == 2
+    elif verb == "import":
+        kinds = ("bookmarks", "history", "passwords")
+        if "--profile" in args:
+            at = args.index("--profile")
+            if at + 1 >= len(args): sys.exit("usage: bench import BROWSER [WHAT…] --profile NAME|all")
+            request["profile"] = args[at + 1]
+            args = args[:at] + args[at + 2:]
+        if not args or any(a not in kinds for a in args[1:]): sys.exit("usage: bench import BROWSER [bookmarks] [history] [passwords] [--profile NAME|all]")
+        request["from"] = args[0]
+        request["what"] = args[1:]
+    elif verb == "import-file":
+        if len(args) != 1: sys.exit("usage: bench import-file PATH")
+        request["path"] = os.path.abspath(args[0])
     elif verb == "menu":
         if args not in ([], ["open"]): sys.exit("usage: bench menu [open]")
         request["open"] = args == ["open"]
@@ -263,6 +305,17 @@ def main(argv):
     elif verb == "fullscreen":
         if args not in ([], ["on"], ["off"]): sys.exit("usage: bench fullscreen [on|off]")
         if args: request["on"] = args[0] == "on"
+    elif verb == "middle":
+        if len(args) != 3: sys.exit("usage: bench middle ID X Y")
+        request["id"], request["x"], request["y"] = args[0], float(args[1]), float(args[2])
+    elif verb == "pin":
+        if len(args) not in (1, 2) or args[1:] not in ([], ["off"], ["home"]): sys.exit("usage: bench pin ID [off|home]")
+        request["id"] = args[0]
+        request["off"] = args[1:] == ["off"]
+        request["home"] = args[1:] == ["home"]
+    elif verb == "fill":
+        if len(args) > 1: sys.exit("usage: bench fill [STEPS]")
+        if args: request["steps"] = int(args[0])
     elif verb == "peek":
         if len(args) != 1: sys.exit("usage: bench peek URL|close")
         request["url"] = args[0]
@@ -285,7 +338,7 @@ def main(argv):
         request["action"], request["path"] = args[0], os.path.abspath(args[1])
         if len(args) > 2: request["frames"] = int(args[2])
         if len(args) > 3: request["every"] = float(args[3])
-    elif verb not in ("tabs", "probe", "extensions"):
+    elif verb not in ("tabs", "probe", "extensions", "import-preview"):
         sys.exit(f"unknown command “{verb}” — see bench help")
 
     answer = ask(os.path.join(folder(world), "bench.sock"), request)
@@ -306,7 +359,8 @@ def main(argv):
         for tab in answer.get("tabs", []):
             mark = "⚗" if tab.get("bench") else ("●" if tab.get("active") else " ")
             state = " …" if tab.get("loading") else (" z" if tab.get("asleep") else "")
-            print(f"{mark} {tab['id']}  {tab.get('title') or '—'}  {tab.get('url')}{state}")
+            group = f"  [{clean(tab['group'])}]" if tab.get("group") else ""
+            print(f"{mark} {tab['id']}  {clean(tab.get('title')) or '—'}  {clean(tab.get('url'))}{state}{group}")
     else:
         print(json.dumps(answer, ensure_ascii=False, indent=2))
     return 0

@@ -108,11 +108,19 @@ enum Web {
         // works only from a click or a key, as Safari's pop-up blocking has
         // it; a sign-in window opened by its button still opens.
         config.preferences.javaScriptCanOpenWindowsAutomatically = false
-        config.mediaTypesRequiringUserActionForPlayback = .audio
+        // Sound waits for a click, as everywhere; video too when Settings
+        // says videos wait (Never Auto-Play, in Safari's words).
+        config.mediaTypesRequiringUserActionForPlayback = Web.playback
         if Store.testing, !Store.measuring { config.preferences.inactiveSchedulingPolicy = .none }
         inspector(config.preferences)
         pictureInPicture(config.preferences)
         return config
+    }
+
+    /// What a page may not play until it is clicked or a key pressed: sound,
+    /// and video as well with Settings › General › Videos wait for a click.
+    static var playback: WKAudiovisualMediaTypes {
+        Store.settings.bool(forKey: Preferences.waitsKey) ? .all : .audio
     }
 
     /// Every page view there is, for the bench.
@@ -190,6 +198,7 @@ final class Tab: ObservableObject, Identifiable {
     /// the reason there is.
     private(set) var built: PageView?
     private var configuration: WKWebViewConfiguration
+    let extensionReturn = ExtensionReturnNavigation()
 
     /// Whether its page was made with the extension controller in it — every
     /// ordinary tab, and a private one only when extensions were allowed
@@ -211,6 +220,38 @@ final class Tab: ObservableObject, Identifiable {
 
     @Published private(set) var title = ""
     @Published private(set) var address: URL?
+    /// The address of the page that is actually on screen. `address` moves
+    /// to where the tab is going as soon as a load starts, while the page
+    /// and its certificate are still the old one's: what is said about the
+    /// connection, and which passwords a sign-in box is offered, go by this
+    /// one, set when the new page has arrived.
+    @Published private(set) var committed: URL?
+    var pageAddress: URL? { committed ?? address }
+
+    func didCommit() {
+        if let url = built?.url, url.absoluteString != "about:blank" { committed = url }
+        // A page arrived after all: the address is its own again.
+        if held != nil, let url = built?.url, url.absoluteString != "about:blank" {
+            held = nil
+            address = url
+        }
+    }
+
+    /// An address the tab shows, and reports to extensions, without loading
+    /// it (see ExtensionAuth.handOver). The page on screen stays. WebKit
+    /// going back to that page's address as the cancelled load unwinds is not
+    /// a move, so the observer below lets it pass. The page is WebKit's own
+    /// current item, not `committed`, which a same-site load in progress has
+    /// already moved on.
+    private(set) var held: URL?
+    private var heldOver: URL?
+
+    func hold(_ url: URL) {
+        held = url
+        heldOver = built?.backForwardList.currentItem?.url
+        address = url
+        failure = nil
+    }
     @Published private(set) var progress: Double = 0
     @Published private(set) var loading = false
     @Published private(set) var canGoBack = false
@@ -257,7 +298,10 @@ final class Tab: ObservableObject, Identifiable {
     }
 
     private func adoptIcon() {
-        guard let host = address?.host()?.lowercased() else { return }
+        guard let host = address?.host()?.lowercased() else {
+            icon = nil
+            return
+        }
         icon = Favicons.shared.cached(host)
     }
 
@@ -272,11 +316,18 @@ final class Tab: ObservableObject, Identifiable {
     /// A sideways swipe in progress, for the disc that shows it.
     @Published var pull: Pull?
 
+    /// What a site opens at until you zoom it yourself: Settings › General ›
+    /// Page zoom. Read from the file, not from the one object the window holds.
+    static var defaultZoom: CGFloat {
+        CGFloat(Store.settings.object(forKey: "pageZoom") as? Double ?? 1)
+    }
+
     /// Remembered for the site, not for the tab: setting a paper's type to
-    /// 125% once should be the last time you think about it.
+    /// 125% once should be the last time you think about it. A site at the
+    /// size every site starts at keeps nothing, and follows that size.
     func rememberZoom() {
         guard let host = address?.host(), !shy else { return }
-        if abs(zoom - 1) < 0.01 {
+        if abs(zoom - Tab.defaultZoom) < 0.01 {
             Store.settings.removeObject(forKey: "zoom." + host)
         } else {
             Store.settings.set(Double(zoom), forKey: "zoom." + host)
@@ -285,10 +336,11 @@ final class Tab: ObservableObject, Identifiable {
 
     func applyRememberedZoom() {
         guard let host = address?.host() else { return }
-        let kept = Store.settings.object(forKey: "zoom." + host) as? Double ?? 1
-        guard abs(CGFloat(kept) - web.pageZoom) > 0.004 else { return }
-        web.pageZoom = CGFloat(kept)
-        zoom = CGFloat(kept)
+        let kept = (Store.settings.object(forKey: "zoom." + host) as? Double).map { CGFloat($0) }
+            ?? Tab.defaultZoom
+        guard abs(kept - web.pageZoom) > 0.004 else { return }
+        web.pageZoom = kept
+        zoom = kept
     }
 
     /// How much bigger the page is being drawn. Not a magnifying glass over
@@ -386,6 +438,7 @@ final class Tab: ObservableObject, Identifiable {
     /// at the head of the row and gives up its title for that letter — which
     /// is all you need for the five or six pages you keep open all day.
     @Published var pin: String?
+
 
     /// Where a pinned tab, or one in a pinned group, was when it was pinned:
     /// its home, to come back to after wandering off (PinnedHome.swift).
@@ -523,11 +576,22 @@ final class Tab: ObservableObject, Identifiable {
                     // a pinned tab lost the only thing that could bring it
                     // back, and vanished from the session altogether.
                     guard fresh.absoluteString != "about:blank" else { return }
+                    if self.held != nil {
+                        if fresh == self.heldOver { return }
+                        self.held = nil
+                    }
                     // Another page: its highlight went with the old one. Not on
                     // a change of hash or query only — Gmail's compose is one.
                     if fresh.host() != self.address?.host() || fresh.path != self.address?.path { self.picked = nil }
-                    let moved = fresh.host() != self.address?.host()
+                    let freshHost = fresh.host()?.lowercased()
+                    let currentHost = self.address?.host()?.lowercased()
+                    let moved = freshHost != currentHost
                     self.address = fresh
+                    // Within the same origin — history.pushState, a fragment —
+                    // the page on screen is the one at the new address.
+                    if let now = self.committed, now.scheme == fresh.scheme, now.host() == fresh.host(), now.port == fresh.port {
+                        self.committed = fresh
+                    }
                     if moved { self.adoptIcon() }
                 }
             },
@@ -573,9 +637,10 @@ final class Tab: ObservableObject, Identifiable {
 
     func magnify(by factor: CGFloat) { magnify(to: web.pageZoom * factor) }
 
-    /// ⌘0 undoes both kinds of zoom at once — whichever one you reached for.
+    /// ⌘0 undoes both kinds of zoom at once — whichever one you reached for —
+    /// back to the size every site starts at.
     func resetZoom() {
-        magnify(to: 1)
+        magnify(to: Tab.defaultZoom)
         guard web.magnification != 1 else { return }
         web.magnification = 1
         onZoom?(self, 1)
@@ -712,9 +777,9 @@ final class Tab: ObservableObject, Identifiable {
         // The host now, while the page is still the sign-in page: a moment
         // later it may be somewhere else entirely, and that is not where
         // the password belongs.
-        guard let host = address?.host()?.lowercased() else { return }
+        guard let host = pageAddress?.host()?.lowercased() else { return }
         let bare = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
-        sent = (bare, user, password, address?.scheme?.lowercased() == "http", Date())
+        sent = (bare, user, password, pageAddress?.scheme?.lowercased() == "http", Date())
     }
 
     /// The page has moved on — a new document has loaded, or the sign-in
@@ -816,6 +881,7 @@ final class Tab: ObservableObject, Identifiable {
         // stop being blank in the same frame the field disappears, or the empty
         // state flashes back for an instant on its way out.
         address = url
+        held = nil
         title = ""
         failure = nil
         reading.through = 0
@@ -881,6 +947,28 @@ final class Tab: ObservableObject, Identifiable {
         stale = false
         pull = nil
         discard()
+    }
+
+    /// A page moved to another space must use that space's cookies. WebKit
+    /// binds the store when the view is made, so keep its restorable state
+    /// and build the view again with the destination's store.
+    func rehome(in space: UUID) {
+        guard !shy, !bench, store !== Spaces.store(for: space) else { return }
+        if let built {
+            memory = built.isLoading ? nil : built.interactionState
+            pending = address ?? built.url
+            picture = nil
+            cover = nil
+            discard()
+        }
+        configuration = Web.configuration(space: space)
+    }
+
+    /// Settings › Videos wait for a click, changed: the page's next view
+    /// is made the new way. One already made keeps what it was made with —
+    /// WebKit fixes it then — until the tab closes or sleeps.
+    func playbackChanged() {
+        configuration.mediaTypesRequiringUserActionForPlayback = Web.playback
     }
 
     /// Whether the page holds something typed and not yet sent — a draft, a
@@ -1141,16 +1229,19 @@ final class Tab: ObservableObject, Identifiable {
         return there.absoluteString == "about:blank" && pending == nil && address != nil
     }
 
-    /// Again from the network. A view that has lost its document is given
-    /// the address back instead: there is nothing else for it to reload.
-    func reload() {
+    /// A view that has lost its document is given the address back instead:
+    /// there is nothing else for it to reload.
+    func reload(fromOrigin: Bool = false) {
         // A pin put down with ⌘W has no view left to reload; waking it is
         // the reload.
         guard !wake() else { return }
+        reader = false
         if hollow, let address {
             web.open(address)
-        } else {
+        } else if fromOrigin {
             web.reloadFromOrigin()
+        } else {
+            web.reload()
         }
     }
     func stop() { web.stopLoading() }
@@ -1265,8 +1356,21 @@ final class MiddleRelay: NSObject, WKScriptMessageHandler {
     (function () {
       if (window.__officeMiddle) return;
       window.__officeMiddle = true;
-      document.addEventListener('auxclick', function (e) {
-        if (e.button !== 1 || !e.isTrusted || e.defaultPrevented) return;
+      // Heard on the way down, before the page's own handlers, since some
+      // stop the event there — YouTube's links did, and a middle-click on
+      // them opened nothing, only some of the time. Whether the page wanted
+      // the click for itself is asked once they have all run: a page that
+      // prevented it keeps it, as in Chrome.
+      // The link is found now: once the event is over its path is empty.
+      window.addEventListener('auxclick', function (e) {
+        if (e.button !== 1 || !e.isTrusted) return;
+        var href = link(e);
+        if (!href) return;
+        setTimeout(function () {
+          if (!e.defaultPrevented) window.webkit.messageHandlers.officeMiddle.postMessage({ href: href });
+        }, 0);
+      }, true);
+      function link(e) {
         // The path, not the parents: a link inside an open shadow root is
         // on it too. An <area> of an image map is a link, and so is an SVG
         // <a>, whose href is an object that holds the address as written.
@@ -1280,10 +1384,10 @@ final class MiddleRelay: NSObject, WKScriptMessageHandler {
             try { href = href.baseVal ? new URL(href.baseVal, el.baseURI).href : ''; } catch (_) { href = ''; }
           }
           if (!href) continue;
-          window.webkit.messageHandlers.officeMiddle.postMessage({ href: href });
-          return;
+          return href;
         }
-      });
+        return '';
+      }
     })();
     """
 

@@ -66,7 +66,7 @@ If `./bench tabs` (no flag) is not listening, ask them to turn on **Settings ›
 id=$(./bench --test open https://example.com)
 ./bench --test wait "$id" 20
 ./bench --test text "$id"
-./bench --test shot "$id" /tmp/mnml-bench.png
+./bench --test shot "$id" "$TMPDIR/mnml-bench.png"
 ./bench --test close "$id"
 ```
 
@@ -80,22 +80,23 @@ id=$(./bench --test open https://example.com)
 
 `click`, `type`, and `submit` take one CSS selector, resolved with `document.querySelector`. Quote it. `type` sets the control's value and fires `input` and `change` (a contenteditable gets `textContent` and an input event). `submit` submits the form around the element, or the element when it is a form. The reply is `{"ok": true}` or an error: nothing matched, or no form.
 
-`shot` prints the PNG path. Read that file. It is the web view, not the tab bar or the window. Pass a path under `/tmp`. An optional last argument is the snapshot width in points.
+`shot` prints the PNG path. Read that file. It is the web view, not the tab bar or the window. Pass a path under `$TMPDIR`, which is this account's own: `/tmp` is shared, and a picture of a signed-in page is not something to leave where anything else running here can write over it. An optional last argument is the snapshot width in points.
 
 `go ID URL` loads a new address in a bench tab you already have.
 
 ## Chrome
 
-`probe` prints the window as JSON: panels (`settings`, `welcome`, `passwords`, `history`, `downloads`, `bookmarks`), whether the address field is open, modal title, `look`, `appearance`, the key window, every window's frame, and traffic-light positions. Use it for chrome. `shot` cannot see chrome.
+`probe` prints the window as JSON: panels (`settings`, `welcome`, `passwords`, `history`, `downloads`, `bookmarks`), whether the address field is open, modal title, `look`, `appearance`, the key window, every window's frame, and traffic-light positions. It also reports `sidebar`, `sidePosition` (`left` or `right`), `sideWidth`, and `activePageFrame` (`x`, `y`, `width`, `height` in points from the window's top-left) when the active page is in the main window. Use it for chrome. `shot` cannot see chrome.
 
 `ui KEY VALUE` changes chrome and answers `{"ok": true}`. On a test world unless they asked for it on theirs.
 
 | Key | Value |
 |---|---|
 | `settings` `passwords` `welcome` `history` `downloads` `bookmarks` `hidden` `sidebar` `extensions` | `on` or `off` |
+| `side` | `left` or `right` |
 | `look` | `light`, `dark`, or `system` |
 
-`extensions on` opens the puzzle-button menu. `ext-menu PATH` writes that menu to a PNG. `look` and `sidebar` are remembered.
+`extensions on` opens the puzzle-button menu. `ext-menu PATH` writes that menu to a PNG. `look`, `sidebar`, and `side` are remembered.
 
 `resize WIDTH HEIGHT [STEPS]` (test only) drags the window to that size and returns the size and traffic-light positions. `key ID TEXT` (test only) sends real key events to a tab and returns how many the page did not use. `sleep ID` tries to sleep a tab now and reports the reason it stayed awake. A bench tab stays awake.
 

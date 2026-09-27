@@ -12,7 +12,15 @@ struct MnmlApp: App {
     @NSApplicationDelegateAdaptor(Links.self) private var links
 
     var body: some Scene {
-        Window("mnml", id: "browser") {
+        // Where you left it, at the size you left it. SwiftUI saves a
+        // window's frame under its id and puts it back before the window
+        // first shows; set by hand once the window was up, it showed at the
+        // default size first and then jumped (upstream #202). The id is the
+        // name the frame has always been kept under. A test run keeps its own:
+        // the name lives in the app's standard defaults, which every copy
+        // shares, and a probe resized for a test once changed the size the
+        // real window came back at.
+        Window("mnml", id: Store.world.map { "search (\($0))" } ?? "search") {
             ContentView(browser: browser)
                 .frame(minWidth: 640, minHeight: 420)
         }
@@ -71,6 +79,7 @@ struct MnmlApp: App {
                 item("view.ask")
                 item("view.askNew")
                 item("view.reload")
+                item("view.reloadOrigin")
                 item("view.reader")
                 item("view.float")
                 Divider()
@@ -164,6 +173,7 @@ struct MnmlApp: App {
                 item("history.show")
                 item("history.downloads")
                 Divider()
+                item("history.clearData")
                 item("history.clear")
             }
             CommandGroup(after: .appSettings) {
@@ -456,8 +466,10 @@ struct ContentView: View {
         roomTicket += 1
         var still = Transaction()
         still.disablesAnimations = true
-        withTransaction(still) { room = at }
-        guard arriving.0 || arriving.1 else { return }
+        // With Reduce Motion on, nothing slides: the page takes its new room
+        // with the chrome, not after a slide that isn't there.
+        withTransaction(still) { room = Motion.reduced ? new : at }
+        guard !Motion.reduced, arriving.0 || arriving.1 else { return }
         let ticket = roomTicket
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) {
             guard ticket == roomTicket else { return }
@@ -536,6 +548,9 @@ struct ContentView: View {
         if browser.managing {
             sheet { PasswordsPanel(browser: browser) } close: { browser.managing = false }
         }
+        if browser.bringingIn != nil {
+            sheet { ImportPanel(browser: browser) } close: { browser.bringingIn = nil }
+        }
         if browser.reviewing {
             // No dimming for this one: the whole point is to keep looking at
             // the page while the list offers to put things back on it.
@@ -584,7 +599,10 @@ struct ContentView: View {
             .animation(browser.fieldShowing ? Motion.settle : Motion.quick, value: browser.fieldShowing)
             .background(WindowSetup { window = $0; dress($0) })
             .onChange(of: browser.prefs.sidebar) { _, _ in
-                DispatchQueue.main.async { measureLights() }
+                DispatchQueue.main.async { Lights.refresh(window); measureLights() }
+            }
+            .onChange(of: browser.prefs.sideWidth) { _, _ in
+                DispatchQueue.main.async { Lights.refresh(window); measureLights() }
             }
             // Stepping away to another app: macOS draws its own resting
             // buttons, and on a light window they come out nearly white. Ours
@@ -622,6 +640,7 @@ struct ContentView: View {
             .animation(Motion.settle, value: browser.welcoming)
             .animation(Motion.settle, value: browser.bookmarking)
             .animation(Motion.settle, value: browser.managing)
+            .animation(Motion.settle, value: browser.bringingIn != nil)
             .animation(Motion.settle, value: browser.reviewing)
         .onAppear {
             watchKeys()
@@ -672,9 +691,20 @@ struct ContentView: View {
     @ViewBuilder
     private var announcement: some View {
         if let text = browser.announcement {
-            Text(text)
+            HStack(spacing: 8) {
+                Text(text)
+                    .foregroundStyle(Palette.ink)
+                // A file just saved: the line shows it in the Finder.
+                if browser.announcedFile != nil {
+                    Text("Show in Finder")
+                        .foregroundStyle(Palette.muted)
+                }
+            }
                 .font(.system(size: 12))
-                .foregroundStyle(Palette.ink)
+                .contentShape(Capsule())
+                .onTapGesture {
+                    if let file = browser.announcedFile { NSWorkspace.shared.activateFileViewerSelecting([file]) }
+                }
                 .padding(.horizontal, 15)
                 .padding(.vertical, 9)
                 .background(Palette.ground, in: Capsule())
@@ -878,11 +908,6 @@ struct ContentView: View {
         // would move the window on any drag there, a tab picked up to take
         // it elsewhere in the row included. DragStrip moves it instead.
         window.isMovable = false
-        // Where you left it, at the size you left it. A test run keeps its
-        // own: the name lives in the app's standard defaults, which every
-        // copy shares, and a probe resized for a test once changed the size
-        // the real window came back at.
-        window.setFrameAutosaveName(Store.world.map { "search (\($0))" } ?? "search")
         FullScreenEsc.keep(window)
         FullScreenLights.keep(window, browser: browser)
 
@@ -890,7 +915,7 @@ struct ContentView: View {
         // height, in both modes, without a toolbar's rounder corners — see
         // Lights.swift. The column's first row is the strip's height too, so
         // its three doors sit on the lights' line.
-        Lights.keep(window) { measureLights() }
+        Lights.keep(window, centreX: { Lights.centre.x }) { measureLights() }
         DispatchQueue.main.async { measureLights() }
 
         // The traffic lights are drawn — measured, they paint themselves — but
@@ -1012,6 +1037,7 @@ struct ContentView: View {
                 return true
             }
             if browser.makingSpace {
+                browser.cancelSpaceCreation()
                 withAnimation(Motion.glide) { browser.makingSpace = false }
                 return true
             }
@@ -1025,6 +1051,10 @@ struct ContentView: View {
             }
             if browser.managing {
                 browser.managing = false
+                return true
+            }
+            if browser.bringingIn != nil {
+                browser.bringingIn = nil
                 return true
             }
             if browser.recalling {
@@ -1095,6 +1125,16 @@ struct ContentView: View {
         // none of ours use those.
         if #available(macOS 15.4, *), !flags.intersection([.command, .option, .control]).isEmpty,
            Extensions.shared.take(event) {
+            return true
+        }
+
+        // ⌘← and ⌘→ go back and forward while nothing is being typed:
+        // WebKit takes them to scroll sideways and never hands them back
+        // (upstream #324).
+        if flags == .command, event.keyCode == 123 || event.keyCode == 124,
+           !(event.window?.firstResponder is NSTextView), browser.active?.typing != true,
+           browser.active?.built?.inputContext == nil {
+            event.keyCode == 123 ? browser.back() : browser.forward()
             return true
         }
 

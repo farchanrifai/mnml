@@ -95,7 +95,10 @@ struct SideBar: View {
         ZStack(alignment: .top) {
             // Not under the card for a new space: it isn't made of views that
             // would take the click first.
-            DragStrip(reserved: 0, below: browser.makingSpace ? .greatestFiniteMagnitude : rowsEnd)
+            // A double-click in the empty space below the tabs opens a new one
+            // (upstream #167), as in Safari and Chrome.
+            DragStrip(reserved: 0, below: browser.makingSpace ? .greatestFiniteMagnitude : rowsEnd,
+                      onDoubleClick: { browser.newTab() })
 
             // The band the lights sit in is this mode's title bar: the window
             // is dragged by it and a double-click fills the screen with it,
@@ -899,6 +902,8 @@ struct SideBar: View {
                 .popover(isPresented: $browser.bookmarksOpen, arrowEdge: .trailing) {
                     BookmarksDropdown(browser: browser, bookmarks: browser.bookmarks)
                 }
+            // Only while a download is running, and a moment after.
+            FetchDoor(browser: browser, fetches: browser.fetches)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 10)
@@ -962,6 +967,9 @@ private struct PinSquare: View {
         Group {
             if browser.editingPin == tab.id {
                 PinField(browser: browser, tab: tab)
+            } else if tab.loading {
+                // Its page on the way, as a row's ring says (upstream).
+                Ring(size: scale * 11 / 34)
             } else if prefs.glyph == .icons, let icon = tab.icon {
                 Mark(icon: icon, letter: tab.pin ?? "", size: scale * 16 / 34, dim: tab.asleep)
             } else {

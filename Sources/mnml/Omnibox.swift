@@ -138,9 +138,22 @@ struct Omnibox: View {
             HStack(spacing: 10) {
                 switch offer.kind {
                 case .search:
-                    Image(systemName: "magnifyingglass")
-                        .font(.system(size: 10, weight: .medium))
-                        .foregroundStyle(Palette.muted)
+                    // The engine's own icon when this Mac already has it: a
+                    // search sent to a site you have been to says so with the
+                    // site rather than a magnifying glass. Nothing is fetched
+                    // for one that isn't known; the glass is what the row
+                    // wears until then.
+                    if let host = offer.url.host()?.lowercased(), let icon = Favicons.shared.cached(host) {
+                        Image(nsImage: icon)
+                            .resizable()
+                            .interpolation(.high)
+                            .frame(width: 14, height: 14)
+                            .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+                    } else {
+                        Image(systemName: "magnifyingglass")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(Palette.muted)
+                    }
                 case .open:
                     // Already open: naming it takes you back to it rather than
                     // opening a second copy.
@@ -406,8 +419,22 @@ struct AddressField: NSViewRepresentable {
             case #selector(NSResponder.moveUp(_:)):
                 browser.walk(-1)
                 return true
+            case #selector(NSResponder.deleteWordBackward(_:)):
+                // ⌥⌫ over an offered ending lets go of it and takes the last
+                // word typed, as it does with no ending there. Left to the
+                // text view it would only take the selected ending.
+                deleting = true
+                let selected = textView.selectedRange()
+                guard browser.ending != nil, selected.length > 0,
+                      NSMaxRange(selected) == (textView.string as NSString).length
+                else { return false }
+                textView.delete(nil)
+                deleting = true
+                textView.deleteWordBackward(nil)
+                return true
             case #selector(NSResponder.deleteBackward(_:)),
-                 #selector(NSResponder.deleteForward(_:)):
+                 #selector(NSResponder.deleteForward(_:)),
+                 #selector(NSResponder.deleteWordForward(_:)):
                 deleting = true
                 return false
             default:

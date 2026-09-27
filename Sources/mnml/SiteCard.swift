@@ -110,9 +110,10 @@ enum SiteCardPanel {
         }
         panel.setFrameOrigin(origin)
         window.addChildWindow(panel, ordered: .above)
-        // Its height follows the card: one step in on the connection is taller.
+        // Its size follows the card, keeping the top edge under the address.
         host.onResize = { [weak panel] fitted in
-            guard let panel, fitted.height > 0 else { return }
+            guard let panel, fitted.width > 0, fitted.height > 0,
+                  panel.frame.size != fitted else { return }
             var frame = panel.frame
             frame.origin.y += frame.height - fitted.height
             frame.size = fitted
@@ -200,10 +201,14 @@ enum SiteCardPanel {
     private final class FirstClick: NSHostingView<AnyView> {
         var onResize: ((NSSize) -> Void)?
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-        override func invalidateIntrinsicContentSize() {
-            super.invalidateIntrinsicContentSize()
+        override func layout() {
+            super.layout()
+            // SwiftUI can lay out a different card without invalidating the
+            // host's intrinsic size. Measure after layout and resize outside it.
             let fitted = fittingSize
-            DispatchQueue.main.async { [weak self] in self?.onResize?(fitted) }
+            let size = NSSize(width: ceil(fitted.width), height: ceil(fitted.height))
+            guard size != frame.size else { return }
+            DispatchQueue.main.async { [weak self] in self?.onResize?(size) }
         }
     }
 }
@@ -256,7 +261,7 @@ struct SiteCard: View {
 
     private var front: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let url = tab.address {
+            if let url = tab.pageAddress {
                 Header(title: SiteCard.site(url))
             }
             // Hovered, the connection opens beside the card, as a submenu
@@ -356,7 +361,7 @@ struct SiteCard: View {
 
     /// The page's size, remembered for the site (see Tab.rememberZoom), as a
     /// menu puts a control on one of its lines: the name, and the steps at
-    /// its end. The number puts it back to 100%.
+    /// its end. The number puts it back to the size every site starts at.
     private var zoom: some View {
         HStack(spacing: 0) {
             Text("Zoom")
@@ -423,7 +428,7 @@ struct SiteCard: View {
     /// Asked when the card opens: a page that pulls in something over plain
     /// http after that is not worth a card that changes under you.
     private var safety: Safety? {
-        switch tab.address?.scheme {
+        switch tab.pageAddress?.scheme {
         case "https":
             let trust = tab.built?.serverTrust
             // Only a certificate this Mac refused and you let through anyway

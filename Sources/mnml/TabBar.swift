@@ -16,6 +16,8 @@ struct TabBar: View {
     /// The plus only comes out when the pointer is in the row.
     @State private var nearby = false
     @State private var plussed = false
+    /// The helm's width when it stands before the tabs rather than after them.
+    private var leading: CGFloat { browser.prefs.navigationLeft ? Metrics.helm - 8 + Metrics.tabGap : 0 }
     /// How wide the doors at the far end are, extension buttons included.
     @State private var doors: CGFloat = 0
     /// A pinned square being dragged within its box: which, where it
@@ -141,9 +143,12 @@ struct TabBar: View {
                     // Back, forward, reload, and the bookmarks, at the far end
                     // of the row. The dropdown hangs from the last one.
                     HStack(spacing: Metrics.tabGap) {
+                        // Only while a download is running, and a moment after.
+                        FetchDoor(browser: browser, fetches: browser.fetches)
                         ExtensionSlot()
-                        Helm(browser: browser)
-                            .padding(.trailing, 8)
+                        // ponytail: upstream's back/forward/reload before the tabs
+                        // (navigationLeft) isn't wired into mnml's strip; always here.
+                        Helm(browser: browser).padding(.trailing, 8)
                         Door(icon: "bookmark", help: "Bookmarks") { browser.bookmarksOpen.toggle() }
                             .popover(isPresented: $browser.bookmarksOpen, arrowEdge: .bottom) {
                                 BookmarksDropdown(browser: browser, bookmarks: browser.bookmarks)
@@ -617,9 +622,10 @@ struct TabBar: View {
         return total
     }
 
-    /// The strip, less the lights, the plus, the doors at the far end and
-    /// the air around them. The doors are measured; until they have been,
-    /// the three of the helm and the bookmarks stand in for them.
+    /// The strip, less the lights, the helm when it leads, the plus, the
+    /// doors at the far end and the air around them. The doors are measured;
+    /// until they have been, the helm and the bookmarks stand in for them —
+    /// unless the helm leads, when nothing at the far end may be a real zero.
     private func room(in strip: CGFloat) -> CGFloat {
         let far = doors > 0 ? doors : Metrics.helm + 26
         return max(0, strip - browser.lightsRoom - dot - 12 - Metrics.plusWidth - far - 3 * Metrics.tabGap)
@@ -774,6 +780,10 @@ private struct TabPill: View {
                 Group {
                     if browser.editingPin == tab.id {
                         PinField(browser: browser, tab: tab)
+                    } else if tab.loading {
+                        // Its page on the way, as a tab's ring says; the
+                        // letter or icon comes back once it is there.
+                        Ring(size: 11)
                     } else if prefs.glyph == .icons, let icon = tab.icon {
                         Mark(icon: icon, letter: tab.pin ?? "", size: 16, dim: tab.asleep)
                     } else {
@@ -804,7 +814,8 @@ private struct TabPill: View {
         //
         // So each tab carries one gesture. The pinned square you are already
         // on has nothing to do on a single click, so it takes the double one
-        // and edits its letter; everything else answers the first click at
+        // and goes back to the page it was pinned at — or, there already,
+        // edits its letter; everything else answers the first click at
         // once. Change Letter in the menu covers the rest.
         .modifier(OneClick(double: live && pinned) {
             // ⌘-click picks tabs, ⇧-click a run of them, for the menu to act
@@ -921,12 +932,13 @@ private struct TabPill: View {
                 // look. What you have to hit is the whole right-hand end of the
                 // tab: an overlay is not laid out, so it can reach past its own
                 // frame without moving anything that is.
+                //
+                // A view of AppKit's own takes the click there, while the
+                // cross shows (see CloseClick).
                 .overlay {
                     if !editing {
-                        Color.clear
+                        CloseClick(armed: hovering, act: close)
                             .frame(width: 30, height: 28)
-                            .contentShape(Rectangle())
-                            .onTapGesture { if hovering { close() } }
                     }
                 }
                 .animation(Motion.quick, value: hovering)
@@ -1007,6 +1019,7 @@ struct Carried: ViewModifier {
     /// The row's coordinate space, not the tab's: a tab that has just moved
     /// keeps its bearings (see the sidebar's grid).
     let space: String
+    var onDrop: ((CGPoint) -> Void)? = nil
     let move: (Int) -> Void
 
     @State private var held = false
@@ -1040,7 +1053,8 @@ struct Carried: ViewModifier {
                             withAnimation(Motion.settle) { move(target) }
                         }
                     }
-                    .onEnded { _ in
+                    .onEnded { value in
+                        onDrop?(value.location)
                         withAnimation(Motion.settle) {
                             held = false
                             travel = 0
@@ -1203,6 +1217,27 @@ struct TabMenu: View {
             Button("Back to Pinned URL") { browser.goHome(tab) }
                 .disabled(!tab.strayed)
         }
+        if browser.prefs.usesSpaces, !tab.bench,
+           tab.address.flatMap({ Browser.extensionHost(of: $0) }) == nil {
+            Menu("Move to Space") {
+                ForEach(browser.spaces.filter { $0.id != browser.spaceID }) { space in
+                    Button {
+                        browser.move(tab, toSpace: space.id)
+                    } label: {
+                        Label(space.name, systemImage: space.symbol)
+                    }
+                }
+                if browser.spaces.count > 1 { Divider() }
+                Button("New Space…") {
+                    browser.askForSpace { space in
+                        browser.move(tab, toSpace: space.id) {
+                            browser.switchSpace(to: space.id)
+                        }
+                    }
+                }
+            }
+            .help("Pages moved to a Space with different sign-ins reopen there.")
+        }
         Divider()
         Button("Rename") { browser.beginTabRename(tab) }
         Button("Duplicate") {
@@ -1261,6 +1296,55 @@ struct OneClick: ViewModifier {
             content.onTapGesture(count: 2, perform: act)
         } else {
             content.onTapGesture(perform: act)
+        }
+    }
+}
+
+/// A click on a tab's cross closes it — taken by a real view laid over the
+/// cross rather than by a SwiftUI tap. Out over the page, in the strip folded
+/// away with ⌘S, the tap never came: the cross showed under the pointer and
+/// clicking it did nothing (Drice). A view of AppKit's own is handed the
+/// press by AppKit itself, as the middle button's is (MiddleClick), and it
+/// answers only while the cross is there to be pressed, only to the left
+/// button; to anything else it isn't there, and the tab goes on as before.
+struct CloseClick: NSViewRepresentable {
+    let armed: Bool
+    let act: () -> Void
+
+    func makeNSView(context: Context) -> NSView { Cross() }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        (view as? Cross)?.armed = armed
+        (view as? Cross)?.act = act
+    }
+
+    private final class Cross: NSView {
+        var armed = false
+        var act: () -> Void = {}
+        private var pressed = false
+
+        /// Never the window's to drag from: the press is the cross's.
+        override var mouseDownCanMoveWindow: Bool { false }
+
+        /// Asked about every event over the cross, the pointer moving included;
+        /// only a left press, while the cross shows, is this view's.
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            guard armed, let event = NSApp.currentEvent,
+                  event.type == .leftMouseDown, event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty
+            else { return nil }
+            return super.hitTest(point)
+        }
+
+        override func mouseDown(with event: NSEvent) {
+            pressed = true
+        }
+
+        /// On the release, and only if it is still over the cross: a press
+        /// taken back by moving off before letting go closes nothing.
+        override func mouseUp(with event: NSEvent) {
+            guard pressed else { return }
+            pressed = false
+            if bounds.contains(convert(event.locationInWindow, from: nil)) { act() }
         }
     }
 }
@@ -1336,16 +1420,27 @@ struct Ring: NSViewRepresentable {
             ring.lineWidth = 1.4
             ring.lineCap = .round
             ring.strokeEnd = 0.78
+            // Nothing but the turn moves: a new size or colour is there at
+            // once, not eased into by Core Animation's own quarter second.
+            ring.actions = ["bounds": NSNull(), "position": NSNull(), "path": NSNull(), "strokeColor": NSNull()]
             layer?.addSublayer(ring)
         }
 
         required init?(coder: NSCoder) { nil }
 
+        /// Seen, never pressed: it sits in a tab, over the × while the page
+        /// loads and in the middle of a tab down to its mark, and a real view
+        /// would take the click meant for either.
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
         override func layout() {
             super.layout()
             let inset = ring.lineWidth / 2
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
             ring.frame = bounds
             ring.path = CGPath(ellipseIn: bounds.insetBy(dx: inset, dy: inset), transform: nil)
+            CATransaction.commit()
         }
 
         /// The colour is resolved against the window's appearance, so it is

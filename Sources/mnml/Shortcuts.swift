@@ -195,6 +195,7 @@ struct Command: Identifiable {
             Command("view.askNew", "New AI Chat", .view, KeyCombo("e", shift: true), "A chat in a new tab of its own, about no page until you add one with @.") { $0.newChatTab() },
             Command("view.ask", "Ask About This Tab", .view, KeyCombo("e"), "A chat beside the page about what's on it, this tab's own.") { $0.toggleAsk() },
             Command("view.reload", "Reload Page", .view, KeyCombo("r"), "Loads the page again.") { $0.reload() },
+            Command("view.reloadOrigin", "Reload Page From Origin", .view, KeyCombo("r", option: true), "Loads the page again, nothing from the cache, as Safari's ⌥⌘R.") { $0.reload(fromOrigin: true) },
             Command("view.reader", "Reading Mode", .view, KeyCombo("r", shift: true), "Just the article, set for reading.") { $0.toggleReader() },
             Command("view.float", "Float Video", .view, KeyCombo("p", shift: true), "The video on this page in a window of its own, above everything.") { $0.toggleFloat() },
             Command("view.hide", "Hide Elements…", .view, KeyCombo("h", shift: true), "Click anything on the page to hide it, on this site from then on.") { $0.toggleHiding() },
@@ -286,6 +287,7 @@ struct Command: Identifiable {
             Command("bookmarks.show", "Show Bookmarks…", .bookmarks, nil, "All your bookmarks, to open or tidy.") { $0.bookmarking = true },
             Command("history.show", "Show History…", .history, KeyCombo("y"), "Everywhere you've been, searchable.") { $0.recalling.toggle() },
             Command("history.downloads", "Downloads…", .history, KeyCombo("j", shift: true), "What you've downloaded.") { $0.hoarding.toggle() },
+            Command("history.clearData", "Clear Browsing Data…", .history, KeyCombo("delete", shift: true), "History, cookies and the cache, each on its own.") { $0.recallMode = .clearing },
             Command("history.clear", "Clear History", .history, nil, "Forgets everywhere you've been.") { $0.clearHistory() },
         ]
         return list

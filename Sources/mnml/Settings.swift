@@ -149,7 +149,9 @@ struct SettingsPanel: View {
                 VStack(alignment: .leading, spacing: 18) {
                     switch page {
                     case .general: general
-                    case .tabs: tabs
+                    case .tabs:
+                        tabs
+                    case .shortcuts: ShortcutsPage(browser: browser, store: browser.shortcuts)
                     case .extensions: ExtensionsPage(browser: browser)
                     case .passwords: passwords
                     case .downloads: downloads
@@ -224,6 +226,11 @@ struct SettingsPanel: View {
                 Segmented(options: Look.allCases.map { ($0, $0.title) }, selection: $prefs.look)
             }
             Rule()
+            Line("Page zoom", "Where every site starts. ⌘+ and ⌘− are still remembered for each site.") {
+                // The number itself takes it back to 100%.
+                Steps(stops: Preferences.zooms, value: $prefs.pageZoom, home: 1) { "\(Int(($0 * 100).rounded()))%" }
+            }
+            Rule()
             Line("Correct spelling as you type", "macOS's autocorrect inside pages — the one that capitalises for you") {
                 Switch(on: $prefs.autocorrect)
             }
@@ -250,6 +257,10 @@ struct SettingsPanel: View {
             Rule()
             Line("Flick the floating video to a corner", "Two fingers on it send it to the corner or edge they point at, instead of pushing it along. Dragging still puts it anywhere") {
                 Switch(on: $prefs.floatFlicks)
+            }
+            Rule()
+            Line("Videos wait for a click", "Videos don't start by themselves, even without sound; they play when you press play. Tabs already open follow once closed and opened again, or after they've slept") {
+                Switch(on: $prefs.waitsForPlay)
             }
             Rule()
             Line("Float the video when you switch tabs", "A video playing on YouTube and the like comes out into its floating window when you go to another tab, and back when you return. ⇧⌘P still floats one by hand") {
@@ -435,10 +446,10 @@ struct SettingsPanel: View {
                 }
             }
             Card {
-                Line("Bring yours in", "From Dia, Chrome, Arc, Brave or Edge on this Mac — nothing leaves it") {
+                Line("Bring yours in", "From another browser on this Mac — nothing leaves it") {
                     Pill("Import…") {
                         browser.tuning = false
-                        browser.managing = true
+                        browser.bringingIn = ""
                     }
                 }
             }
@@ -484,6 +495,10 @@ struct SettingsPanel: View {
                             }
                         ))
                     }
+                }
+                Rule()
+                Line("Prevent cross-site tracking", "As in Safari. Off, sites you rarely open keep their sign-ins, and trackers inside other sites can follow you across them again, as in Chrome. Private tabs keep it on") {
+                    Switch(on: Binding(get: { !prefs.keepsSignIns }, set: { prefs.keepsSignIns = !$0 }))
                 }
                 Rule()
                 Line("Camera and microphone", "What each site was allowed or refused") {
@@ -553,8 +568,8 @@ struct SettingsPanel: View {
     private var versionDetail: String {
         switch updater.stage {
         case .none:
-            return updater.lastChecked.map { "Checked \($0.formatted(.relative(presentation: .named))) — once a day on its own" }
-                ?? "Checked once a day on its own"
+            return updater.lastChecked.map { "Checked \($0.formatted(.relative(presentation: .named))) — every hour on its own" }
+                ?? "Checked every hour on its own"
         case .fetching(let next):
             return next.notes ?? "Quietly, in the background — nothing you have set is touched"
         case .ready(let next):
@@ -580,11 +595,9 @@ struct SettingsPanel: View {
             Ring(size: 12)
         case .ready:
             Pill("Relaunch now", filled: true) { updater.relaunch() }
-        case .offered(let next):
-            Pill("Download", filled: true) {
-                browser.tuning = false
-                browser.open(next.dmg, foreground: true)
-            }
+        case .offered:
+            Pill(updater.fetchingDisk ? "Downloading…" : "Download", filled: true) { updater.openDisk() }
+                .disabled(updater.fetchingDisk)
         case .waiting:
             Pill("Install", filled: true) { updater.install() }
         }
@@ -664,6 +677,63 @@ struct Switch: View {
             .contentShape(Capsule())
             .onTapGesture { withAnimation(Motion.settle) { on.toggle() } }
             .animation(Motion.settle, value: on)
+    }
+}
+
+/// A value moved one stop at a time: − and + either side of it, in the same
+/// outlined capsule as a pill. Pressing the value itself takes it home.
+struct Steps: View {
+    let stops: [Double]
+    @Binding var value: Double
+    let home: Double
+    let label: (Double) -> String
+
+    /// The nearest stop either way — a value between stops, from before
+    /// there were stops, still moves to a round one.
+    private var below: Double? { stops.last { $0 < value - 0.001 } }
+    private var above: Double? { stops.first { $0 > value + 0.001 } }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Step(icon: "minus", to: below) { value = $0 }
+            Button { value = home } label: {
+                Text(label(value))
+                    .font(.system(size: 11.5))
+                    .monospacedDigit()
+                    .foregroundStyle(Palette.ink)
+                    .frame(minWidth: 36)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Back to \(label(home))")
+            Step(icon: "plus", to: above) { value = $0 }
+        }
+        .padding(.horizontal, 2)
+        .frame(height: 24)
+        .background(Palette.ground, in: Capsule())
+        .overlay(Capsule().strokeBorder(Palette.hairline, lineWidth: 1))
+    }
+
+    private struct Step: View {
+        let icon: String
+        let to: Double?
+        let act: (Double) -> Void
+        @State private var hovering = false
+
+        var body: some View {
+            Button { if let to { act(to) } } label: {
+                Image(systemName: icon)
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(to == nil ? Palette.faint : Palette.ink)
+                    .frame(width: 20, height: 20)
+                    .background(hovering && to != nil ? Palette.hover : .clear, in: Circle())
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(to == nil)
+            .onHover { hovering = $0 }
+            .animation(Motion.quick, value: hovering)
+        }
     }
 }
 

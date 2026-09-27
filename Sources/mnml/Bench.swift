@@ -289,7 +289,9 @@ final class Bench {
 
         switch verb {
         case "tabs":
-            answer(["tabs": browser.tabs.map(describe)])
+            // A private tab is nobody's business but yours: a test run has none
+            // of yours, so there every tab is listed.
+            answer(["tabs": browser.tabs.filter { Store.testing || !$0.shy }.map(describe)])
 
         case "open":
             guard let url = (request["url"] as? String).flatMap(Address.url(from:)) else {
@@ -334,6 +336,16 @@ final class Bench {
             // a tab has to clear — the answer says which one kept it awake.
             guard let tab = find(request, in: browser) else { answer(missing(request)); return }
             browser.sleep(tab) { said in answer(["said": said, "asleep": tab.asleep]) }
+
+        case "pin":
+            // Pin a tab, or unpin it with "off". Only on a SEARCH_PROBE run.
+            guard Store.testing else { answer(["error": "pin only works on a --test run"]); return }
+            guard let tab = find(request, in: browser) else { answer(missing(request)); return }
+            if request["off"] as? Bool == true { browser.unpin(tab) }
+            else if request["home"] as? Bool == true { browser.goHome(tab) }
+            else { browser.pin(tab) }
+            answer(["pin": tab.pin ?? "", "pinned": browser.pinnedCount, "home": tab.home?.absoluteString ?? "",
+                    "address": tab.address?.absoluteString ?? "", "editingLetter": browser.editingPin == tab.id])
 
         case "select":
             // Picking a tab takes the window over, which the bench never does
@@ -438,6 +450,35 @@ final class Bench {
                 }
             }
 
+        case "middle":
+            // The middle button pressed and let go at X Y of a tab's page (its
+            // own points from the top left), handed to its view as AppKit
+            // would: the page sees trusted mousedown, mouseup and auxclick.
+            // Only on a SEARCH_PROBE run.
+            guard Store.testing else { answer(["error": "middle only works on a --test run"]); return }
+            guard let tab = find(request, in: browser), let x = request["x"] as? Double, let y = request["y"] as? Double
+            else { answer(missing(request)); return }
+            house(tab)
+            let web = tab.web
+            let before = browser.tabs.count
+            let inView = NSPoint(x: x, y: web.isFlipped ? y : web.bounds.height - y)
+            let point = web.convert(inView, to: nil)
+            for type in [NSEvent.EventType.otherMouseDown, .otherMouseUp] {
+                guard let event = NSEvent.mouseEvent(
+                    with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: web.window?.windowNumber ?? 0, context: nil, eventNumber: 0, clickCount: 1,
+                    pressure: type == .otherMouseDown ? 1 : 0
+                ) else { continue }
+                // A made event is button 0; the middle is 2, set on its CG form.
+                guard let cg = event.cgEvent else { continue }
+                cg.setIntegerValueField(.mouseEventButtonNumber, value: 2)
+                let middle = NSEvent(cgEvent: cg) ?? event
+                if type == .otherMouseDown { web.otherMouseDown(with: middle) } else { web.otherMouseUp(with: middle) }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                answer(["tabsBefore": before, "tabsAfter": browser.tabs.count])
+            }
+
         case "shot":
             guard let tab = find(request, in: browser) else { answer(missing(request)); return }
             house(tab)
@@ -457,11 +498,15 @@ final class Bench {
                 "history": browser.recalling,
                 "downloads": browser.hoarding,
                 "bookmarks": browser.bookmarking,
+                "import": browser.bringingIn != nil,
                 "field": browser.editing,
                 "suggesting": browser.suggesting != nil,
                 "offering": browser.offering != nil,
                 "modal": NSApp.modalWindow.map { "\(type(of: $0)) “\($0.title)”" } ?? "",
                 "look": browser.prefs.look.rawValue,
+                "sidebar": browser.prefs.sidebar,
+                "sidePosition": browser.prefs.sidePosition.rawValue,
+                "sideWidth": Double(browser.prefs.sideWidth),
                 "appearance": NSApp.appearance?.name.rawValue ?? "system",
                 "key": NSApp.keyWindow.map { "\(type(of: $0)) “\($0.title)”" } ?? "",
             ]
@@ -476,6 +521,13 @@ final class Bench {
                 ]
             }
             if let window = Links.window { out["lights"] = Bench.lights(of: window) }
+            if let tab = browser.active, let web = tab.built, let window = Links.window, web.window === window {
+                let frame = web.convert(web.bounds, to: nil)
+                out["activePageFrame"] = [
+                    Int(frame.minX), Int(window.frame.height - frame.maxY),
+                    Int(frame.width), Int(frame.height),
+                ]
+            }
             out["keysQuieted"] = PageView.quieted
             out["shortcutAsk"] = browser.shortcutAsk.map { $0.id } ?? ""
             out["listOrigin"] = [Int(Bench.listOrigin.x), Int(Bench.listOrigin.y)]
@@ -496,6 +548,7 @@ final class Bench {
             }
             // The column folded away, out for a look, and the lights with it (see Fold.swift).
             out["peek"] = browser.peekTab?.address?.absoluteString ?? ""
+            out["fetching"] = ["showing": browser.fetches.showing, "fraction": browser.fetches.fraction ?? -1, "done": browser.fetches.done]
             // Where the peek's page sits in the window, from its top-left corner, in points.
             if let web = browser.peekTab?.built, let window = web.window {
                 let r = web.convert(web.bounds, to: nil)
@@ -514,6 +567,7 @@ final class Bench {
             default: out["passkeyAccess"] = "notDetermined"
             }
             out["passkeyAsks"] = Passkeys.asked
+            out["handedOff"] = Browser.handedOff
             out["passkeyLast"] = Passkeys.last
             answer(out)
 
@@ -769,6 +823,89 @@ final class Bench {
                 }
             }
 
+        case "import":
+            // Another browser's passwords, bookmarks and history, brought in
+            // through the same calls the Welcome and the panels make. Only on
+            // a SEARCH_PROBE run, which reads made-up profiles from its own
+            // folder's Import/ (see Chromium.base), never a real browser.
+            guard Store.testing else { answer(["error": "import only works on a --test run"]); return }
+            let found = ImportSource.installed()
+            guard let source = found.first(where: { $0.name == request["from"] as? String }) else {
+                answer(["found": found.map(\.name)])
+                return
+            }
+            // The profile used most recently unless another is named, by its
+            // folder or the name the browser gives it; "all" for every one.
+            let profile: String?
+            switch request["profile"] as? String {
+            case nil: profile = source.usual
+            case "all": profile = nil
+            case let name?:
+                guard let match = source.profiles.first(where: { $0.id == name || $0.name == name }) else {
+                    answer(["error": "no profile “\(name)” in \(source.name)", "profiles": source.profiles.map(\.id)])
+                    return
+                }
+                profile = match.id
+            }
+            let what = request["what"] as? [String] ?? []
+            var out: [String: Any] = ["found": found.map(\.name), "profiles": source.profiles.map(\.id),
+                                      "profile": profile ?? "all"]
+            if what.contains("bookmarks") {
+                let (added, already) = browser.bookmarks.take(source.bookmarks(profile: profile), from: source.name)
+                out["bookmarks"] = ["added": added, "already": already, "total": browser.bookmarks.count,
+                                    "top": browser.bookmarks.roots.map(\.title)]
+            }
+            if what.contains("history") {
+                let places = source.places(profile: profile)
+                for place in places { browser.history.take(place.url, title: place.title, count: place.count, last: place.last) }
+                browser.history.settle()
+                out["places"] = places.count
+            }
+            if what.contains("passwords") {
+                let outcome = Result { try source.read(profile: profile) }
+                switch outcome {
+                case .success(let read): out["read"] = read.logins.count; out["skipped"] = read.skipped
+                case .failure(let error): out["error"] = "\(error)"
+                }
+                browser.took(outcome, from: source.name)
+                out["saved"] = browser.saved.count
+            }
+            answer(out)
+
+        case "import-preview":
+            // What the sheet counts as it opens, for every browser found:
+            // its profiles, the one used most recently, and what that one
+            // and all of them hold — through the same call the sheet makes,
+            // which never asks for a key. Only on a SEARCH_PROBE run.
+            guard Store.testing else { answer(["error": "import-preview only works on a --test run"]); return }
+            let asked = Chromium.keyAsks
+            func counts(_ preview: ImportSource.Preview) -> [String: Any] {
+                ["bookmarks": preview.bookmarks, "places": preview.places, "passwords": preview.passwords,
+                 "extensions": preview.extensions]
+            }
+            let found = ImportSource.installed().map { source -> [String: Any] in
+                let usual = source.usual
+                return ["name": source.name,
+                        "profiles": source.profiles.map { ["id": $0.id, "name": $0.name] },
+                        "default": usual ?? "",
+                        "counts": counts(source.preview(profile: usual)),
+                        "all": counts(source.preview(profile: nil))]
+            }
+            // keyAsked: by this count; keyAskedEver: by anything since launch,
+            // the sheet opening included.
+            answer(["browsers": found, "safari": ImportSource.safari, "keyAsked": Chromium.keyAsks - asked,
+                    "keyAskedEver": Chromium.keyAsks])
+
+        case "import-file":
+            // A file another browser exported, through the same call the
+            // File… buttons make after their chooser. Only on a SEARCH_PROBE run.
+            guard Store.testing else { answer(["error": "import-file only works on a --test run"]); return }
+            guard let path = request["path"] as? String else { answer(["error": "import-file needs a path"]); return }
+            let took = browser.takeFile(URL(fileURLWithPath: path))
+            answer(["said": took.said, "bookmarks": took.bookmarks, "already": took.already, "places": took.places,
+                    "kept": took.kept, "skipped": took.skipped, "total": browser.bookmarks.count,
+                    "top": browser.bookmarks.roots.map(\.title), "saved": browser.saved.count])
+
         case "menu":
             // The Bookmarks menu as it is about to open: the menu bar
             // told it is being tracked, SwiftUI's own update run on it, its
@@ -829,6 +966,33 @@ final class Bench {
                 }
             }
 
+        case "fill":
+            // What the window spends on the page scrolling: the page's report
+            // of where it is, STEPS times, 8 ms apart, each timed until the
+            // run loop rests again — SwiftUI's update and Core Animation's
+            // commit included. For the reading fill and what watches the tab.
+            guard Store.testing else { answer(["error": "fill only works on a --test run"]); return }
+            guard let tab = browser.active else { answer(["error": "no tab"]); return }
+            let steps = request["steps"] as? Int ?? 200
+            var times: [Double] = []
+            @MainActor func step(_ n: Int) {
+                guard n < steps else {
+                    let sorted = times.sorted()
+                    answer(["steps": steps, "median": sorted[sorted.count / 2], "p90": sorted[sorted.count * 9 / 10],
+                            "total": times.reduce(0, +), "reading": tab.reading])
+                    return
+                }
+                let start = CACurrentMediaTime()
+                // Down and back, half a percent at a time.
+                let at = Double(n % 200 < 100 ? n % 100 : 100 - n % 100) / 100
+                tab.scrolled(to: at * 4000, of: 4000)
+                Bench.whenResting(since: start) { ms in
+                    times.append(ms)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.008) { step(n + 1) }
+                }
+            }
+            step(0)
+
         case "peek":
             // A link's page in the peek panel over the tab in front, as a
             // shift-click on it would open it (see Peek.swift); "close" puts
@@ -876,7 +1040,7 @@ final class Bench {
         case "place":
             // A tab put at another place in the row, as a drag would.
             guard let id = request["id"] as? String, let to = request["to"] as? Int,
-                  let tab = browser.tabs.first(where: { Bench.short($0) == id })
+                  let tab = browser.tabs.first(where: { Bench.short($0) == id && (Store.testing || $0.bench) })
             else { answer(["error": "place needs a tab id and an index"]); return }
             browser.move(tab, to: to)
             answer(["at": browser.tabs.firstIndex { $0.id == tab.id } ?? -1])
@@ -891,6 +1055,16 @@ final class Bench {
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                 answer(["fullscreen": window.styleMask.contains(.fullScreen)])
             }
+
+        case "tospace":
+            // Move to Space from a tab's menu, to the Nth space. Test runs only.
+            guard Store.testing else { answer(["error": "tospace only works on a --test run"]); return }
+            guard let id = request["id"] as? String, let index = request["index"] as? Int,
+                  let tab = browser.tabs.first(where: { Bench.short($0) == id }),
+                  browser.spaces.indices.contains(index - 1)
+            else { answer(["error": "tospace needs a tab id and a space number"]); return }
+            browser.move(tab, toSpace: browser.spaces[index - 1].id)
+            answer(["space": browser.spaces[index - 1].name, "tabs": browser.tabs.map(Bench.short)])
 
         case "window":
             // The browser's window, when a probe started hidden came up
@@ -1228,6 +1402,21 @@ final class Bench {
                 ] as [String: Any]
             }, "row": browser.tabs.map { String($0.id.uuidString.prefix(8)).lowercased() }])
 
+        case "update":
+            // The updater, for a test run pointed at its own feed: `check`
+            // is the menu's Check for Updates…, `disk` the Download button.
+            guard Store.testing else { answer(["error": "update only works on a --test run"]); return }
+            let updater = Updater.shared
+            switch request["action"] as? String {
+            case "check": updater.checkByHand()
+            case "disk": updater.openDisk()
+            default: break
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                answer(["stage": String(describing: updater.stage), "checking": updater.checking,
+                        "disk": Updater.diskVerdict, "fetchingDisk": updater.fetchingDisk])
+            }
+
         case "consent":
             // The mark the Settings switch leaves (see Consent), in this test
             // world's own account: given, then granted or revoked if asked.
@@ -1288,6 +1477,7 @@ final class Bench {
         case "site":
             // The site card for the tab on screen, or one step in on its
             // connection, drawn off screen (see SiteCard.swift).
+            guard Store.testing else { answer(["error": "site only works on a --test run — it would picture your tab"]); return }
             guard let path = request["path"] as? String else { answer(["error": "site needs a path"]); return }
             guard let tab = browser.active, !tab.isBlank else { answer(["error": "no page on screen"]); return }
             let deeper = request["security"] as? Bool == true
@@ -1312,6 +1502,7 @@ final class Bench {
         case "column":
             // The column of tabs, drawn off screen at its width, with what the
             // browser has now — the rows, the card for a new space, the dots.
+            guard Store.testing else { answer(["error": "column only works on a --test run — it would picture your tabs"]); return }
             guard let path = request["path"] as? String else { answer(["error": "column needs a path"]); return }
             let height = request["height"] as? Double ?? 600
             let width = Double(browser.prefs.sideWidth)
@@ -1402,13 +1593,27 @@ final class Bench {
             // Open or close the app's own panels, to reproduce what a person
             // did without a person.
             if let on = request["settings"] as? Bool { browser.tuning = on }
-            if let on = request["passwords"] as? Bool { browser.managing = on }
+            if let on = request["passwords"] as? Bool, Store.testing { browser.managing = on }
             if let on = request["welcome"] as? Bool { browser.welcoming = on }
             if let on = request["history"] as? Bool { browser.recalling = on }
             if let on = request["downloads"] as? Bool { browser.hoarding = on }
             if let on = request["bookmarks"] as? Bool { browser.bookmarking = on }
+            // The Bring things over sheet: on, off, on at a browser by name,
+            // or on for the extensions alone, as Settings › Extensions opens it.
+            if let text = request["import"] as? String {
+                browser.bringingExtensions = text == "extensions"
+                browser.bringingIn = ["off", "false", "0", "no"].contains(text) ? nil
+                    : ["on", "true", "1", "yes", "extensions"].contains(text) ? "" : text
+            }
             if let on = request["hidden"] as? Bool { browser.reviewing = on }
             if let look = (request["look"] as? String).flatMap(Look.init) { browser.prefs.look = look }
+            if let side = request["side"] as? String {
+                guard let position = SidebarPosition(rawValue: side) else {
+                    answer(["error": "side needs left or right"])
+                    return
+                }
+                browser.prefs.sidePosition = position
+            }
             if let on = request["pages120"] as? Bool { browser.prefs.fastPages = on }
             if let on = request["sidebar"] as? Bool { browser.prefs.sidebar = on }
             if let on = request["spaces"] as? Bool { browser.prefs.usesSpaces = on }
@@ -1568,8 +1773,11 @@ final class Bench {
         [
             "id": Bench.short(tab),
             "url": tab.address?.absoluteString ?? "",
+            "page": tab.pageAddress?.absoluteString ?? "",
             "title": tab.title,
             "name": tab.name ?? "",
+            // The group it is in, by name, whether or not groups are on.
+            "group": tab.group.flatMap { id in browser?.group(id)?.name } ?? "",
             "loading": tab.loading,
             "hollow": tab.hollow,
             "view": tab.built?.url?.absoluteString ?? "",
@@ -1580,6 +1788,8 @@ final class Bench {
             "noisy": tab.noisy,
             "muted": tab.muted,
             "extensions": { if #available(macOS 15.4, *) { return tab.carriesExtensions } else { return false } }(),
+            // The page's WebKit process, for measuring what it holds.
+            "process": tab.built.flatMap { $0.value(forKey: "_webProcessIdentifier") as? Int } ?? 0,
         ]
     }
 

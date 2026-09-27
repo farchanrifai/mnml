@@ -24,6 +24,14 @@ final class Favicons {
     private var absent: Set<String> = []
 
     private static var folder: URL { Store.folder.appendingPathComponent("icons", isDirectory: true) }
+
+    /// Clear History: every icon kept on disk goes. The tabs open now keep
+    /// theirs until they are closed.
+    func forgetAll() {
+        try? FileManager.default.removeItem(at: Favicons.folder)
+        missing.removeAll()
+        absent.removeAll()
+    }
     private static func file(_ key: String) -> URL { folder.appendingPathComponent(key + ".png") }
 
     /// Whether the chrome is dark right now. A site that declares an icon
@@ -40,8 +48,21 @@ final class Favicons {
     /// What is already known, and nothing fetched. In the dark, the dark
     /// variant when there is one, the ordinary icon otherwise.
     func cached(_ host: String) -> NSImage? {
-        if Favicons.dark, let hit = known(Favicons.key(host, dark: true)) { return hit }
-        return known(host)
+        let normalized = host.lowercased()
+        if let hit = match(normalized) { return hit }
+        if normalized.hasPrefix("www.") {
+            let bare = String(normalized.dropFirst(4))
+            if let hit = match(bare) { return hit }
+        } else {
+            let www = "www." + normalized
+            if let hit = match(www) { return hit }
+        }
+        return nil
+    }
+
+    private func match(_ key: String) -> NSImage? {
+        if Favicons.dark, let hit = known(Favicons.key(key, dark: true)) { return hit }
+        return known(key)
     }
 
     private func known(_ key: String) -> NSImage? {
@@ -98,7 +119,7 @@ final class Favicons {
         // light icon is not enough on its own — the site may offer a dark
         // one that has never been asked for — so the page is asked.
         if Favicons.fresh(Favicons.key(host, dark: dark)), let known = known(Favicons.key(host, dark: dark)) {
-            tab.icon = known
+            if tab.address?.host()?.lowercased() == host { tab.icon = known }
             return
         }
         guard !busy.contains(host), !missing.contains(host) else { return }
@@ -114,7 +135,9 @@ final class Favicons {
                 // No dark variant here after all, and the ordinary one is
                 // fresh: it is the one to wear.
                 if !wantDark, Favicons.fresh(key), let known = self.known(key) {
-                    tab?.icon = known
+                    if tab?.address?.host()?.lowercased() == host {
+                        tab?.icon = known
+                    }
                     self.busy.remove(host)
                     return
                 }
@@ -213,8 +236,9 @@ final class Favicons {
               let png = rep.representation(using: .png, properties: [:])
         else { return }
         let file = Favicons.file(key)
+        let dir = folder
         DispatchQueue.global(qos: .utility).async {
-            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
             try? png.write(to: file, options: .atomic)
         }
     }
@@ -225,7 +249,8 @@ final class Favicons {
     private static func rank(_ declared: [[String: String]], page: URL, dark: Bool) -> [URL] {
         var scored: [(URL, Int)] = []
         for entry in declared {
-            guard let href = entry["href"], let url = URL(string: href),
+            guard let href = entry["href"],
+                  let url = URL(string: href, relativeTo: page)?.absoluteURL,
                   url.scheme?.hasPrefix("http") == true
             else { continue }
             let rel = entry["rel"] ?? ""
