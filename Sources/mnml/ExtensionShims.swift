@@ -29,6 +29,9 @@ enum ExtensionShims {
     /// Search's passkey patch, put first in every script an extension runs in
     /// a page's own world (see Passkeys.swift, and `first` in the script).
     nonisolated static let passkeys = "search-passkeys.js"
+    /// A website's way to message an extension that lets it
+    /// (externally_connectable), in the page's own world (see `external`).
+    nonisolated static let externalFile = "search-external.js"
     /// The first line of a worker that already carries the shim.
     nonisolated static let marker = "/* mnml: Chrome APIs WebKit lacks, filled in (ExtensionShims.swift) */"
     nonisolated static let ender = "/* mnml: end of shim */"
@@ -40,7 +43,7 @@ enum ExtensionShims {
     /// every script and page an extension ships.
     nonisolated static let stamp = ".search-shim"
     nonisolated static let version: String = {
-        SHA256.hash(data: Data((script + PasskeyRelay.page).utf8)).prefix(8).map { String(format: "%02x", $0) }.joined() + (Store.testing ? "-test" : "")
+        SHA256.hash(data: Data((script + PasskeyRelay.page + external).utf8)).prefix(8).map { String(format: "%02x", $0) }.joined() + (Store.testing ? "-test" : "")
     }()
 
     /// `fresh`: a package just unpacked or copied in. What only Search writes
@@ -132,6 +135,26 @@ enum ExtensionShims {
             }
         }
 
+        // Websites it lets message it (externally_connectable): Chrome gives
+        // them chrome.runtime.sendMessage(extensionId, …); WebKit doesn't,
+        // and Claude's sign-in ended on "Authorization failed". A script in
+        // those pages' own world gives it them, and the extension's own
+        // content script carries the message to its worker (the shim).
+        if let pages = (manifest["externally_connectable"] as? [String: Any])?["matches"] as? [String], !pages.isEmpty {
+            try external.write(to: folder.appendingPathComponent(externalFile), atomically: true, encoding: .utf8)
+            var entries = manifest["content_scripts"] as? [[String: Any]] ?? []
+            entries.removeAll { ($0["js"] as? [String]) == [externalFile] }
+            entries.append(["matches": pages, "js": [externalFile], "world": "MAIN", "run_at": "document_start"])
+            // Its carrier: the shim, in the extension's own world there too.
+            if !entries.contains(where: { entry in
+                (entry["world"] as? String)?.uppercased() != "MAIN"
+                    && (entry["matches"] as? [String]).map { Set(pages).isSubset(of: $0) || $0.contains("<all_urls>") } == true
+            }) {
+                entries.append(["matches": pages, "js": [file], "run_at": "document_start"])
+            }
+            manifest["content_scripts"] = entries
+        }
+
         let data = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .withoutEscapingSlashes])
         try data.write(to: manifestURL, options: .atomic)
 
@@ -207,6 +230,47 @@ enum ExtensionShims {
 
     /// Defines only what is missing, so the day WebKit implements an API,
     /// WebKit's is the one used.
+    /// search-external.js: chrome.runtime.sendMessage(extensionId, message)
+    /// for a website an extension lets message it. Posted to the page's own
+    /// window, where that extension's content script (the shim) picks up
+    /// what's for it; the answer comes back the same way. WebKit's own is
+    /// left alone where there is one.
+    nonisolated static let external = #"""
+    (() => {
+      if (window.__mnmlExternal) return;
+      const waiting = new Map();
+      let n = 0;
+      window.__mnmlExternal = true;
+      window.addEventListener("message", (event) => {
+        const r = event.source === window && event.data && event.data.__mnmlExternalReply;
+        const w = r && waiting.get(r.n);
+        if (!w) return;
+        waiting.delete(r.n);
+        r.error ? w.reject(new Error(r.error)) : w.resolve(r.value);
+      });
+      const chrome = window.chrome || (window.chrome = {});
+      const runtime = chrome.runtime || (chrome.runtime = {});
+      if (typeof runtime.sendMessage === "function") return;
+      runtime.sendMessage = function (extensionId, message, options, callback) {
+        if (typeof options === "function") { callback = options; options = undefined; }
+        const asked = ++n;
+        const answer = new Promise((resolve, reject) => {
+          waiting.set(asked, { resolve, reject });
+          // No extension by that id here answers: Chrome's own error.
+          setTimeout(() => {
+            if (waiting.delete(asked)) reject(new Error("Could not establish connection. Receiving end does not exist."));
+          }, 30000);
+        });
+        window.postMessage({ __mnmlExternal: { to: String(extensionId), n: asked, message } }, location.origin);
+        if (typeof callback === "function") {
+          answer.then((value) => callback(value), () => callback(undefined));
+          return;
+        }
+        return answer;
+      };
+    })();
+    """#
+
     nonisolated static let script = #"""
     (() => {
       const root = globalThis;
@@ -842,6 +906,8 @@ enum ExtensionShims {
         const add = event.addListener.bind(event);
         const remove = event.removeListener.bind(event);
         const listeners = new Set();
+        // The worker hands websites' messages to these (__searchExternal).
+        if (!told && event === runtime.onMessageExternal) root.__searchExternalListeners = listeners;
         let attached = false;
         const dispatch = function (message, sender, respond) {
           let settled = false, keep = false;
@@ -884,6 +950,35 @@ enum ExtensionShims {
             });
             return true;
           }
+          // A website's message to this extension (externally_connectable),
+          // carried by the extension's own script in that page (see
+          // `external` below): the worker hands it to onMessageExternal as
+          // Chrome would — only from a page the manifest lets in, and with
+          // the page's origin, which WebKit doesn't give (Claude's sign-in
+          // checks it).
+          if (message && message.__searchExternal && told) {
+            if (!background) return;
+            if (!fromHere) return;
+            const page = (() => { try { return new URL(sender.url); } catch (e) { return null; } })();
+            const allowed = ((runtime.getManifest().externally_connectable || {}).matches || []).some((pattern) => {
+              const glob = "^" + String(pattern).replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*") + "$";
+              try { return page && new RegExp(glob).test(page.href); } catch (e) { return false; }
+            });
+            if (!page || !allowed) { sendResponse({ __searchExternalError: "not allowed" }); return; }
+            const external = root.__searchExternalListeners;
+            if (!external || !external.size) { sendResponse({ __searchExternalError: "no listener" }); return; }
+            const from = { url: page.href, origin: page.origin, tab: sender.tab, frameId: sender.frameId };
+            let kept = false, answered = false;
+            const reply = (value) => { if (!answered) { answered = true; sendResponse({ value }); } };
+            for (const listener of [...external]) {
+              let result;
+              try { result = listener(message.__searchExternal, from, reply); } catch (e) { setTimeout(() => { throw e; }); continue; }
+              if (result === true) kept = true;
+              else if (result && typeof result.then === "function") { kept = true; result.then(reply, () => reply(undefined)); }
+            }
+            if (!kept) reply(undefined);
+            return true;
+          }
           // A call one of the extension's pages in a website's frame can't
           // make itself (see `embedded`), made here for it — and only for
           // one of its pages: a content script gets no more than Chrome
@@ -901,6 +996,11 @@ enum ExtensionShims {
             return true;
           }
           sender = untabbed(sender);
+          // WebKit's sender for a website's message has its address, not
+          // Chrome's `origin`, which extensions check (Claude's sign-in).
+          if (!told && sender && !sender.origin && sender.url) {
+            try { sender = Object.assign({}, sender, { origin: new URL(sender.url).origin }); } catch (e) {}
+          }
           for (const listener of [...listeners]) {
             let result;
             try { result = listener(message, sender, sendResponse); } catch (e) { setTimeout(() => { throw e; }); continue; }
@@ -1165,6 +1265,25 @@ enum ExtensionShims {
 
       gather(runtime && runtime.onMessage, true);
       gather(runtime && runtime.onMessageExternal);
+
+      // A website's chrome.runtime.sendMessage(extensionId, …), from
+      // search-external.js in the page's own world: this extension's script
+      // in the page carries it to the worker and the answer back.
+      // Once per page, however many of the extension's content scripts
+      // carry the shim: carried twice, a sign-in's code would be spent on
+      // the first and fail the second.
+      if (inContent && typeof window !== "undefined" && window.top === window && !root.__searchExternalRelay) {
+        root.__searchExternalRelay = true;
+        window.addEventListener("message", (event) => {
+          const asked = event.source === window && event.data && event.data.__mnmlExternal;
+          if (!asked || asked.to !== runtime.id) return;
+          const answer = (value, error) => window.postMessage({ __mnmlExternalReply: { n: asked.n, value, error } }, location.origin);
+          Promise.resolve(runtime.sendMessage({ __searchExternal: asked.message })).then((reply) => {
+            if (reply && reply.__searchExternalError) answer(undefined, "Could not establish connection. Receiving end does not exist.");
+            else answer(reply && reply.value);
+          }, (e) => answer(undefined, String(e && e.message || e)));
+        });
+      }
 
       // Whole namespaces WebKit lacks, answered by the browser.
       const define = (name, methods, events = [], extra = {}) => {
