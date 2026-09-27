@@ -55,6 +55,7 @@ final class Favicons {
             absent.insert(key)
             return nil
         }
+        image.isTemplate = Favicons.isMonochromeMark(image)
         memory[key] = image
         return image
     }
@@ -180,8 +181,30 @@ final class Favicons {
                 fraction: 1
             )
             out.unlockFocus()
+            out.isTemplate = Favicons.isMonochromeMark(out)
             return out
         }.value
+    }
+
+    /// A transparent, nearly monochrome mark should use the chrome's ink:
+    /// many sites offer one black SVG even when the sidebar is dark. Coloured
+    /// icons and opaque tiles keep the site's pixels.
+    nonisolated static func isMonochromeMark(_ image: NSImage) -> Bool {
+        guard let tiff = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiff) else { return false }
+        let step = max(1, min(bitmap.pixelsWide, bitmap.pixelsHigh) / 32)
+        var samples = 0, visible = 0, neutral = 0
+        for y in stride(from: 0, to: bitmap.pixelsHigh, by: step) {
+            for x in stride(from: 0, to: bitmap.pixelsWide, by: step) {
+                samples += 1
+                guard let color = bitmap.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                      color.alphaComponent > 0.2 else { continue }
+                visible += 1
+                let channels = [color.redComponent, color.greenComponent, color.blueComponent]
+                if (channels.max() ?? 0) - (channels.min() ?? 0) < 0.08 { neutral += 1 }
+            }
+        }
+        return visible > 0 && visible * 10 < samples * 7 && neutral * 20 >= visible * 19
     }
 
     private static func keep(_ image: NSImage, for key: String) {
@@ -270,7 +293,9 @@ struct Mark: View {
             if let icon {
                 Image(nsImage: icon)
                     .resizable()
+                    .renderingMode(icon.isTemplate ? .template : .original)
                     .interpolation(.high)
+                    .foregroundStyle(Palette.ink)
                     .frame(width: size, height: size)
                     .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
             } else {

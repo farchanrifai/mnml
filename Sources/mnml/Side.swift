@@ -54,9 +54,9 @@ struct SideBar: View {
     @State private var pinFrom = 0
     @State private var pinTravel: CGSize = .zero
 
-    private static let row: CGFloat = 28
-    private static let gap: CGFloat = 2
-    private static let square: CGFloat = 34
+    private static let row: CGFloat = 32
+    private static let gap: CGFloat = 3
+    private static let square: CGFloat = 38
     private static let pinGap: CGFloat = 6
 
     // The column's highlights: the ink, see-through, rather than a grey of
@@ -89,7 +89,7 @@ struct SideBar: View {
         })
     }
     /// The narrowest a pinned square gets before a row takes one fewer.
-    private static let pinCell: CGFloat = 34
+    private static let pinCell: CGFloat = 36
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -252,7 +252,7 @@ struct SideBar: View {
                 VStack(alignment: .leading, spacing: 0) {
                     if browser.pinnedCount > 0 {
                         pinned
-                            .padding(.bottom, 10)
+                            .padding(.bottom, 12)
                     }
                     // A row too long for the window scrolls between the pins
                     // and the foot, rather than running under the lights at one
@@ -330,8 +330,9 @@ struct SideBar: View {
                                       pill: pill, width: width, height: height)
                         }
                     }
+                    .padding(.horizontal, -4)
                 }
-                .padding(.bottom, 10)
+                .padding(.bottom, 12)
             }
             newTab(at: .top)
             VStack(spacing: SideBar.gap) {
@@ -362,7 +363,7 @@ struct SideBar: View {
     /// narrow one wraps sooner. One or two pins sit in those same places
     /// with the rest empty, rather than stretching across the row.
     private func pinColumns() -> Int {
-        let room = prefs.sideWidth - 20 + SideBar.pinGap
+        let room = prefs.sideWidth - 12 + SideBar.pinGap
         return max(3, Int(room / (SideBar.pinCell + SideBar.pinGap)))
     }
 
@@ -375,7 +376,7 @@ struct SideBar: View {
     private func pinWidth(for count: Int) -> CGFloat {
         let cols = pinColumns()
         guard cols > 0 else { return SideBar.square }
-        let available = prefs.sideWidth - 20 - CGFloat(cols - 1) * SideBar.pinGap
+        let available = prefs.sideWidth - 12 - CGFloat(cols - 1) * SideBar.pinGap
         return max(20, available / CGFloat(cols))
     }
 
@@ -416,6 +417,7 @@ struct SideBar: View {
                 .gesture(pinReorder(tab: tab, index: index, columns: cols, width: width, height: height))
             }
         } }
+        .padding(.horizontal, -4)
         .coordinateSpace(name: "pins")
     }
 
@@ -586,7 +588,7 @@ struct SideBar: View {
             GroupBlock(browser: browser, group: group, members: members, row: { tabRow($0) })
                 // Room around a group whose tabs show, so two in a row don't
                 // run together; folded to its name alone it is spaced like a tab.
-                .padding(.vertical, group.open || members.contains { $0.id == group.peek } ? 6 : 0)
+                .padding(.vertical, group.open || members.contains { $0.id == group.peek } ? 8 : 0)
                 .opacity(held == .group(group.id) ? 0 : 1)
         }
     }
@@ -946,8 +948,8 @@ private struct PinSquare: View {
     @ObservedObject var tab: Tab
     let live: Bool
     let pill: Namespace.ID
-    var width: CGFloat = 34
-    var height: CGFloat = 34
+    var width: CGFloat = 36
+    var height: CGFloat = 38
 
     @State private var hovering = false
 
@@ -1023,7 +1025,7 @@ struct SideRow: View {
         HStack(spacing: 8) {
             if editing {
                 TabAddressField(browser: browser)
-                    .frame(height: 16)
+                    .frame(height: 17)
             } else {
                 if tab.pin == nil, tab.strayed {
                     // In a pinned group and wandered off: the icon and a "/",
@@ -1035,9 +1037,9 @@ struct SideRow: View {
                             Image(systemName: "arrow.uturn.backward")
                                 .font(.system(size: 10, weight: .semibold))
                                 .foregroundStyle(Palette.ink)
-                                .frame(width: 15, height: 15)
+                                .frame(width: 16, height: 16)
                         } else if prefs.glyph == .icons {
-                            Mark(icon: tab.icon, letter: tab.monogram, size: 15)
+                            Mark(icon: tab.icon, letter: tab.monogram, size: 16)
                         }
                         Text("/")
                             .font(.system(size: 13, weight: .light))
@@ -1062,7 +1064,7 @@ struct SideRow: View {
                     .animation(Motion.quick, value: homeHover)
                     .help("Back to Pinned URL")
                 } else if prefs.glyph == .icons, !tab.isBlank {
-                    Mark(icon: tab.icon, letter: tab.monogram, size: 15)
+                    Mark(icon: tab.icon, letter: tab.monogram, size: 16)
                 }
                 if tab.bench {
                     // A script's tab, not yours.
@@ -1082,10 +1084,10 @@ struct SideRow: View {
                 // Laid over room the row gives it, so a long title can't widen
                 // the row.
                 Color.clear
-                    .frame(maxWidth: .infinity, minHeight: 16, maxHeight: 16)
+                    .frame(maxWidth: .infinity, minHeight: 17, maxHeight: 17)
                     .overlay(alignment: .leading) {
                         Text(tab.label)
-                            .font(.system(size: 12.5))
+                            .font(.system(size: 13.5, weight: live ? .medium : .regular))
                             .lineLimit(1)
                             .fixedSize()
                             .foregroundStyle(colour)
@@ -1123,7 +1125,7 @@ struct SideRow: View {
                     .frame(width: 15, height: 15)
                     .overlay {
                         Color.clear
-                            .frame(width: 30, height: 28)
+                            .frame(width: 30, height: 32)
                             .contentShape(Rectangle())
                             .onTapGesture { if hovering { close() } }
                             .allowsHitTesting(hovering)
@@ -1136,7 +1138,7 @@ struct SideRow: View {
         }
         .padding(.leading, 10)
         .padding(.trailing, editing ? 10 : 7)
-        .frame(height: 28)
+        .frame(height: 32)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background { ground }
         .modifier(Shake(travel: shake))
@@ -1214,7 +1216,7 @@ struct SideRow: View {
 
     private var colour: Color {
         if live { return Palette.ink }
-        return hovering ? Palette.ink.opacity(0.7) : Palette.muted
+        return Palette.ink.opacity(hovering ? 0.9 : 0.78)
     }
 }
 
@@ -1234,7 +1236,7 @@ struct Quiet: View {
                     .font(.system(size: 10, weight: .medium))
                     .frame(width: 15)
                 Text(title)
-                    .font(.system(size: 12.5))
+                    .font(.system(size: 13))
                 Spacer(minLength: 0)
             }
             .foregroundStyle(hovering ? Palette.ink.opacity(0.7) : SideBar.faintText)
