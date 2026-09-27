@@ -16,12 +16,13 @@ struct SettingsPanel: View {
     @State private var hovered: Page?
 
     enum Page: String, CaseIterable, Identifiable {
-        case general, tabs, shortcuts, extensions, passwords, downloads, privacy, about
+        case general, tabs, ai, shortcuts, extensions, passwords, downloads, privacy, about
         var id: String { rawValue }
         var title: String {
             switch self {
             case .general: return "General"
             case .tabs: return "Tabs"
+            case .ai: return "AI"
             case .shortcuts: return "Shortcuts"
             case .extensions: return "Extensions"
             case .passwords: return "Passwords"
@@ -34,6 +35,7 @@ struct SettingsPanel: View {
             switch self {
             case .general: return "macwindow"
             case .tabs: return "rectangle.split.3x1"
+            case .ai: return "sparkles"
             case .shortcuts: return "keyboard"
             case .extensions: return "puzzlepiece.extension"
             case .passwords: return "key"
@@ -151,6 +153,7 @@ struct SettingsPanel: View {
                     case .extensions: ExtensionsPage(browser: browser)
                     case .passwords: passwords
                     case .downloads: downloads
+                    case .ai: AISettings(prefs: prefs)
                     case .privacy: privacy
                     case .about: about
                     case .shortcuts: EmptyView()
@@ -699,5 +702,82 @@ struct TabMemory: View {
                 }
             }
         }
+    }
+}
+
+/// Settings › AI: the Gemini key the chat beside a page uses (Ask.swift),
+/// which model, where the chat shows, and the chats kept.
+private struct AISettings: View {
+    @ObservedObject var prefs: Preferences
+    @State private var key = GeminiKey.read()
+    @State private var typed = ""
+    @State private var changing = false
+    @State private var kept = Chat.history().count
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            Card {
+                Line("Gemini key", "Free from Google AI Studio. On the free tier Google may use what you send to improve its models.") {
+                    if let key, !changing {
+                        HStack(spacing: 6) {
+                            Text("••••\(key.suffix(4))").font(.system(size: 12, design: .monospaced)).foregroundStyle(Palette.muted)
+                            Pill("Change") { changing = true }
+                            Pill("Remove") {
+                                GeminiKey.keep("")
+                                self.key = nil
+                            }
+                        }
+                    } else {
+                        Link("Get a key", destination: URL(string: "https://aistudio.google.com/apikey")!)
+                            .font(.system(size: 12))
+                    }
+                }
+                if key == nil || changing {
+                    HStack(spacing: 6) {
+                        SecureField("Paste the key", text: $typed)
+                            .textFieldStyle(.plain)
+                            .font(.system(size: 12.5))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 7)
+                            .background(Palette.wash, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                            .onSubmit(save)
+                        Pill("Save", filled: true, action: save)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.bottom, 11)
+                }
+                Rule()
+                Line("Model", "Flash reads tables and PDFs best; Flash-Lite is quicker and has more room on the free tier") {
+                    Segmented(options: Gemini.models.map { ($0.0, $0.1) }, selection: $prefs.askModel)
+                }
+                Rule()
+                Line("Chat shows", "⌘E on a page. ⇧⌘E opens a chat in a new tab of its own") {
+                    Segmented(options: AskMode.allCases.map { ($0, $0.title) }, selection: $prefs.askMode)
+                }
+            }
+            Card {
+                Line("Past chats", kept == 0 ? "None kept yet" : "\(kept) kept on this Mac") {
+                    Pill("Delete All…") {
+                        let alert = NSAlert()
+                        alert.messageText = "Delete all past chats?"
+                        alert.informativeText = "They can't be brought back. Chats open on tabs stay until you close them."
+                        alert.addButton(withTitle: "Delete All")
+                        alert.addButton(withTitle: "Cancel")
+                        guard alert.runModal() == .alertFirstButtonReturn else { return }
+                        Chat.forgetAll()
+                        kept = 0
+                    }
+                    .disabled(kept == 0)
+                }
+            }
+        }
+    }
+
+    private func save() {
+        guard !typed.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+        GeminiKey.keep(typed)
+        key = GeminiKey.read()
+        typed = ""
+        changing = false
     }
 }

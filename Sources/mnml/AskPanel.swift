@@ -159,9 +159,10 @@ struct AskPanel: View {
             Spacer()
             if keyed {
                 VStack(alignment: .leading, spacing: 8) {
-                    Label("Ask This Tab", systemImage: "sparkles")
+                    Label(tab.isBlank ? "New Chat" : "Ask This Tab", systemImage: "sparkles")
                         .font(.system(size: 11.5, weight: .semibold))
-                    Text("Grammar-check what I highlighted, or how much is the total here?")
+                    Text(tab.isBlank ? "Draft a reply to the email in @Gmail, or ask anything at all."
+                                     : "Grammar-check what I highlighted, or how much is the total here?")
                         .font(.system(size: 11.5))
                         .foregroundStyle(Palette.muted)
                 }
@@ -170,10 +171,10 @@ struct AskPanel: View {
                 .background(Palette.ink.opacity(0.06), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .rotationEffect(.degrees(-4))
                 VStack(spacing: 3) {
-                    Text("Ask about this page")
+                    Text(tab.isBlank ? "Ask anything" : "Ask about this page")
                         .font(.system(size: 12.5, weight: .medium))
                         .foregroundStyle(Palette.ink)
-                    Text("Each tab keeps its own chat")
+                    Text(tab.isBlank ? "Type @ to bring in your tabs" : "Each tab keeps its own chat")
                         .font(.system(size: 11.5))
                         .foregroundStyle(Palette.muted)
                 }

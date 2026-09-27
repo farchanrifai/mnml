@@ -1,6 +1,16 @@
-# Ask — a chat about your tabs (plan)
+# Ask — a chat about your tabs
 
-Dia / Comet / Atlas-style chat, in mnml's own way. Decided with the user 2026-09-27.
+Dia / Comet / Atlas-style chat, in mnml's own way. Decided with the user 2026-09-27;
+built the same day on branch `ask` (steps 1–6 below all done, plus Settings › AI).
+
+Beyond the first plan: three modes (Sidebar, Floating, Full Page) and Open in New
+Tab; ⇧⌘E opens a chat tab about no page; the tab's own chip can be left out; the
+floating card springs to the corner it's thrown at; busy Gemini (503) retries,
+then Flash-Lite; mentions share a 400k-character budget per question; a
+mentioned tab out of the window is lent to it, unseen, while it's read.
+
+Not kept across relaunch: attachments, single-tab mentions, Replace's pins, a
+blank tab's chat (it's in history).
 
 ## Decisions
 

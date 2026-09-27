@@ -369,7 +369,7 @@ enum Gemini {
         case key, busy, overloaded, status(Int, String)
         var errorDescription: String? {
             switch self {
-            case .key: return "Gemini didn't take the key. Check it in Settings › General."
+            case .key: return "Gemini didn't take the key. Check it in Settings › AI."
             case .busy: return "The free tier's limit for now is reached. Try again in a minute."
             case .overloaded: return "Gemini is too busy right now. Try again in a moment."
             case .status(let code, let said): return "Gemini said \(code)\(said.isEmpty ? "" : ": \(said)")"
