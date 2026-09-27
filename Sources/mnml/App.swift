@@ -27,6 +27,8 @@ struct MnmlApp: App {
                     .disabled(browser.ghosts.isEmpty)
                 Divider()
                 item("file.openAddress")
+                item("file.openPeek")
+                    .disabled(browser.peekTab == nil)
                 Divider()
                 item("file.closeTab")
             }
@@ -417,7 +419,11 @@ struct ContentView: View {
     private func resize(to size: CGSize, ticket: Int, transaction: Transaction) {
         guard let tab = browser.active, !tab.isBlank, !tab.asleep, !tab.floating,
               browser.shownSplit == nil, browser.splitPicking == nil,
-              let web = tab.built, web.window != nil,
+              !tab.immersed, let web = tab.built, web.window != nil,
+              // A page going full screen hides the chrome too. Drawn into a
+              // bitmap mid-way, WebKit's full-screen window was torn down
+              // before it finished coming in, and WebKit crashed the app.
+              web.fullscreenState == .notInFullscreen,
               let bitmap = web.bitmapImageRepForCachingDisplay(in: web.bounds) else {
             withTransaction(transaction) { room = size }
             return
@@ -1095,7 +1101,7 @@ struct ContentView: View {
     /// nothing is open over it.
     private func pageHasFocus(_ event: NSEvent) -> Bool {
         guard let page = browser.active?.built, let window = event.window,
-              window.firstResponder === page, !browser.fieldShowing
+              window.firstResponder === page, !browser.fieldShowing, browser.peekTab == nil
         else { return false }
         return nothingOver
     }
@@ -1142,11 +1148,14 @@ struct ContentView: View {
 /// what Esc is for in a browser. It gets there from the page through WebKit
 /// and from a text field through AppKit, both past any responder put in its
 /// way, and SwiftUI tells its window to leave without going through Cancel.
-/// So the window's leaving refuses while the event being handled is Esc.
+/// So the window's leaving refuses while the event being handled is Esc, or
+/// for a moment after one: a heavy page (Google Sheets) answers WebKit late,
+/// and by then the current event is a mouse move or a timer, not the key.
 /// ⌃⌘F, the green button and the menu still leave, and a video's own full
 /// screen is WebKit's window, not this one, which Esc still ends.
 enum FullScreenEsc {
     private static var done = false
+    private static var lastEsc = Date.distantPast
 
     static func keep(_ window: NSWindow) {
         guard !done else { return }
@@ -1154,12 +1163,20 @@ enum FullScreenEsc {
         guard let cls = NSClassFromString("SwiftUI.AppKitWindow"),
               let method = class_getInstanceMethod(cls, leave) else { return }
         done = true
+        NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { event in
+            if event.keyCode == 53 { lastEsc = Date() }
+            return event
+        }
         typealias Leave = @convention(c) (NSWindow, Selector, Any?) -> Void
         let before = unsafeBitCast(method_getImplementation(method), to: Leave.self)
         let block: @convention(block) (NSWindow, Any?) -> Void = { window, sender in
-            // Down or up: from a page the leaving comes once WebKit has
-            // answered, and by then the key may have come back up.
-            if let event = NSApp.currentEvent, [.keyDown, .keyUp].contains(event.type), event.keyCode == 53 { return }
+            let event = NSApp.currentEvent
+            if let event, [.keyDown, .keyUp].contains(event.type), event.keyCode == 53 { return }
+            // Something asked for since the Esc — another key (⌃⌘F), a click
+            // (the green button, the menu) — is let through.
+            // ponytail: 1.5 s window; a page slower than that still slips out.
+            let asked = event.map { [.keyDown, .leftMouseDown, .leftMouseUp].contains($0.type) } ?? false
+            if !asked, Date().timeIntervalSince(lastEsc) < 1.5 { return }
             before(window, leave, sender)
         }
         method_setImplementation(method, imp_implementationWithBlock(block))
