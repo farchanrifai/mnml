@@ -17,6 +17,10 @@ struct Page: View {
     /// running under them (Under.swift). What is said over the page stays
     /// clear of them.
     var under = EdgeInsets()
+    /// The page's edge copied under the column (Bleed); off for a moment
+    /// while the chat panel slides, when the copy showed inside the page.
+    var bleeds = true
+    @State private var fading = false
 
     var body: some View {
         ZStack {
@@ -33,7 +37,7 @@ struct Page: View {
             // up beneath (Under.swift).
             WebStage(page: tab.isBlank || tab.asleep || tab.floating ? nil : tab.web, corner: corner,
                      under: EdgeInsets(top: under.top, leading: 0, bottom: under.bottom, trailing: under.trailing))
-                .modifier(Bleed(leading: under.leading))
+                .modifier(Bleed(leading: under.leading, on: bleeds))
 
             if under.leading > 0 {
                 // The copy of the page under the column, faded into the
@@ -47,6 +51,20 @@ struct Page: View {
                     .frame(width: under.leading)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                     .allowsHitTesting(false)
+                // The copy can only be on or off: coming back after a slide it
+                // fades in from under the ground instead of popping in.
+                // Only once the slide is over: over it during the slide, it
+                // was a dark panel of its own.
+                Palette.ground
+                    .frame(width: under.leading)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                    .opacity(fading ? 1 : 0)
+                    .allowsHitTesting(false)
+                    .onChange(of: bleeds) { _, on in
+                        guard on else { return }
+                        fading = true
+                        DispatchQueue.main.async { withAnimation(.easeOut(duration: 0.3)) { fading = false } }
+                    }
             }
 
             if let cover = tab.cover {
@@ -233,6 +251,7 @@ private struct HistoryList: View {
 /// page instead of beside it (docs/mnml/page-under-chrome.md).
 private struct Bleed: ViewModifier {
     let leading: CGFloat
+    var on = true
 
     /// How far into the column the page's colour reaches from its edge.
     // ponytail: one width for every column width; tune by feel.
@@ -244,7 +263,7 @@ private struct Bleed: ViewModifier {
     func body(content: Content) -> some View {
         if #available(macOS 26, *) {
             content
-                .backgroundExtensionEffect()
+                .backgroundExtensionEffect(isEnabled: on)
                 .safeAreaPadding(.leading, leading)
         } else {
             content

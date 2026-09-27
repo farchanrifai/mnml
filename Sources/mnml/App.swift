@@ -257,6 +257,11 @@ struct ContentView: View {
     /// animation (see `make(room:after:)`); nil only before the window is up.
     @State private var room: CGSize?
     @State private var roomTicket = 0
+    /// The column or the chat panel sliding in or out, with the page laid
+    /// out again on each of its frames: the page's mirrored edge (Bleed) is
+    /// off meanwhile, or it showed inside the page along its left side.
+    @State private var sliding = false
+    @State private var slideTicket = 0
 
 
     /// The window: room at the top, one stage for the page, and the row when
@@ -299,6 +304,11 @@ struct ContentView: View {
                 SideBar(browser: browser, prefs: browser.prefs)
                     .frame(maxHeight: .infinity, alignment: .top)
                     .transition(.move(edge: .leading))
+                    // Kept over the page as it comes and goes: a view on its
+                    // way in or out of a ZStack is otherwise drawn at the back,
+                    // under the window's ground, and the ground showed as a dark
+                    // panel for the length of the slide.
+                    .zIndex(2)
             }
 
             if !browser.prefs.sidebar, !browser.folded, browser.active?.immersed != true {
@@ -315,13 +325,18 @@ struct ContentView: View {
                     panel
                         .padding(.top, chrome.height)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                        .transition(.move(edge: .trailing))
+                        // By its own width: .move measured the full-width frame
+                        // around it, so it came from a window's width away —
+                        // late in, early out, the gap beside the page dark.
+                        .transition(.offset(x: browser.prefs.askWidth))
+                        .zIndex(2) // as the column, above
                 case .full:
                     // Over the page's room: the column and the strip stay.
                     panel
                         .padding(.leading, chrome.width)
                         .padding(.top, chrome.height)
                         .transition(.opacity)
+                        .zIndex(2)
                 case .float:
                     // Over everything, the column too, kept in its corner.
                     GeometryReader { room in
@@ -329,6 +344,7 @@ struct ContentView: View {
                             .id(tab.id)
                     }
                     .transition(.scale(scale: 0.96, anchor: .bottomTrailing).combined(with: .opacity))
+                    .zIndex(3)
                 }
             }
 
@@ -370,7 +386,7 @@ struct ContentView: View {
     /// One page, with what floats over it: find, and the accounts a field
     /// offers — both clear of the chrome the page may run under.
     private func pane(_ tab: Tab, corner: CGFloat = 0, under: EdgeInsets) -> some View {
-        Page(tab: tab, corner: corner, under: under)
+        Page(tab: tab, corner: corner, under: under, bleeds: !sliding)
             .overlay(alignment: .topTrailing) {
                 if browser.finding, tab.id == browser.activeID {
                     FindBar(browser: browser)
@@ -419,7 +435,10 @@ struct ContentView: View {
     /// column slides off it; the column arriving slides over the page as it
     /// is, which moves its content clear once the slide is over.
     private var covered: EdgeInsets {
-        under ? EdgeInsets(top: roomed.height, leading: roomed.width, bottom: 0, trailing: 0) : EdgeInsets()
+        // The column's width as it animates, as beside it (column-slide):
+        // the page lays out again on each frame of the slide, its mirrored
+        // edge off meanwhile (`sliding`).
+        under ? EdgeInsets(top: roomed.height, leading: chrome.width, bottom: 0, trailing: 0) : EdgeInsets()
     }
 
     /// Chrome going away gives the page its room at once, the page sliding
@@ -595,6 +614,8 @@ struct ContentView: View {
                 }
             }
             .onChange(of: browser.activeID) { _, _ in handBack() }
+            .onChange(of: browser.askRoom) { _, _ in slide() }
+            .onChange(of: chrome.width) { _, _ in slide() }
             .animation(Motion.settle, value: browser.recalling)
             .animation(Motion.settle, value: browser.hoarding)
             .animation(Motion.settle, value: browser.tuning)
@@ -613,6 +634,20 @@ struct ContentView: View {
             // Addresses from other apps have somewhere to go from here on.
             Links.hand(to: browser)
             BookmarkMenu.shared.start(for: browser)
+        }
+    }
+
+    /// The mirrored edge off for the length of a slide (see `sliding`).
+    private func slide() {
+        guard browser.pageUnder else { return }
+        slideTicket += 1
+        let ticket = slideTicket
+        // On the slide's own spring: switching the copy off lays the page out
+        // again, and done without one, the strip under the column jumped to
+        // its end at once, ahead of the column gliding in.
+        withAnimation(Motion.glide) { sliding = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            if ticket == slideTicket { sliding = false }
         }
     }
 

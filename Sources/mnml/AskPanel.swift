@@ -1028,6 +1028,7 @@ struct AskFloat: View {
 
     @State private var moving: CGSize = .zero
     @State private var sizing: CGSize = .zero
+    @State private var flicks = Flicks()
 
     private static let margin: CGFloat = 12
 
@@ -1046,9 +1047,56 @@ struct AskFloat: View {
                        y: corner < 2 ? room.height - m - size.height / 2 : m + size.height / 2)
     }
 
+    private var home: CGPoint { spot(prefs.askCorner, size) }
+
+    /// The pointer for the inner corner: the Mac's own two-way one where it
+    /// has it (macOS 15), crosshairs before.
+    private var cornerCursor: NSCursor {
+        if #available(macOS 15, *) {
+            return NSCursor.frameResize(position: right ? (bottom ? .topLeft : .bottomLeft) : (bottom ? .topRight : .bottomRight),
+                                        directions: .all)
+        }
+        return .crosshair
+    }
+
+    private func grip(width: CGFloat?, height: CGFloat?, cursor: NSCursor, across: Bool, down: Bool) -> some View {
+        Color.clear
+            .frame(width: width, height: height)
+            .frame(maxWidth: width == nil ? .infinity : nil, maxHeight: height == nil ? .infinity : nil)
+            .contentShape(Rectangle())
+            .onHover { inside in if inside { cursor.push() } else { NSCursor.pop() } }
+            .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global).onChanged { drag in
+                sizing = CGSize(width: across ? (right ? -drag.translation.width : drag.translation.width) : 0,
+                                height: down ? (bottom ? -drag.translation.height : drag.translation.height) : 0)
+            }.onEnded { _ in
+                prefs.askFloat.size = self.size
+                sizing = .zero
+            })
+    }
+
+    /// A two-finger swipe over the card's top bar sends it to another corner,
+    /// as the floating video's does: along the way the fingers went, or to
+    /// the corner they pointed at. Only over the top bar — below it, the same
+    /// fingers scroll the chat.
+    func flick(_ way: CGVector) {
+        let across = abs(way.dx), up = abs(way.dy)
+        var toRight = right, toTop = !bottom
+        if min(across, up) >= 0.4 * max(across, up) {
+            toRight = way.dx > 0
+            toTop = way.dy > 0
+        } else if across >= up {
+            toRight = way.dx > 0
+        } else {
+            toTop = way.dy > 0
+        }
+        let corner = (toRight ? 0 : 1) + (toTop ? 2 : 0)
+        guard corner != prefs.askCorner else { return }
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.78)) { prefs.askCorner = corner }
+    }
+
     var body: some View {
         let size = size
-        let home = spot(prefs.askCorner, size)
+        let home = home
         AskPanel(browser: browser, tab: tab, chat: chat, prefs: prefs, mode: .float) { drag, done in
             guard done else { return moving = drag.translation }
             let end = CGPoint(x: home.x + drag.predictedEndTranslation.width, y: home.y + drag.predictedEndTranslation.height)
@@ -1059,20 +1107,93 @@ struct AskFloat: View {
             }
         }
         .frame(width: size.width, height: size.height)
-        // Sized from the corner facing the middle of the window.
-        .overlay(alignment: Alignment(horizontal: right ? .leading : .trailing, vertical: bottom ? .top : .bottom)) {
-            Color.clear
-                .frame(width: 18, height: 18)
-                .contentShape(Rectangle())
-                .onHover { inside in if inside { NSCursor.crosshair.push() } else { NSCursor.pop() } }
-                .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global).onChanged { drag in
-                    sizing = CGSize(width: right ? -drag.translation.width : drag.translation.width,
-                                    height: bottom ? -drag.translation.height : drag.translation.height)
-                }.onEnded { _ in
-                    prefs.askFloat.size = self.size
-                    sizing = .zero
-                })
+        // Sized from the edges and the corner facing the middle of the window;
+        // the size is kept when let go.
+        .overlay(alignment: right ? .leading : .trailing) {
+            grip(width: 6, height: nil, cursor: .resizeLeftRight, across: true, down: false)
         }
+        .overlay(alignment: bottom ? .top : .bottom) {
+            grip(width: nil, height: 6, cursor: .resizeUpDown, across: false, down: true)
+        }
+        .overlay(alignment: Alignment(horizontal: right ? .leading : .trailing, vertical: bottom ? .top : .bottom)) {
+            grip(width: 16, height: 16, cursor: cornerCursor, across: true, down: true)
+        }
+        .onAppear {
+            flicks.card = CGRect(x: home.x - size.width / 2, y: home.y - size.height / 2, width: size.width, height: size.height)
+            flicks.start(for: self)
+        }
+        .onDisappear { flicks.stop() }
+        .onChange(of: room) { _, room in flicks.room = room }
+        .onChange(of: home) { _, _ in flicks.card = CGRect(x: home.x - size.width / 2, y: home.y - size.height / 2,
+                                                         width: size.width, height: size.height) }
         .position(x: home.x + moving.width, y: home.y + moving.height)
+    }
+}
+
+/// The floating card's flicks (AskFloat): the window's scroll-wheel events,
+/// watched while the card is up, taken only over its top bar.
+@MainActor
+final class Flicks {
+    var room: CGSize = .zero
+    /// The card, in the window's content, top left origin.
+    var card: CGRect = .zero
+    private var monitor: Any?
+    private var swipe = CGVector.zero
+    private var flicked = false
+    private var lastWheel = Date.distantPast
+
+    func start(for float: AskFloat) {
+        room = float.room
+        stop()
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            guard let self, let content = event.window?.contentView,
+                  content.bounds.size == self.room else { return event }
+            let at = event.locationInWindow
+            let point = CGPoint(x: at.x, y: content.bounds.height - at.y)
+            let bar = CGRect(x: self.card.minX, y: self.card.minY, width: self.card.width, height: Metrics.strip)
+            // A swipe begun anywhere else is nothing to do with a flick.
+            if event.phase.contains(.began), !bar.contains(point) { self.flicked = false; self.swipe = .zero }
+            // The rest of a swipe begun on the bar is the bar's, even off it.
+            guard bar.contains(point) || (!event.phase.isEmpty && self.swipe != .zero)
+                    || !event.momentumPhase.isEmpty && self.flicked else { return event }
+            self.take(event, float)
+            return nil
+        }
+    }
+
+    func stop() {
+        if let monitor { NSEvent.removeMonitor(monitor) }
+        monitor = nil
+    }
+
+    private func take(_ event: NSEvent, _ float: AskFloat) {
+        // The glide after a flick is swallowed, up to its end.
+        guard event.momentumPhase.isEmpty else {
+            if event.momentumPhase.contains(.ended) { flicked = false }
+            return
+        }
+        // Which way the fingers went, on screen (as Float's flickWheel).
+        let sign: CGFloat = event.isDirectionInvertedFromDevice ? 1 : -1
+        let step = CGVector(dx: sign * event.scrollingDeltaX, dy: -sign * event.scrollingDeltaY)
+        if event.phase.isEmpty {
+            // A mouse's wheel: each turn a flick, a moment apart.
+            guard Date().timeIntervalSince(lastWheel) > 0.4, step != .zero else { return }
+            lastWheel = Date()
+            float.flick(step)
+            return
+        }
+        if event.phase.contains(.began) {
+            swipe = .zero
+            flicked = false
+        }
+        swipe.dx += step.dx
+        swipe.dy += step.dy
+        if !flicked, hypot(swipe.dx, swipe.dy) > 30 {
+            flicked = true
+            float.flick(swipe)
+        }
+        if event.phase.contains(.ended) || event.phase.contains(.cancelled) {
+            swipe = .zero
+        }
     }
 }
