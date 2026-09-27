@@ -1,4 +1,5 @@
 import AppKit
+import MediaPlayer
 
 // Links from elsewhere. A click in Mail, in Slack, in a PDF — macOS hands the
 // address to whichever app owns http, and this is how that app takes it.
@@ -23,6 +24,13 @@ final class Links: NSObject, NSApplicationDelegate {
     private static var flush: (() -> Void)?
 
     func applicationWillTerminate(_ notification: Notification) {
+        // Nothing left playing, and macOS told so: Droppy's media widget
+        // launched the last app that had been "now playing" as soon as it
+        // quit, and mnml came straight back. ponytail: a guess at what
+        // Droppy reads; if it keeps its own memory of the app, this won't do.
+        for tab in (Browser.front.map { $0.tabs + $0.parkedTabs } ?? []) { tab.built?.pauseAllMediaPlayback() }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+        MPNowPlayingInfoCenter.default().playbackState = .stopped
         Links.flush?()
         // And the bookmarks or downloads list saved a moment ago, still on
         // their way to the disk.
