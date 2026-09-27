@@ -214,7 +214,7 @@ extension Browser {
     /// A new group of these tabs, where the first of them was, named for
     /// you to type over. Pinned squares stay out.
     @discardableResult
-    func makeGroup(of picks: [Tab]) -> TabGroup.ID? {
+    func makeGroup(of picks: [Tab], fallbackName: String? = nil) -> TabGroup.ID? {
         let joining = tabs.filter { tab in tab.pin == nil && picks.contains { $0 === tab } }
         guard let first = joining.first else { return nil }
         let used = Set(groups.map(\.colour))
@@ -230,7 +230,8 @@ extension Browser {
         // Named by the Mac's model where there is one (GroupNamer); if it
         // has nothing to say, or there is none, the field to type a name.
         guard GroupNamer.available else {
-            renamingGroup = group.id
+            if let fallbackName { rename(group.id, to: fallbackName) }
+            else { renamingGroup = group.id }
             return group.id
         }
         let pages = joining.map { (title: $0.label, site: $0.address?.host() ?? "") }
@@ -249,7 +250,8 @@ extension Browser {
                 self.namedGroups.insert(group.id)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.namedGroups.remove(group.id) }
             } else {
-                self.renamingGroup = group.id
+                if let fallbackName { self.rename(group.id, to: fallbackName) }
+                else { self.renamingGroup = group.id }
             }
         }
         return group.id

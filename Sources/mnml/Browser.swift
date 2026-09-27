@@ -2304,13 +2304,12 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
             if flags.contains(.command) {
                 let opened = open(url, foreground: flags.contains(.shift), from: tab(for: webView))
                 // With Settings › Tabs › Group links you ⌘-click: the page
-                // and the link, as a group named for the page's site. A page
+                // and the link, named by the Mac's model when available and
+                // by the page's site otherwise. A page
                 // already in a group has the link join it (see open).
-                if prefs.groupsLinks, let source = tab(for: webView), source.pin == nil, source.group == nil,
-                   let group = makeGroup(of: [source, opened]) {
-                    renamingGroup = nil
+                if prefs.groupsLinks, let source = tab(for: webView), source.pin == nil, source.group == nil {
                     let site = source.address?.host()?.replacingOccurrences(of: "www.", with: "")
-                    rename(group, to: site ?? source.label)
+                    makeGroup(of: [source, opened], fallbackName: site ?? source.label)
                 }
                 decisionHandler(.cancel)
                 return
@@ -2729,6 +2728,5 @@ extension Browser: WKDownloadDelegate {
         return candidate
     }
 }
-
 
 
