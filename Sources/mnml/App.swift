@@ -271,10 +271,13 @@ struct ContentView: View {
             // it and is resized once, not on every frame of the slide: laid out
             // again thirty times a second, the page juddered along its right
             // edge and overshot the window with the spring (see `room`).
+            // Trying again (column-slide): the page's width follows the
+            // column on every frame of the slide, as the chat panel's does;
+            // the strip's height is still resized once.
             stage
-                .padding(.leading, roomed.width)
+                .padding(.leading, chrome.width)
                 .padding(.top, roomed.height)
-                .offset(x: chrome.width - roomed.width, y: chrome.height - roomed.height)
+                .offset(y: chrome.height - roomed.height)
 
             // The column of tabs, in the way that has one. It takes the full
             // height, so the traffic lights sit in its own corner rather than
