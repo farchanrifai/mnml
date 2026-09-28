@@ -275,13 +275,29 @@ enum Tint {
 
 /// The wash itself, in the light or dark mode's colour, or nothing.
 struct TintWash: View {
+    @ObservedObject var browser: Browser
     @ObservedObject var prefs: Preferences
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        let dark = prefs.chromeTintDark == Tint.same ? prefs.chromeTint : prefs.chromeTintDark
-        if let color = Tint.color(scheme == .dark ? dark : prefs.chromeTint) {
-            color.opacity(prefs.chromeTintStrength).allowsHitTesting(false)
+        let from = browser.spaceTintFrom ?? browser.effectiveAppearance
+        let to = browser.spaceTintTo ?? from
+        let progress = browser.spaceTintProgress
+        Group {
+            if from == to { wash(to) }
+            else {
+                ZStack {
+                    wash(from).opacity(1 - progress)
+                    wash(to).opacity(progress)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+    }
+
+    @ViewBuilder private func wash(_ appearance: SpaceAppearance) -> some View {
+        if let color = Tint.color(appearance.tint(darkMode: scheme == .dark)) {
+            color.opacity(min(Tint.strengths.upperBound, max(Tint.strengths.lowerBound, appearance.strength)))
         }
     }
 }

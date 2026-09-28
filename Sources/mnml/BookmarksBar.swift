@@ -46,7 +46,7 @@ struct BookmarksBar: View {
                     Palette.ground
                 }
             }
-            .overlay { TintWash(prefs: browser.prefs) }
+            .overlay { TintWash(browser: browser, prefs: browser.prefs) }
         }
         .overlay(alignment: .bottom) {
             Rectangle().fill(Palette.hairline).frame(height: 1)

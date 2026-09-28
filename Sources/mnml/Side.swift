@@ -165,7 +165,7 @@ struct SideBar: View {
                     landing ? Palette.hover : Palette.ground
                 }
             }
-            .overlay { TintWash(prefs: prefs) }
+            .overlay { TintWash(browser: browser, prefs: prefs) }
         }
         // No line down the column's edge, as in Arc: the column's own ground
         // or material is edge enough.
@@ -228,7 +228,7 @@ struct SideBar: View {
                 page(at - 1, pill: before)
                     .offset(x: swipe - width)
             }
-            if swipe < 0, at < browser.spaces.count {
+            if swipe < 0, at < browser.spaces.count - 1 {
                 page(at + 1, pill: after)
                     .offset(x: swipe + width)
             }
@@ -236,6 +236,8 @@ struct SideBar: View {
         // The pages are the column's whole width, each with its own margin.
         .padding(.horizontal, -10)
         .frame(maxHeight: .infinity, alignment: .top)
+        .offset(x: browser.rowShift)
+        .opacity(browser.rowFade)
     }
 
     /// One space's page: the rows on screen, another space's rows as they
@@ -857,7 +859,7 @@ struct SideBar: View {
     /// One small door at the bottom: the settings.
     private var foot: some View {
         HStack(spacing: 2) {
-            if browser.prefs.usesSpaces { SpaceDot(browser: browser) }
+            SpaceDot(browser: browser)
             ExtensionSlot(edge: .trailing)
             Door(icon: "bookmark", help: "Bookmarks") { browser.bookmarksOpen.toggle() }
                 .popover(isPresented: $browser.bookmarksOpen, arrowEdge: .trailing) {

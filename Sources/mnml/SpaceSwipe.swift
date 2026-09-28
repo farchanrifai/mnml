@@ -55,6 +55,12 @@ final class SpaceSwipe {
     static let rowFollow: CGFloat = 0.6
     static let rowEntry: CGFloat = 14
 
+    /// Gestures navigate existing Spaces; only the creation menu may request count.
+    nonisolated static func navigationTarget(from here: Int, count: Int, step: Int) -> Int? {
+        let target = here + step
+        return (0..<count).contains(target) ? target : nil
+    }
+
     /// How far the fingers have to go for the next space to come: 50
     /// points in the column; in a bar only 52 tall, most of its height, so
     /// that scrolling the page with the pointer a little high doesn't.
@@ -102,8 +108,9 @@ final class SpaceSwipe {
             notched = now
             guard rested else { return true }
             let here = browser.makingSpace ? browser.spaces.count : (browser.spaces.firstIndex { $0.id == browser.spaceID } ?? 0)
-            let target = here + (step < 0 ? 1 : -1)
-            if target >= 0, target <= browser.spaces.count { slide(browser, to: target, from: here) }
+            if let target = Self.navigationTarget(from: here, count: browser.spaces.count, step: step < 0 ? 1 : -1) {
+                slide(browser, to: target, from: here)
+            }
             return true
         }
         if !event.momentumPhase.isEmpty { return gliding }
@@ -171,6 +178,16 @@ final class SpaceSwipe {
         }
         guard axis == .across else { return false }
         feelArming(in: browser)
+        guard !Motion.reduced else { return true }
+        let here = browser.spaces.firstIndex { $0.id == browser.spaceID } ?? 0
+        if !browser.makingSpace,
+           let next = Self.navigationTarget(from: here, count: browser.spaces.count, step: gathered.width < 0 ? 1 : -1) {
+            browser.prepareSpaceTransition(to: browser.spaces[next].id)
+            let width = onName ? nameWidth / 0.35 : (browser.prefs.sidebar ? browser.prefs.sideWidth : Metrics.strip)
+            browser.spaceTintProgress = min(1, Double(abs(gathered.width) / max(1, width)))
+        } else if browser.spaceTransitionTarget != nil {
+            browser.clearSpaceTransition()
+        }
         // On the name, the name slides and the next comes in beside it, the
         // row a nudge behind it; the space comes once the fingers lift.
         if onName {
@@ -203,7 +220,7 @@ final class SpaceSwipe {
         let here = browser.makingSpace ? browser.spaces.count : (browser.spaces.firstIndex { $0.id == browser.spaceID } ?? 0)
         let target = here + (travel < 0 ? 1 : -1)
         let enough = onName ? SpaceSwipe.nameEnough : SpaceSwipe.enough(for: browser)
-        let last = onName ? browser.spaces.count - 1 : browser.spaces.count
+        let last = browser.spaces.count - 1
         let now = abs(travel) >= enough && target >= 0 && target <= last
         guard now != armed else { return }
         armed = now
@@ -236,13 +253,19 @@ final class SpaceSwipe {
         // Fingers to the left, or up, bring what is next.
         let enough = onName ? SpaceSwipe.nameEnough : SpaceSwipe.enough(for: browser)
         let target = cancelled || abs(travel) < enough ? here : here + (travel < 0 ? 1 : -1)
-        let last = onName ? browser.spaces.count - 1 : browser.spaces.count
+        let last = browser.spaces.count - 1
         guard target != here, target >= 0, target <= last else {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+            let ticket = browser.spaceTransitionTicket
+            browser.spaceCapturing = false
+            browser.spacePageImage = nil
+            withAnimation(Motion.reduced ? nil : .spring(response: 0.3, dampingFraction: 0.85), completionCriteria: .removed) {
                 browser.spaceSwipe = 0
                 browser.nameSwipe = 0
                 browser.rowShift = 0
                 browser.rowFade = 1
+                browser.spaceTintProgress = 0
+            } completion: {
+                if ticket == browser.spaceTransitionTicket { browser.clearSpaceTransition() }
             }
             return
         }
@@ -256,13 +279,17 @@ final class SpaceSwipe {
     /// Nothing that way: the rows give a little, and come back.
     private func resisted(_ travel: CGFloat, in browser: Browser) -> CGFloat {
         let here = browser.makingSpace ? browser.spaces.count : (browser.spaces.firstIndex { $0.id == browser.spaceID } ?? 0)
-        let blocked = (travel > 0 && here == 0) || (travel < 0 && here == browser.spaces.count)
+        let blocked = (travel > 0 && here == 0) || (travel < 0 && here >= browser.spaces.count - 1)
         return blocked ? travel / 4 : travel
     }
 
     /// The name carries on until the next one is where it was, and in that
     /// frame the row becomes the next space's, as in Dia.
     func turnName(_ browser: Browser, to target: Int, from here: Int) {
+        guard browser.spaces.indices.contains(target) else { return }
+        let id = browser.spaces[target].id
+        browser.prepareSpaceTransition(to: id)
+        let ticket = browser.spaceTransitionTicket
         let away: CGFloat = target > here ? -1 : 1
         browser.spaceStep = target > here ? 1 : -1
         // A long swipe, or its glide, never carries on into another space.
@@ -277,19 +304,22 @@ final class SpaceSwipe {
         withTransaction(still) {
             browser.nameSwipe -= away * nameWidth
             browser.makingSpace = false
-            browser.switchSpace(to: browser.spaces[target].id)
+            browser.switchSpace(to: id, animated: false)
+            browser.spaceCapturing = false
             browser.rowShift = -away * SpaceSwipe.rowEntry
             browser.rowFade = 0.45
-            browser.rowScale = 0.97
+            browser.rowScale = 1
         }
         DispatchQueue.main.async {
+            guard ticket == browser.spaceTransitionTicket else { return }
             // The name and the tabs together, done almost as the fingers lift.
-            withAnimation(.timingCurve(0.1, 0, 0.12, 1, duration: 0.12)) {
+            withAnimation(Motion.reduced ? nil : .easeOut(duration: 0.16), completionCriteria: .removed) {
                 browser.nameSwipe = 0
                 browser.rowShift = 0
                 browser.rowScale = 1
-            }
-            withAnimation(.easeOut(duration: 0.08)) { browser.rowFade = 1 }
+                browser.rowFade = 1
+                browser.spaceTintProgress = 1
+            } completion: { browser.finishSpaceTransition(ticket) }
         }
     }
 
@@ -298,6 +328,11 @@ final class SpaceSwipe {
     /// frame and without anything moving — it was already there. One past
     /// the last space is the card for a new one.
     func slide(_ browser: Browser, to target: Int, from here: Int) {
+        guard target >= 0, target <= browser.spaces.count else { return }
+        let id = browser.spaces.indices.contains(target) ? browser.spaces[target].id : nil
+        if let id { browser.prepareSpaceTransition(to: id) }
+        else { browser.clearSpaceTransition() }
+        let ticket = browser.spaceTransitionTicket
         if browser.makingSpace, target != browser.spaces.count {
             browser.cancelSpaceCreation()
         }
@@ -306,20 +341,23 @@ final class SpaceSwipe {
         let away: CGFloat = target > here ? -1 : 1
         browser.spaceStep = target > here ? 1 : -1
         resting = Date().addingTimeInterval(SpaceSwipe.rest)
-        withAnimation(.easeOut(duration: 0.22), completionCriteria: .removed) {
+        withAnimation(Motion.reduced ? nil : .easeOut(duration: 0.16), completionCriteria: .removed) {
             browser.spaceSwipe = away * width
+            browser.spaceTintProgress = 1
         } completion: {
+            guard ticket == browser.spaceTransitionTicket else { return }
             var still = Transaction()
             still.disablesAnimations = true
             withTransaction(still) {
-                if target == browser.spaces.count {
+                if id == nil {
                     browser.makingSpace = true
                 } else {
                     browser.makingSpace = false
-                    browser.switchSpace(to: browser.spaces[target].id)
+                    if let id { browser.switchSpace(to: id, animated: false) }
                 }
                 browser.spaceSwipe = 0
             }
+            browser.finishSpaceTransition(ticket)
         }
     }
 }

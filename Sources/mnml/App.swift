@@ -306,6 +306,17 @@ struct ContentView: View {
             // height is still resized once. ChatGPT's picture-over-the-page
             // slide was tried too (d249ef0): see docs/mnml/sidebar-slide.md.
             stage
+                .overlay {
+                    if let image = browser.spacePageImage {
+                        GeometryReader { box in
+                            Image(nsImage: image).resizable()
+                                .frame(width: box.size.width, height: box.size.height)
+                        }
+                        .padding(covered)
+                        .opacity(browser.spacePageOpacity)
+                        .allowsHitTesting(false)
+                    }
+                }
                 .padding(.leading, under ? 0 : chrome.width)
                 // This tab's chat, beside the page (AskPanel.swift), followed
                 // frame by frame like the column.

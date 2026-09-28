@@ -104,7 +104,7 @@ struct TabBar: View {
                             page(spaceAt - 1, in: geo.size.width, pill: above)
                                 .offset(y: browser.spaceSwipe - Metrics.strip)
                         }
-                        if browser.spaceSwipe < 0, spaceAt < browser.spaces.count {
+                        if browser.spaceSwipe < 0, spaceAt < browser.spaces.count - 1 {
                             page(spaceAt + 1, in: geo.size.width, pill: below)
                                 .offset(y: browser.spaceSwipe + Metrics.strip)
                         }
@@ -190,7 +190,7 @@ struct TabBar: View {
                     landing ? Palette.hover : Color.clear
                 }
             }
-            .overlay { TintWash(prefs: browser.prefs) }
+            .overlay { TintWash(browser: browser, prefs: browser.prefs) }
         }
         .animation(Motion.quick, value: landing)
         .animation(browser.prefs.slidesHighlight ? Motion.glide : nil, value: browser.activeID)
@@ -237,7 +237,7 @@ struct TabBar: View {
     private func row(in strip: CGFloat) -> some View {
         let each = width(in: strip)
         return HStack(spacing: Metrics.tabGap) {
-            if browser.pinnedCount > 0 || browser.prefs.usesSpaces { pinBox(in: strip) }
+            pinBox(in: strip)
             HStack(spacing: Metrics.tabGap) {
                 ForEach(entries(pinned: true)) { entry in entryView(entry, each: each, strip: strip) }
                 if hasLine {
@@ -277,7 +277,11 @@ struct TabBar: View {
     private func pinBox(in strip: CGFloat) -> some View {
         let pins = browser.tabs.filter { $0.pin != nil }
         return HStack(spacing: 2) {
-            if browser.prefs.usesSpaces { SpaceName(browser: browser) }
+            if browser.prefs.usesSpaces, browser.spaces.count > 1 {
+                SpaceName(browser: browser)
+            } else {
+                SpaceDot(browser: browser)
+            }
             HStack(spacing: 2) {
                 ForEach(Array(pins.enumerated()), id: \.element.id) { index, tab in
                     let held = dragging == tab.id
@@ -662,11 +666,9 @@ struct TabBar: View {
         var total: CGFloat = 0
         var items = 0
         let pins = browser.pinnedCount
-        if pins > 0 || browser.prefs.usesSpaces {
-            total += CGFloat(pins) * Metrics.pinWidth + CGFloat(max(0, pins - 1)) * 2 + 2 * StripChip.pad
-            if browser.prefs.usesSpaces { total += SpaceSwipe.shared.nameWidth + 16 + 2 }
-            items += 1
-        }
+        total += CGFloat(pins) * Metrics.pinWidth + CGFloat(max(0, pins - 1)) * 2 + 2 * StripChip.pad
+        total += (browser.prefs.usesSpaces && browser.spaces.count > 1 ? SpaceSwipe.shared.nameWidth + 16 : SpaceDot.width) + 2
+        items += 1
         for entry in entries(pinned: true) + entries(pinned: false) {
             items += 1
             guard case .group(let group, let members) = entry else { continue }

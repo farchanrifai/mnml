@@ -1084,6 +1084,16 @@ final class Browser: NSObject, ObservableObject {
     @Published var rowShift: CGFloat = 0
     @Published var rowFade: Double = 1
     @Published var rowScale: CGFloat = 1
+    @Published var appearanceSpace: UUID?
+    @Published var spaceAppearanceOpen = false
+    @Published var spaceTintFrom: SpaceAppearance?
+    @Published var spaceTintTo: SpaceAppearance?
+    @Published var spaceTintProgress: Double = 1
+    @Published var spacePageImage: NSImage?
+    @Published var spacePageOpacity: Double = 0
+    var spaceTransitionTicket = UUID()
+    var spaceTransitionTarget: UUID?
+    var spaceCapturing = false
     @Published var makingSpace = false
     /// A tab being sent into the Space being made from its context menu.
     var afterSpaceCreated: ((Space) -> Void)?
@@ -1178,7 +1188,11 @@ final class Browser: NSObject, ObservableObject {
             .sink { [weak self] note in
                 guard let self, let list = note.object as? [Space], list != spaces else { return }
                 spaces = list
-                if !list.contains(where: { $0.id == self.spaceID }) { switchSpace(to: Space.firstID) }
+                if let target = spaceTransitionTarget, !list.contains(where: { $0.id == target }) { clearSpaceTransition() }
+                if !list.contains(where: { $0.id == self.spaceID }) {
+                    clearSpaceTransition()
+                    switchSpace(to: Space.firstID, animated: false)
+                }
             }
             .store(in: &bag)
 
@@ -2493,7 +2507,8 @@ final class Browser: NSObject, ObservableObject {
     /// A floated video can belong to the row parked in another Space.
     private func revealVideo(_ id: Tab.ID) {
         if let home = parked.first(where: { $0.value.tabs.contains(where: { $0.id == id }) })?.key {
-            switchSpace(to: home)
+            clearSpaceTransition()
+            switchSpace(to: home, animated: false)
         }
         if let tab = tabs.first(where: { $0.id == id }) { select(tab) }
     }

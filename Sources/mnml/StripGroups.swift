@@ -243,6 +243,9 @@ struct SpaceName: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .popover(isPresented: $browser.spaceAppearanceOpen, arrowEdge: .bottom) {
+            SpaceAppearancePanel(browser: browser, prefs: browser.prefs)
+        }
         .onHover { hovering = $0 }
         .help("\(browser.space.name) — ⌃1–⌃9, or two fingers sideways here, to switch")
         .animation(Motion.quick, value: dots)

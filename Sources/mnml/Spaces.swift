@@ -30,6 +30,8 @@ struct Space: Codable, Identifiable, Equatable {
     var sharesSignIns: Bool?
     /// Where this space's downloads go; nil for the folder in Settings.
     var downloads: String?
+    /// Nil follows the global Tint settings.
+    var appearance: SpaceAppearance?
 
     /// The first space: the session and the store there were before spaces.
     static let firstID = UUID(uuidString: "00000000-0000-0000-0000-000000000001") ?? UUID()
@@ -174,8 +176,20 @@ extension Browser {
     }
 
     /// ⌃1–⌃9, and the menu on the space's dot.
-    func switchSpace(to id: UUID) {
-        guard prefs.usesSpaces else { return }
+    func switchSpace(to id: UUID, animated: Bool = true) {
+        guard prefs.usesSpaces, spaces.contains(where: { $0.id == id }) else { return }
+        guard id != spaceID else {
+            if animated { clearSpaceTransition(); spaceSwipe = 0; nameSwipe = 0 }
+            return
+        }
+        if animated, floating == nil, systemPiP == nil {
+            prepareSpaceTransition(to: id, replacing: true)
+            if spaceTransitionTarget != nil {
+                spaceStep = (spaces.firstIndex { $0.id == id } ?? 0) > (spaces.firstIndex { $0.id == spaceID } ?? 0) ? 1 : -1
+                animateSpaceSwitch { self.enter(id) }
+                return
+            }
+        } else if animated { clearSpaceTransition() }
         enter(id)
     }
 
@@ -183,6 +197,7 @@ extension Browser {
         guard id != spaceID, let to = spaces.firstIndex(where: { $0.id == id }) else { return }
         // Which way the icon at the foot turns over: the way the spaces lie.
         if !makingSpace { spaceStep = to > (spaces.firstIndex { $0.id == spaceID } ?? 0) ? 1 : -1 }
+        spaceAppearanceOpen = false
         cancelTabEdit()
         closeFind()
         leaving()
@@ -258,6 +273,7 @@ extension Browser {
 
     /// "New Space…": the card for a new space, in the column or the bar.
     func askForSpace(then onCreated: ((Space) -> Void)? = nil) {
+        if !prefs.usesSpaces { prefs.usesSpaces = true }
         afterSpaceCreated = onCreated
         // In place, where the next space would come in, in the column or the
         // bar alike; a question only while the tabs are folded out of sight.
@@ -299,7 +315,8 @@ extension Browser {
     /// stays: it is where everything was before there were spaces.
     func deleteSpace(_ id: UUID) {
         guard id != Space.firstID, let at = spaces.firstIndex(where: { $0.id == id }) else { return }
-        if spaceID == id { switchSpace(to: Space.firstID) }
+        if spaceTransitionTarget == id || spaceID == id { clearSpaceTransition() }
+        if spaceID == id { switchSpace(to: Space.firstID, animated: false) }
         forget(space: id)
         let shared = spaces[at].sharesSignIns == true
         spaces.remove(at: at)
@@ -317,6 +334,7 @@ extension Browser {
     /// Spaces turned off: back to the first one. The others are kept, in
     /// case they are turned on again.
     func leaveSpaces() {
+        clearSpaceTransition()
         enter(Space.firstID)
         if floating != nil || systemPiP != nil { land() }
         for (_, row) in parked { for tab in row.tabs { tab.close() } }
@@ -368,6 +386,9 @@ struct SpaceDot: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .popover(isPresented: $browser.spaceAppearanceOpen, arrowEdge: browser.prefs.sidebar ? (browser.prefs.sidePosition == .right ? .leading : .trailing) : .bottom) {
+            SpaceAppearancePanel(browser: browser, prefs: browser.prefs)
+        }
         .onHover { hovering = $0 }
         .help("\(browser.space.name) — ⌃1–⌃9, or two fingers \(browser.prefs.sidebar ? "sideways" : "up or down") over the tabs, to switch")
         .onChange(of: key) { _, now in
@@ -463,6 +484,9 @@ enum SpaceMenu {
         let icon = NSMenuItem(title: "Icon", action: nil, keyEquivalent: "")
         icon.submenu = icons
         menu.addItem(icon)
+        menu.addItem(item("Appearance…") {
+            DispatchQueue.main.async { browser.spaceAppearanceOpen = true }
+        })
         // The order is the swipe's, and ⌃1–⌃9's.
         if let at = browser.spaces.firstIndex(where: { $0.id == here.id }) {
             if at > 0 { menu.addItem(item("Move Left") { browser.moveSpace(here.id, to: at - 1) }) }

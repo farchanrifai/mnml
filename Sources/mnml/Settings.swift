@@ -69,6 +69,11 @@ struct SettingsPanel: View {
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .shadow(color: .black.opacity(0.16), radius: 34, y: 12)
         .onChange(of: page) { _, page in Store.settings.set(page.rawValue, forKey: "settings.page") }
+        .onAppear { if browser.appearanceSpace != nil { page = .tabs } }
+        .onChange(of: browser.appearanceSpace) { _, _ in page = .tabs }
+        .onChange(of: browser.spaces) { _, spaces in
+            if let id = browser.appearanceSpace, !spaces.contains(where: { $0.id == id }) { browser.appearanceSpace = nil }
+        }
     }
 
     // MARK: - the rail
@@ -393,6 +398,19 @@ struct SettingsPanel: View {
 
     // MARK: - tabs
 
+    private var tintAppearance: SpaceAppearance { browser.appearance(for: browser.appearanceSpace) }
+
+    private var tintInherited: Bool {
+        guard let id = browser.appearanceSpace else { return false }
+        return browser.spaces.first(where: { $0.id == id })?.appearance == nil
+    }
+
+    private func tintBinding<Value>(_ key: WritableKeyPath<SpaceAppearance, Value>) -> Binding<Value> {
+        Binding(get: { tintAppearance[keyPath: key] }, set: { value in
+            browser.editAppearance(browser.appearanceSpace) { $0[keyPath: key] = value }
+        })
+    }
+
     private var tabs: some View {
         VStack(alignment: .leading, spacing: 18) {
         Card {
@@ -456,17 +474,39 @@ struct SettingsPanel: View {
                 Switch(on: $prefs.frostedSidebar)
             }
             Rule()
+            Line("Appearance for") {
+                Picker("Appearance for", selection: $browser.appearanceSpace) {
+                    Text("Global").tag(UUID?.none)
+                    ForEach(browser.spaces) { space in
+                        Text(space.name).tag(Optional(space.id))
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 160)
+            }
+            Rule()
+            if let id = browser.appearanceSpace {
+                Line("Use global appearance") {
+                    Switch(on: Binding(get: { tintInherited }, set: { inherit in
+                        browser.setAppearance(inherit ? nil : browser.globalAppearance, for: id)
+                    }))
+                }
+                Rule()
+            }
             Line("Tint", "A colour over the sidebar, or the bar across the top, with the material still showing through") {
-                TintPicker(hex: $prefs.chromeTint)
+                TintPicker(hex: tintBinding(\.light))
+                    .disabled(tintInherited)
             }
             Rule()
             Line("Tint in dark mode") {
-                TintPicker(hex: $prefs.chromeTintDark, offersSame: true)
+                TintPicker(hex: tintBinding(\.dark), offersSame: true)
+                    .disabled(tintInherited)
             }
             Rule()
-            if !prefs.chromeTint.isEmpty || !["", Tint.same].contains(prefs.chromeTintDark) {
+            if !tintAppearance.light.isEmpty || !["", Tint.same].contains(tintAppearance.dark) {
                 Line("Tint strength") {
-                    Slider(value: $prefs.chromeTintStrength, in: Tint.strengths)
+                    Slider(value: tintBinding(\.strength), in: Tint.strengths)
+                        .disabled(tintInherited)
                         .frame(width: 160)
                 }
                 Rule()
@@ -1081,7 +1121,7 @@ private struct AISettings: View {
 }
 
 /// The tint's swatches, none first, and the Mac's colour picker for any other.
-private struct TintPicker: View {
+struct TintPicker: View {
     @Binding var hex: String
     /// The dark mode's row: first, following the light tint.
     var offersSame = false

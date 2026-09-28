@@ -592,6 +592,7 @@ final class Bench {
             // app, and every window the app owns.
             var out: [String: Any] = [
                 "settings": browser.tuning,
+                "spaceAppearance": browser.spaceAppearanceOpen,
                 "finding": browser.finding,
                 "switchingTabs": browser.tabSwitcher.active,
                 "floating": browser.floating?.uuidString ?? "",
@@ -2028,6 +2029,7 @@ final class Bench {
             // Open or close the app's own panels, to reproduce what a person
             // did without a person.
             if let on = request["settings"] as? Bool { browser.tuning = on }
+            if let on = request["spaceAppearance"] as? Bool, Store.testing { browser.spaceAppearanceOpen = on }
             if let on = request["passwords"] as? Bool, Store.testing { browser.managing = on }
             if let on = request["welcome"] as? Bool { browser.welcoming = on }
             if let on = request["history"] as? Bool { browser.recalling = on }
