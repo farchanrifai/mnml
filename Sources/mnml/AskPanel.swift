@@ -22,7 +22,12 @@ struct AskPanel: View {
     @FocusState private var typing: Bool
 
     private var accent: Color { Spaces.colours[browser.space.colour % Spaces.colours.count] }
-    @State private var keyed = GeminiKey.read() != nil
+    private func supports(_ model: AIModel) -> Bool {
+        model.accepts(chat.files) && (tab.isBlank || chat.leftOwn ||
+            tab.address?.pathExtension.lowercased() != "pdf" || model.pdfs)
+    }
+    @State private var keyed = false
+    @State private var keyLoaded = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -96,71 +101,97 @@ struct AskPanel: View {
             // the keys and the box isn't in the window to take them.
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { typing = true }
         }
+        .task(id: prefs.askProvider) {
+            keyLoaded = false
+            keyed = false
+            key = ""
+            let available = await AIKey.readAsync(prefs.askProvider) != nil
+            if !Task.isCancelled {
+                keyed = available
+                keyLoaded = true
+            }
+        }
     }
 
     // MARK: - top
 
     private var header: some View {
-        HStack(spacing: 2) {
-            Door(icon: "square.and.pencil", help: "New chat") {
-                chat.stop()
-                browser.chats[tab.id] = Chat()
-                browser.objectWillChange.send()
-                browser.rememberSession()
-                recalling = false
-                typing = true
+        VStack(spacing: 2) {
+            HStack(spacing: 2) {
+                Door(icon: "square.and.pencil", help: "New chat") {
+                    chat.stop()
+                    browser.chats[tab.id] = Chat()
+                    browser.objectWillChange.send()
+                    browser.rememberSession()
+                    recalling = false
+                    typing = true
+                }
+                Door(icon: "clock", on: recalling, help: "Past chats") { recalling.toggle() }
+                Spacer()
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .global)
+                        .onChanged { dragged?($0, false) }
+                        .onEnded { dragged?($0, true) })
+                if !tab.isBlank {
+                    Menu {
+                        ForEach(AskMode.allCases, id: \.self) { choice in
+                            Toggle(isOn: Binding(get: { prefs.askMode == choice }, set: { if $0 { prefs.askMode = choice } })) {
+                                Label(choice.title, systemImage: choice.icon)
+                            }
+                        }
+                        Divider()
+                        Button {
+                            browser.askInNewTab(from: tab)
+                        } label: {
+                            Label("Open in New Tab", systemImage: "plus.square.on.square")
+                        }
+                    } label: {
+                        Image(systemName: mode.icon)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .foregroundStyle(Palette.muted)
+                    .padding(.horizontal, 4)
+                    .help("Sidebar, floating, or the whole page")
+                }
+                Door(icon: "xmark", help: "Close   ⌘E") {
+                    browser.chatting.remove(tab.id)
+                    browser.rememberSession()
+                }
             }
-            Door(icon: "clock", on: recalling, help: "Past chats") { recalling.toggle() }
-            Spacer()
-                .frame(maxHeight: .infinity)
-                .contentShape(Rectangle())
-                // The floating card goes where it's dragged by its top.
-                .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .global)
-                    .onChanged { dragged?($0, false) }
-                    .onEnded { dragged?($0, true) })
-            Picker("", selection: $prefs.askModel) {
-                ForEach(Gemini.models, id: \.0) { Text($0.1).tag($0.0) }
+            .frame(height: Metrics.strip)
+            HStack(spacing: 6) {
+                Picker("Provider", selection: $prefs.askProvider) {
+                    ForEach(AIProvider.allCases) { Text($0.title).tag($0) }
+                }
+                .frame(width: 100)
+                Picker("Model", selection: $prefs.askModel) {
+                    ForEach(prefs.askProvider.models.filter(supports)) { choice in
+                        Text(choice.title).tag(choice.id)
+                    }
+                    if !prefs.askProvider.models.filter(supports).contains(where: { $0.id == prefs.askModel }) {
+                        let selected = prefs.askProvider.model(prefs.askModel)
+                        Text(selected.title + (supports(selected) ? "" : " · unavailable")).tag(prefs.askModel)
+                    }
+                }
+                .frame(maxWidth: .infinity)
             }
             .labelsHidden()
             .pickerStyle(.menu)
-            .fixedSize()
             .controlSize(.small)
-            if !tab.isBlank {
-                Menu {
-                    ForEach(AskMode.allCases, id: \.self) { choice in
-                        Toggle(isOn: Binding(get: { prefs.askMode == choice }, set: { if $0 { prefs.askMode = choice } })) {
-                            Label(choice.title, systemImage: choice.icon)
-                        }
-                    }
-                    Divider()
-                    Button {
-                        browser.askInNewTab(from: tab)
-                    } label: {
-                        Label("Open in New Tab", systemImage: "plus.square.on.square")
-                    }
-                } label: {
-                    Image(systemName: mode.icon)
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .foregroundStyle(Palette.muted)
-                .padding(.horizontal, 4)
-                .help("Sidebar, floating, or the whole page")
-            }
-            Door(icon: "xmark", help: "Close   ⌘E") {
-                browser.chatting.remove(tab.id)
-                browser.rememberSession()
-            }
         }
         .padding(.horizontal, 10)
-        .frame(height: Metrics.strip)
+        .padding(.bottom, 4)
     }
 
     private var empty: some View {
         VStack(spacing: 14) {
             Spacer()
-            if keyed {
+            if !keyLoaded {
+                ProgressView()
+            } else if keyed {
                 VStack(alignment: .leading, spacing: 8) {
                     Label(tab.isBlank ? "New Chat" : "Ask This Tab", systemImage: "sparkles")
                         .font(.system(size: 11.5, weight: .semibold))
@@ -193,14 +224,16 @@ struct AskPanel: View {
     /// No key yet: where to get one, and a field for it.
     private var keyForm: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Add a Gemini key")
+            Text("Add a \(prefs.askProvider.title) key")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Palette.ink)
-            Text("Free from Google AI Studio. On the free tier Google may use what you send to improve its models.")
+            Text(prefs.askProvider == .gemini ? "Gemini has a limited free tier. Your page and attachments go to Google." :
+                 prefs.askProvider == .groq ? "Groq has a limited free tier. Your page and attachments go to Groq." :
+                 "This provider may charge for requests. Your page and attachments go to \(prefs.askProvider.title).")
                 .font(.system(size: 11.5))
                 .foregroundStyle(Palette.muted)
                 .fixedSize(horizontal: false, vertical: true)
-            Link("Get a key at aistudio.google.com", destination: URL(string: "https://aistudio.google.com/apikey")!)
+            Link("Get a \(prefs.askProvider.title) key", destination: prefs.askProvider.keyURL)
                 .font(.system(size: 11.5))
             HStack(spacing: 6) {
                 SecureField("Paste the key", text: $key)
@@ -217,10 +250,18 @@ struct AskPanel: View {
 
     private func saveKey() {
         guard !key.isEmpty else { return }
-        GeminiKey.keep(key)
-        keyed = true
-        key = ""
-        typing = true
+        let value = key
+        let provider = prefs.askProvider
+        Task {
+            await AIKey.keepAsync(value, for: provider)
+            let available = await AIKey.readAsync(provider) != nil
+            guard prefs.askProvider == provider else { return }
+            keyed = available
+            if keyed {
+                key = ""
+                typing = true
+            }
+        }
     }
 
     // MARK: - the thread
@@ -377,6 +418,13 @@ struct AskPanel: View {
                 // A picture or a file pasted: attached. Text pastes as ever.
                 .onPasteCommand(of: [.fileURL, .png, .tiff]) { _ in attachPasted() }
 
+            if !supports(prefs.askProvider.model(prefs.askModel)) {
+                Text("Choose a model that supports these attachments.")
+                    .font(.system(size: 11)).foregroundStyle(Palette.muted)
+            } else if chat.historyTrimmed || !chat.trimmed.isEmpty {
+                Text("Some page or earlier chat context was trimmed to fit this model.")
+                    .font(.system(size: 11)).foregroundStyle(Palette.muted)
+            }
             HStack(spacing: 2) {
                 Door(icon: "plus", help: "Add images or files") { pickFiles() }
                     .padding(.leading, -6)
@@ -392,7 +440,8 @@ struct AskPanel: View {
                 }
                 .buttonStyle(.plain)
                 .help(chat.working ? "Stop" : "Send   ↩")
-                .disabled(!chat.working && question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(!chat.working && (question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                    !supports(prefs.askProvider.model(prefs.askModel))))
             }
         }
         .padding(10)
@@ -635,7 +684,8 @@ struct AskPanel: View {
             _ = pickLit()
             return
         }
-        guard !chat.working, !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !chat.working, !question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              supports(prefs.askProvider.model(prefs.askModel)) else { return }
         var others: [Tab] = []
         for mention in chat.mentions {
             for other in browser.tabs(for: mention, besides: tab) where !others.contains(where: { $0 === other }) {
@@ -643,7 +693,7 @@ struct AskPanel: View {
             }
         }
         chat.send(question, about: tab, also: others, named: chat.mentions.map(browser.name(of:)),
-                  model: browser.prefs.askModel, picked: tab.picked)
+                  provider: prefs.askProvider, model: prefs.askModel, picked: tab.picked)
         question = ""
     }
 }

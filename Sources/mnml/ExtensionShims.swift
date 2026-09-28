@@ -449,6 +449,15 @@ enum ExtensionShims {
         if (!callback) return promise;
         promise.then((value) => callback(value), (error) => withLastError(error, callback));
       };
+      // Where a tab is, as Search can find it: its place in its window's row
+      // and that window's frame. WebKit's window numbers mean nothing to
+      // Search, and windows.getAll gives the frames they go with.
+      const frames = async () => {
+        const all = chrome.windows && typeof chrome.windows.getAll === "function"
+          ? await Promise.resolve(chrome.windows.getAll()).catch(() => []) : [];
+        return new Map((all || []).map((w) => [w.id, { left: w.left, top: w.top, width: w.width, height: w.height }]));
+      };
+      const placeOf = (t, known) => ({ i: t.index, w: known.get(t.windowId) });
       const event = () => {
         const listeners = new Set();
         return {
@@ -1660,7 +1669,7 @@ enum ExtensionShims {
           const out = [];
           for (const id of Array.isArray(ids) ? ids : [ids]) {
             const tab = await chrome.tabs.get(id);
-            await native(api, [tab.index, extra]);
+            await native(api, [placeOf(tab, await frames()), extra]);
             await settle();
             out.push(await chrome.tabs.get(id).catch(() => tab));
           }
@@ -1672,7 +1681,10 @@ enum ExtensionShims {
           if (!callback) return p;
           p.then((v) => callback(v), (e) => withLastError(e, callback));
         };
-        const indexes = (ids) => Promise.all((Array.isArray(ids) ? ids : [ids]).map((id) => chrome.tabs.get(id).then((t) => t.index)));
+        const indexes = async (ids) => {
+          const known = await frames();
+          return Promise.all((Array.isArray(ids) ? ids : [ids]).map((id) => chrome.tabs.get(id).then((t) => placeOf(t, known))));
+        };
         fill("tabs", {
           // Into a group, a new one or one named by its number, or out of
           // one. A group left with no tab is gone, as in Chrome.
@@ -1700,7 +1712,8 @@ enum ExtensionShims {
             : byIndex("tabs.discard")(id)),
           highlight: withCallback(async (info = {}) => {
             const first = Array.isArray(info.tabs) ? info.tabs[0] : info.tabs;
-            await native("tabs.activate", [first]);
+            const window = info.windowId ?? (await chrome.windows.getCurrent()).id;
+            await native("tabs.activate", [{ i: first, w: (await frames()).get(window) }]);
             await settle();
             return chrome.windows ? chrome.windows.getCurrent({ populate: true }) : undefined;
           }),
@@ -1944,20 +1957,24 @@ enum ExtensionShims {
           const blind = seesTabs ? tabs.filter((t) => !t.url && t.index >= 0) : [];
           const placed = seesGroups ? tabs.filter((t) => t.index >= 0) : [];
           if (!blind.length && !placed.length) return null;
-          return Promise.all([
-            blind.length && native("tabs.describe", [blind.map((t) => t.index)]).then((info) => {
+          return frames().then((known) => Promise.all([
+            blind.length && native("tabs.describe", [blind.map((t) => placeOf(t, known))]).then((info) => {
               blind.forEach((t, i) => {
                 const d = info && info[i];
                 if (!d) return;
-                try { if (d.url) t.url = d.url; if (d.title && !t.title) t.title = d.title; } catch (e) {}
+                try {
+                  if (d.url) t.url = d.url;
+                  if (d.title && !t.title) t.title = d.title;
+                  if (d.favIconUrl && !t.favIconUrl) t.favIconUrl = d.favIconUrl;
+                } catch (e) {}
               });
             }, () => {}),
-            placed.length && native("tabs.groups", [placed.map((t) => t.index)]).then((ids) => {
+            placed.length && native("tabs.groups", [placed.map((t) => placeOf(t, known))]).then((ids) => {
               placed.forEach((t, i) => {
                 if (ids && typeof ids[i] === "number") try { t.groupId = ids[i]; } catch (e) {}
               });
             }, () => {}),
-          ]);
+          ]));
         };
         const tabsIn = (value) => Array.isArray(value) ? value.flatMap(tabsIn)
           : isTab(value) ? [value] : value && Array.isArray(value.tabs) ? value.tabs : [];
@@ -1992,15 +2009,16 @@ enum ExtensionShims {
         }
         for (const name of ["get", "getAll", "getCurrent", "getLastFocused", "create"]) mendResult(chrome.windows, name);
         // Listeners given a tab: the tab is mended before they see it.
-        const mendArgs = (target, positions) => {
+        const mendArgs = (target, positions, told) => {
           if (!target || typeof target.addListener !== "function") return;
           const add = target.addListener.bind(target), remove = target.removeListener.bind(target);
           const wrapped = new Map();
           put(target, "addListener", (listener, ...rest) => {
+            const state = new Map();
             const w = function (...args) {
               const pending = mend(positions.map((i) => args[i]));
-              if (!pending) return listener.apply(this, args);
-              pending.then(() => listener.apply(this, args));
+              if (!pending) { if (told) told(args, state); return listener.apply(this, args); }
+              pending.then(() => { if (told) told(args, state); listener.apply(this, args); });
             };
             wrapped.set(listener, w);
             return add(w, ...rest);
@@ -2009,7 +2027,25 @@ enum ExtensionShims {
           put(target, "hasListener", (listener) => wrapped.has(listener));
         };
         mendArgs(chrome.tabs.onCreated, [0]);
-        mendArgs(chrome.tabs.onUpdated, [2]);
+        // What changed, in onUpdated's changeInfo. Without host access
+        // WebKit blanks url and title there ("") and leaves favIconUrl out,
+        // and a tab manager, or an extension watching its sign-in tab, reads
+        // them there. A blanked one is filled from the tab; one left out is
+        // added when it differs from what this listener last saw of the tab.
+        const told = seesTabs ? (args, state) => {
+          const info = args[1], tab = args[2];
+          if (!info || typeof info !== "object" || !isTab(tab) || !tab.url) return;
+          const before = state.get(tab.id);
+          const fill = (key, changed) => {
+            const value = tab[key];
+            if (value && (info[key] === "" || (info[key] === undefined && changed))) try { info[key] = value; } catch (e) {}
+          };
+          fill("url", before ? before.url !== tab.url : info.status === "loading");
+          fill("title", !!before && before.title !== tab.title);
+          fill("favIconUrl", !!before && before.favIconUrl !== tab.favIconUrl);
+          state.set(tab.id, { url: tab.url, title: tab.title, favIconUrl: tab.favIconUrl });
+        } : null;
+        mendArgs(chrome.tabs.onUpdated, [2], told);
         mendArgs(chrome.action && chrome.action.onClicked, [0]);
         mendArgs(chrome.contextMenus && chrome.contextMenus.onClicked, [1]);
         mendArgs(chrome.menus && chrome.menus.onClicked, [1]);
@@ -2933,6 +2969,47 @@ enum ExtensionShims {
     /// courtesy to honest code, the shim runs beside the extension's own,
     /// so the one that counts is here. The manifest is the one WebKit
     /// already holds, not the file read again on every call.
+    /// A tab's icon for favIconUrl: the picture the tab wears, as a small
+    /// PNG. Search keeps icons as pictures, not addresses, and Chrome's
+    /// favIconUrl may be a data: URL. Made once per site and kept.
+    /// A tab as the shim names it: `i`, its place in its window's row as
+    /// extensions see it, and `w`, that window's frame from windows.getAll()
+    /// (see Extensions.tab(windowFrame:index:)). A bare number, or no frame,
+    /// is only understood while there is one window.
+    private static func located(_ place: Any?, owner: Extensions) -> Tab? {
+        let spec = place as? [String: Any]
+        guard let index = (place as? NSNumber)?.intValue ?? (spec?["i"] as? NSNumber)?.intValue else { return nil }
+        let number = { (value: Any?) in (value as? NSNumber)?.doubleValue }
+        if let w = spec?["w"] as? [String: Any], let left = number(w["left"]), let top = number(w["top"]),
+           let width = number(w["width"]), let height = number(w["height"]) {
+            return owner.tab(windowFrame: CGRect(x: left, y: top, width: width, height: height), index: index)
+        }
+        guard Browsers.all.count <= 1 else { return nil }
+        let visible = owner.visibleTabs
+        return visible.indices.contains(index) ? visible[index] : nil
+    }
+
+    private static var favIcons: [String: String] = [:]
+    static func forgetIcons() { favIcons.removeAll() }
+
+    private static func favIconURL(_ tab: Tab) -> String? {
+        guard let host = tab.address?.host(), let icon = tab.icon ?? Favicons.shared.cached(host) else { return nil }
+        if let known = favIcons[host] { return known }
+        let side = 32
+        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: side, pixelsHigh: side, bitsPerSample: 8,
+                                            samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
+                                            bytesPerRow: 0, bitsPerPixel: 0) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+        icon.draw(in: NSRect(x: 0, y: 0, width: side, height: side))
+        NSGraphicsContext.restoreGraphicsState()
+        guard let png = bitmap.representation(using: .png, properties: [:]) else { return nil }
+        let url = "data:image/png;base64," + png.base64EncodedString()
+        if favIcons.count > 500 { favIcons.removeAll() }
+        favIcons[host] = url
+        return url
+    }
+
     static func allowed(_ id: String, context: WKWebExtensionContext) -> Set<String> {
         let asked = (context.webExtension.manifest["permissions"] as? [Any] ?? []).compactMap { $0 as? String }
         return Set(asked + (Store.settings.stringArray(forKey: "extensions.granted.\(id)") ?? []))
@@ -3009,13 +3086,14 @@ enum ExtensionShims {
             let spec = first as? [String: Any] ?? [:]
             let title = spec["title"] as? String ?? ""
             let parent = (spec["parentId"] as? String).flatMap(UUID.init(uuidString:))
+            let index = spec["index"] as? Int
             let made: Bookmark
             if let url = (spec["url"] as? String).flatMap(URL.init(string:)) {
-                made = browser.bookmarks.insert(.site(title, url), into: parent)
+                made = browser.bookmarks.insert(.site(title, url), into: parent, at: index)
             } else {
-                made = browser.bookmarks.insert(.folder(title, []), into: parent)
+                made = browser.bookmarks.insert(.folder(title, []), into: parent, at: index)
             }
-            return node(made, parent: parent?.uuidString ?? "1", index: 0, deep: false)
+            return find(made.id.uuidString, in: browser.bookmarks.roots).map { node($0.node, parent: $0.parent, index: $0.index, deep: false) }
         case "bookmarks.update":
             guard let key = first as? String, let uuid = UUID(uuidString: key) else { throw Unsupported(what: "No such bookmark") }
             let changes = args.count > 1 ? args[1] as? [String: Any] ?? [:] : [:]
@@ -3023,8 +3101,11 @@ enum ExtensionShims {
             return find(key, in: browser.bookmarks.roots).map { node($0.node, parent: $0.parent, index: $0.index, deep: false) }
         case "bookmarks.move":
             guard let key = first as? String, let uuid = UUID(uuidString: key) else { throw Unsupported(what: "No such bookmark") }
-            let target = (args.count > 1 ? args[1] as? [String: Any] : nil)?["parentId"] as? String
-            browser.bookmarks.move(uuid, into: target.flatMap(UUID.init(uuidString:)))
+            let spec = (args.count > 1 ? args[1] as? [String: Any] : nil) ?? [:]
+            // No parent named keeps it in the folder it is in, as in Chrome;
+            // "1", the bar, is the top level.
+            let target = (spec["parentId"] as? String).map(UUID.init(uuidString:)) ?? browser.bookmarks.parent(of: uuid)
+            browser.bookmarks.move(uuid, into: target, at: spec["index"] as? Int)
             return find(key, in: browser.bookmarks.roots).map { node($0.node, parent: $0.parent, index: $0.index, deep: false) }
         case "bookmarks.remove", "bookmarks.removeTree":
             guard let key = first as? String, let uuid = UUID(uuidString: key) else { throw Unsupported(what: "No such bookmark") }
@@ -3133,7 +3214,7 @@ enum ExtensionShims {
         case "sidePanel.getPanelBehavior":
             return ["openPanelOnActionClick": panelOnClick.contains(id)]
         case "sidePanel.open":
-            openPanel(context, owner: owner)
+            openPanel(context, owner: owner, for: located((first as? [String: Any])?["tabId"], owner: owner))
             return nil
 
         // MARK: offscreen — a page with a DOM for a worker that has none
@@ -3411,15 +3492,22 @@ enum ExtensionShims {
 
         // MARK: tabs, by where they are in the row
         case "tabs.describe":
-            let visible = owner.visibleTabs
-            return ((first as? [Int]) ?? []).map { index -> Any in
-                guard visible.indices.contains(index) else { return NSNull() }
-                return ["url": visible[index].address?.absoluteString ?? "", "title": visible[index].title]
+            let places: [Any] = first as? [Any] ?? []
+            return places.map { place -> Any in
+                guard let tab = located(place, owner: owner) else { return NSNull() }
+                // Another extension's page stays blank, as WebKit keeps it
+                // (see the refusal in Extensions.load); its own are its own.
+                if let url = tab.address, let scheme = url.scheme?.lowercased(),
+                   [Extensions.scheme, Extensions.formerScheme].contains(scheme), url.host() != id {
+                    return ["url": "", "title": ""]
+                }
+                var described: [String: Any] = ["url": tab.address?.absoluteString ?? "", "title": tab.title]
+                if let icon = favIconURL(tab) { described["favIconUrl"] = icon }
+                return described
             }
         case "tabs.move", "tabs.discard", "tabs.activate":
-            let visible = owner.visibleTabs
-            guard let from = first as? Int, visible.indices.contains(from) else { throw Unsupported(what: "No tab there") }
-            let tab = visible[from]
+            guard let tab = located(first, owner: owner), let browser = owner.browser(of: tab) else { throw Unsupported(what: "No tab there") }
+            let visible = owner.visibleTabs(of: browser)
             switch api {
             case "tabs.move":
                 let wanted = args.dropFirst().first as? Int ?? -1
@@ -3713,13 +3801,14 @@ enum ExtensionShims {
         return url
     }
 
-    static func openPanel(_ context: WKWebExtensionContext, owner: Extensions) {
+    static func openPanel(_ context: WKWebExtensionContext, owner: Extensions, for requested: Tab? = nil) {
         guard let path = panelPath[context.uniqueIdentifier] ?? defaultPanel(context) else { return }
         // Resolved, not appended: a path can carry a query — Claude's names
         // the tab its panel is for, sidepanel.html?tabId=… — which appended
         // would be escaped into the file's name.
         guard let url = ExtensionShims.page(path, in: context),
-              let browser = owner.browser, let tab = browser.active else { return }
+              let browser = requested.flatMap(owner.browser(of:)) ?? owner.browser,
+              let tab = requested ?? browser.active else { return }
         // Docked beside the tab, as Chrome's (SidePanel.swift).
         SidePanels.shared.open(url, context: context, for: tab, in: browser)
     }
@@ -3775,7 +3864,8 @@ enum ExtensionShims {
 @MainActor
 enum ExtensionAuth {
     private static var waiting: [String: (tab: Tab.ID, finish: (Result<URL, Error>) -> Void)] = [:]
-    private static var watch: AnyCancellable?
+    /// One per flow: whether its tab is still somewhere.
+    private static var watches: [String: Timer] = [:]
 
     struct Declined: LocalizedError {
         var errorDescription: String? { "The user did not approve access." }
@@ -3787,13 +3877,27 @@ enum ExtensionAuth {
             waiting[id]?.finish(.failure(Declined()))
             let tab = browser.open(url, foreground: true)
             waiting[id] = (tab.id, { result in continuation.resume(with: result) })
-            // Closing the tab is saying no.
-            watch = browser.$tabs.sink { tabs in
-                for (key, entry) in waiting where !tabs.contains(where: { $0.id == entry.tab }) {
-                    waiting[key] = nil
+            // Closing the tab is saying no. Moved to another window, or to
+            // a space not on screen, it is still there.
+            watches[id]?.invalidate()
+            watches[id] = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+                MainActor.assumeIsolated {
+                    guard let entry = waiting[id], entry.tab == tab.id else {
+                        watches.removeValue(forKey: id)?.invalidate()
+                        return
+                    }
+                    guard !exists(entry.tab) else { return }
+                    waiting[id] = nil
+                    watches.removeValue(forKey: id)?.invalidate()
                     entry.finish(.failure(Declined()))
                 }
             }
+        }
+    }
+
+    private static func exists(_ id: Tab.ID) -> Bool {
+        Browsers.all.contains { browser in
+            browser.tabs.contains { $0.id == id } || browser.parked.values.contains { $0.tabs.contains { $0.id == id } }
         }
     }
 
@@ -3813,8 +3917,12 @@ enum ExtensionAuth {
         entry.finish(.success(url))
         // The popup, when the answer came in one, goes with the flow's tab:
         // left behind, it would hold a redirect that never loads.
+        watches.removeValue(forKey: id)?.invalidate()
         if from.id != entry.tab { browser.close(from) }
-        if let tab = browser.tabs.first(where: { $0.id == entry.tab }) { browser.close(tab) }
+        // The flow's tab, in whichever window it is now.
+        for home in Browsers.all {
+            if let tab = home.tabs.first(where: { $0.id == entry.tab }) { home.close(tab) }
+        }
         return true
     }
 

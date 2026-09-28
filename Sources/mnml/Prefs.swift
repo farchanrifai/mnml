@@ -115,6 +115,11 @@ final class Preferences: ObservableObject {
     @Published var customEngine: String {
         didSet { store.set(customEngine, forKey: "search.custom") }
     }
+    /// Shortcuts to a site's own search, ahead of the default engine (see
+    /// Keyword.swift). Empty until someone adds one.
+    @Published var keywords: [Keyword] {
+        didSet { store.set((try? JSONEncoder().encode(keywords)) ?? Data(), forKey: "search.keywords") }
+    }
     /// Tabs nobody has looked at for half an hour give their page back and
     /// keep where they were. On unless turned off.
     @Published var sleepsTabs: Bool {
@@ -175,6 +180,13 @@ final class Preferences: ObservableObject {
 
     @Published var showsReading: Bool {
         didSet { store.set(showsReading, forKey: "tabs.reading") }
+    }
+    /// A tab opened behind the page — ⌘-click, the middle button, a batch
+    /// of links from another app — waits to load until it is gone to, as a
+    /// tab brought back from the last session does (see Browser.open).
+    /// Off unless asked for.
+    @Published var lazyTabs: Bool {
+        didSet { store.set(lazyTabs, forKey: "tabs.lazy") }
     }
     /// The ad blocker. On unless turned off; there is nothing else to it.
     @Published var shielded: Bool {
@@ -286,9 +298,18 @@ final class Preferences: ObservableObject {
     @Published var askCorner: Int {
         didSet { store.set(askCorner, forKey: "ask.corner") }
     }
-    /// The Gemini model the chat beside a page asks (Ask.swift).
+    @Published var askProvider: AIProvider {
+        didSet {
+            store.set(askProvider.rawValue, forKey: "ask.provider")
+            askModel = store.string(forKey: "ask.model.\(askProvider.rawValue)") ?? askProvider.models[0].id
+        }
+    }
+    /// The model the chat beside a page asks (Ask.swift).
     @Published var askModel: String {
-        didSet { store.set(askModel, forKey: "ask.model") }
+        didSet {
+            store.set(askModel, forKey: "ask.model.\(askProvider.rawValue)")
+            if askProvider == .gemini { store.set(askModel, forKey: "ask.model") }
+        }
     }
     /// Shift-click on a link opens it in a panel over the page (see
     /// Peek.swift). On unless turned off.
@@ -300,10 +321,10 @@ final class Preferences: ObservableObject {
     @Published var littleLinks: Bool {
         didSet { store.set(littleLinks, forKey: "links.little") }
     }
-    /// In the column, new tabs and links opened beside the page go to the
-    /// top of the loose tabs, under the pins, as in Arc. Off unless asked for.
-    @Published var newTabsOnTop: Bool {
-        didSet { store.set(newTabsOnTop, forKey: "tabs.top") }
+    /// The downloads button always in the chrome, not only while something
+    /// downloads (see Fetching.swift). Off unless asked for.
+    @Published var alwaysShowsDownloads: Bool {
+        didSet { store.set(alwaysShowsDownloads, forKey: "downloads.button") }
     }
     /// The bookmarks bar above the page (see BookmarksBar.swift). Off
     /// unless asked for.
@@ -316,6 +337,14 @@ final class Preferences: ObservableObject {
         didSet {
             store.set(showsLinks, forKey: "links.show")
             HoveredLink.on = showsLinks
+        }
+    }
+    /// A back or forward swipe held once armed shows the pages that way to
+    /// pick from (see PageView.openList). Off unless asked for.
+    @Published var holdsHistory: Bool {
+        didSet {
+            store.set(holdsHistory, forKey: "swipe.history")
+            PageView.holdsHistory = holdsHistory
         }
     }
     /// Two fingers flick the floating video to a corner (see Float.swift).
@@ -358,9 +387,15 @@ final class Preferences: ObservableObject {
     @Published var usesSpaces: Bool {
         didSet { store.set(usesSpaces, forKey: "spaces") }
     }
+    /// "settings", "new tab" and the like, typed alone in the address field,
+    /// reach that part of the app instead of asking a search engine for the
+    /// word (see AddressCommands.swift). Off unless asked for.
+    @Published var addressCommands: Bool {
+        didSet { store.set(addressCommands, forKey: "address.commands") }
+    }
 
     init() {
-        navigationLeft = store.bool(forKey: "toolbar.left")
+        navigationLeft = false
         // Carried over from when there were four ways of holding the browser
         // and this was one of them.
         // The Mac's own unless asked otherwise — a Mac in dark mode expects
@@ -381,7 +416,7 @@ final class Preferences: ObservableObject {
         NSApplication.shared.appearance = chosen.appearance
         sidebar = store.object(forKey: "sidebar") as? Bool
             ?? (store.string(forKey: "manner") == "side")
-        sidePosition = store.string(forKey: "sidebar.position").flatMap(SidebarPosition.init) ?? .left
+        sidePosition = .left
         sideHides = store.bool(forKey: "sidebar.hides")
         let width = store.object(forKey: "sidebar.width") as? Double ?? Double(Metrics.side)
         sideWidth = min(Metrics.sideMax, max(Metrics.sideMin, CGFloat(width)))
@@ -390,6 +425,8 @@ final class Preferences: ObservableObject {
         showsNewTab = store.object(forKey: "tabs.newButton") as? Bool ?? true
         engine = store.string(forKey: "search.engine").flatMap(Engine.init) ?? .standard
         customEngine = store.string(forKey: "search.custom") ?? ""
+        keywords = store.data(forKey: "search.keywords")
+            .flatMap { try? JSONDecoder().decode([Keyword].self, from: $0) } ?? []
         sleepsTabs = store.object(forKey: "tabs.sleep") as? Bool ?? true
         mruSwitcher = store.object(forKey: "tabs.mru") as? Bool ?? true
         commandBar = store.object(forKey: "tabs.commandBar") as? Bool ?? true
@@ -404,6 +441,7 @@ final class Preferences: ObservableObject {
         chromeTint = store.string(forKey: "tabs.tint") ?? ""
         chromeTintDark = store.string(forKey: "tabs.tint.dark") ?? Tint.same
         chromeTintStrength = store.object(forKey: "tabs.tint.strength") as? Double ?? Tint.strength
+        lazyTabs = store.bool(forKey: "tabs.lazy")
         shielded = store.object(forKey: "shield") as? Bool ?? true
         let keeps = store.bool(forKey: "sites.keep")
         keepsSignIns = keeps
@@ -442,6 +480,12 @@ final class Preferences: ObservableObject {
         usesSpaces = store.bool(forKey: "spaces")
         // mnml: on unless turned off (upstream: off unless turned on, and on
         // since 27 Sep 2026 for anyone who never touched them).
+        addressCommands = store.bool(forKey: "address.commands")
+        let history = store.bool(forKey: "swipe.history")
+        holdsHistory = history
+        PageView.holdsHistory = history
+        // On for everyone who never touched these three switches (Drice,
+        // 27 Sep 2026); a choice made before stands.
         let flicks = store.object(forKey: "float.flicks") as? Bool ?? true
         floatFlicks = flicks
         Float.flicks = flicks
@@ -449,7 +493,11 @@ final class Preferences: ObservableObject {
         floatsOnLeave = store.object(forKey: "float.leave") as? Bool ?? true
         waitsForPlay = store.bool(forKey: Preferences.waitsKey)
         installsUpdates = store.object(forKey: Updater.installKey) as? Bool ?? true
-        askModel = store.string(forKey: "ask.model") ?? Gemini.models[0].0
+        let provider = AIProvider(rawValue: store.string(forKey: "ask.provider") ?? "") ?? .gemini
+        askProvider = provider
+        askModel = store.string(forKey: "ask.model.\(provider.rawValue)")
+            ?? (provider == .gemini ? store.string(forKey: "ask.model") : nil)
+            ?? provider.models[0].id
         askCorner = store.integer(forKey: "ask.corner")
         askMode = AskMode(rawValue: store.string(forKey: "ask.mode") ?? "") ?? .side
         askWidth = (store.object(forKey: "ask.width") as? Double).map { CGFloat($0) } ?? 320
@@ -458,7 +506,7 @@ final class Preferences: ObservableObject {
         peeksLinks = store.object(forKey: "links.peek") as? Bool ?? true
         littleLinks = store.bool(forKey: "links.little")
         bookmarksBar = store.bool(forKey: "bookmarks.bar")
-        newTabsOnTop = store.bool(forKey: "tabs.top")
+        alwaysShowsDownloads = store.bool(forKey: "downloads.button")
         let links = store.object(forKey: "links.show") as? Bool ?? true
         showsLinks = links
         HoveredLink.on = links

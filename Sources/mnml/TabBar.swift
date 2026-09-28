@@ -580,6 +580,7 @@ struct TabBar: View {
                 }
             }
             .onEnded { _ in
+                if tab.pin == nil { _ = browser.dragOut(tab) }
                 withAnimation(Motion.settle) {
                     dragging = nil
                     travel = 0
@@ -1020,6 +1021,9 @@ struct Carried: ViewModifier {
     /// keeps its bearings (see the sidebar's grid).
     let space: String
     var onDrop: ((CGPoint) -> Void)? = nil
+    /// Let go outside the window: true when the tab was taken elsewhere —
+    /// another window, or a new one (see Browser.dragOut).
+    var outside: (() -> Bool)? = nil
     let move: (Int) -> Void
 
     @State private var held = false
@@ -1054,7 +1058,7 @@ struct Carried: ViewModifier {
                         }
                     }
                     .onEnded { value in
-                        onDrop?(value.location)
+                        if outside?() != true { onDrop?(value.location) }
                         withAnimation(Motion.settle) {
                             held = false
                             travel = 0
@@ -1183,7 +1187,7 @@ struct TabMenu: View {
     var body: some View {
         if tab.pin == nil {
             Button("Pin") { browser.pin(tab) }
-                .disabled(tab.isBlank)
+                .disabled(tab.isBlank || tab.shy)
         } else {
             Button("Change Letter") { browser.editLetter(tab) }
             Button("Unpin") { browser.unpin(tab) }
@@ -1238,6 +1242,23 @@ struct TabMenu: View {
             }
             .help("Pages moved to a Space with different sign-ins reopen there.")
         }
+        if tab.pin == nil, !tab.bench {
+            // Another window, or a new one (see Browser.moveToWindow).
+            let others = Browsers.all.filter { $0 !== browser && $0.isOpen }
+            if others.isEmpty {
+                Button("Move to New Window") { browser.moveToWindow(tab, nil) }
+                    .disabled(browser.tabs.count < 2)
+            } else {
+                Menu("Move to Window") {
+                    Button("New Window") { browser.moveToWindow(tab, nil) }
+                        .disabled(browser.tabs.count < 2)
+                    Divider()
+                    ForEach(Array(others.enumerated()), id: \.offset) { _, other in
+                        Button(other.windowName) { browser.moveToWindow(tab, other) }
+                    }
+                }
+            }
+        }
         Divider()
         Button("Rename") { browser.beginTabRename(tab) }
         Button("Duplicate") {
@@ -1266,6 +1287,15 @@ struct TabMenu: View {
             Divider()
             Button("Separate Tabs") { withAnimation(Motion.settle) { browser.unsplit(tab.id) } }
         }
+        // Its page let go of now, as it would be after half an hour unseen:
+        // the row keeps its title and picture, and it loads again when gone
+        // to. Not the tab on screen, nor one that has to stay awake (#310).
+        Button("Put to Sleep") {
+            browser.sleep(tab) { outcome in
+                if outcome != "asleep" { browser.announce("Stays awake: \(outcome)") }
+            }
+        }
+        .disabled(browser.awake(because: tab) != nil)
         Divider()
         Button("Close Tab", action: close)
         Button("Close Other Tabs") { browser.closeOthers(but: tab) }

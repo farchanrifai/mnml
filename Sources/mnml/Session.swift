@@ -20,6 +20,8 @@ enum Session {
         /// Its chat (Ask.swift), and whether its panel was open.
         var chat: UUID?
         var asking: Bool?
+        /// A pin’s identity, shared across windows.
+        var pinID: UUID? = nil
     }
 
     struct Shape: Codable {

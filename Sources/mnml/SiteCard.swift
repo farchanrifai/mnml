@@ -6,9 +6,9 @@ import SwiftUI
 // The site card: what a double-click on the tab you are on shows under its address,
 // in the column and in the bar across the top alike — whether the connection
 // is private, and the few things that belong to the page (copy its address,
-// print it, its zoom). Right-click › Site Information… opens the same. It
-// goes as soon as you type, when the address is left, or when one of its
-// lines is used. From #56, whose bar it came with; the bar itself stayed out,
+// print it, its zoom, whether it may play sound by itself). Right-click ›
+// Site Information… opens the same. It goes as soon as you type, when the
+// address is left, or when one of its lines is used. From #56, whose bar it came with; the bar itself stayed out,
 // since Search has the column or the strip, never a second row over the page.
 
 /// The card's own small window, under the tab's address. It never takes the
@@ -62,7 +62,7 @@ enum SiteCardPanel {
             guard original != nil, browser.editingTab == tab.id, browser.tabDraft == original else { return }
             // The field with the caret in it is the one on screen; failing
             // that, the latest one made.
-            let focused = (Links.window?.firstResponder as? NSTextView)?.delegate as? NSTextField
+            let focused = ((browser.window ?? Links.window)?.firstResponder as? NSTextView)?.delegate as? NSTextField
             guard let field = focused ?? anchor, field.window != nil else {
                 if tries < 15 { place(tab, browser, tries: tries + 1) }
                 return
@@ -283,6 +283,7 @@ struct SiteCard: View {
                 after { browser.printPage() }
             }
             zoom
+            sound
             if let host = tab.address?.host(), !host.isEmpty {
                 Separator()
                 Permission(title: "Notifications", choice: .notifications, host: host)
@@ -359,6 +360,17 @@ struct SiteCard: View {
         }
     }
 
+    /// Whether the site may play sound by itself (see Autoplay), a switch at
+    /// the end of its line. Not in a private tab, which remembers nothing,
+    /// nor with Settings › Videos wait for a click on, which lets no site.
+    @ViewBuilder private var sound: some View {
+        if !tab.shy, !Store.settings.bool(forKey: Preferences.waitsKey),
+           let url = tab.pageAddress, ["http", "https"].contains(url.scheme?.lowercased()),
+           let host = url.host() {
+            Sound(host: host)
+        }
+    }
+
     /// The page's size, remembered for the site (see Tab.rememberZoom), as a
     /// menu puts a control on one of its lines: the name, and the steps at
     /// its end. The number puts it back to the size every site starts at.
@@ -386,6 +398,42 @@ struct SiteCard: View {
         .frame(height: MenuMetrics.row)
     }
 
+    /// The line itself. WebKit takes it as a page loads, so a page already
+    /// open stays as it came, and the line says so once flipped.
+    private struct Sound: View {
+        let host: String
+        private let was: Bool
+        @State private var on: Bool
+
+        init(host: String) {
+            self.host = host
+            was = Autoplay.allowed(host)
+            _on = State(initialValue: was)
+        }
+
+        var body: some View {
+            HStack(spacing: 0) {
+                Text("Play Sound by Itself")
+                    .font(MenuMetrics.font)
+                    .foregroundStyle(Color(nsColor: .labelColor))
+                    .fixedSize()
+                Spacer(minLength: 24)
+                if on != was {
+                    Text("from the next page")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Color(nsColor: .secondaryLabelColor))
+                        .fixedSize()
+                        .padding(.trailing, 8)
+                }
+                Switch(on: $on)
+            }
+            .padding(.leading, MenuMetrics.text)
+            .padding(.trailing, MenuMetrics.trailing)
+            .frame(height: MenuMetrics.row)
+            .onChange(of: on) { _, value in Autoplay.set(value, for: host) }
+        }
+    }
+
     // MARK: - one step in
 
     private func security(_ safety: Safety) -> some View {
@@ -406,7 +454,7 @@ struct SiteCard: View {
             Separator()
             if let trust = safety.trust {
                 Row(certified == false ? "Show Certificate (Not Valid)…" : "Show Certificate…") {
-                    after { SiteCard.show(trust) }
+                    after { SiteCard.show(trust, in: browser.window ?? Links.window) }
                 }
             }
         }
@@ -474,8 +522,8 @@ struct SiteCard: View {
     }
 
     /// The system's own certificate sheet, over the window.
-    private static func show(_ trust: SecTrust) {
-        guard let window = Links.window else { return }
+    private static func show(_ trust: SecTrust, in window: NSWindow?) {
+        guard let window else { return }
         SFCertificatePanel.shared().beginSheet(
             for: window, modalDelegate: nil, didEnd: nil, contextInfo: nil, trust: trust, showGroup: false
         )

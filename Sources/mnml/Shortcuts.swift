@@ -169,6 +169,7 @@ struct Command: Identifiable {
             Command("app.passwords", "Passwords…", .app, KeyCombo("l", option: true), "Your saved passwords, shown with Touch ID.") { $0.managing = true },
             Command("app.welcome", "Welcome…", .app, nil, "The first-launch walk-through again.") { $0.welcoming = true },
 
+            Command("file.newWindow", "New Window", .file, KeyCombo("n"), "Opens another window.") { _ in Browsers.newWindow() },
             Command("file.newTab", "New Tab", .file, KeyCombo("t"), "Opens a blank tab.") { $0.newTab() },
             Command("file.newPrivateTab", "New Private Tab", .file, KeyCombo("n", shift: true), "A tab that keeps no history and no cookies once closed.") { $0.newShyTab() },
             Command("file.reopen", "Reopen Closed Tab", .file, KeyCombo("t", shift: true), "Brings back the tab you closed last.") { $0.reopen() },
@@ -182,6 +183,7 @@ struct Command: Identifiable {
                 if let tab = browser.active { browser.close(tab) }
             },
             Command("file.print", "Print…", .file, KeyCombo("p"), "Prints the page.") { $0.printPage() },
+            Command("file.import", "Bring Things Over…", .file, nil, "Imports bookmarks and browsing data.") { $0.bringingIn = "" },
 
             Command("edit.find", "Find on Page…", .edit, KeyCombo("f"), "Looks for words on the page.") { $0.openFind() },
             Command("edit.findNext", "Find Next", .edit, KeyCombo("g"), "The next match of what you're looking for.") { $0.look(forward: true) },

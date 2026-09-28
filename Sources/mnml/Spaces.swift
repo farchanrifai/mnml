@@ -80,7 +80,12 @@ enum Spaces {
         guard let data = try? JSONEncoder().encode(spaces) else { return }
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: file, options: .atomic)
+        // Every window's list follows (see Browser.init).
+        NotificationCenter.default.post(name: changed, object: spaces)
     }
+
+    /// The list of spaces changed, in one window or another.
+    static let changed = Notification.Name("SearchSpacesChanged")
 
     /// The space new tabs are made in: the one on screen.
     @MainActor static var current = Space.firstID
@@ -188,8 +193,9 @@ extension Browser {
         parked[spaceID] = Parked(tabs: tabs, active: activeID, groups: groups)
 
         spaceID = id
-        Spaces.current = id
-        Store.settings.set(id.uuidString, forKey: "space.current")
+        // Track the front window’s space and persist only windows with files.
+        if Browsers.front === self || Browsers.front == nil { Spaces.current = id }
+        if usesFiles { Store.settings.set(id.uuidString, forKey: "space.current") }
         if let back = parked.removeValue(forKey: id), !back.tabs.isEmpty {
             showRow(back.tabs, active: back.active, groups: back.groups)
             if let active, !active.wake() { active.revive() }
@@ -295,6 +301,10 @@ extension Browser {
         spaces.remove(at: at)
         Spaces.write(spaces)
         Session.erase(space: id)
+        // Gone from the other windows too: their rows there, and the space
+        // itself if one was showing it (the list's change moves it).
+        for other in Browsers.all where other !== self { other.forget(space: id) }
+        Pins.forget(id)
         // A space signed in with the others has nothing of its own to erase:
         // its cookies are theirs.
         if !shared { Spaces.erase(id) }
@@ -544,5 +554,13 @@ enum Ask {
             return
         }
         alert.beginSheetModal(for: window) { done($0 == .alertFirstButtonReturn) }
+    }
+}
+
+extension Browser {
+    /// A space deleted in another window: this window's row there goes.
+    func forget(space id: UUID) {
+        for tab in parked.removeValue(forKey: id)?.tabs ?? [] { tab.close() }
+        record.rows[id.uuidString] = nil
     }
 }

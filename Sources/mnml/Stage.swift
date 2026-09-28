@@ -101,6 +101,9 @@ struct Page: View {
             }
 
             if let pull = tab.pull, pull.stops != nil {
+                // In the disc's place, grown from its own edge: it sits in a
+                // frame as wide as the window, and grown from that frame's
+                // middle it would slide in from the middle.
                 HistoryList(pull: pull)
                     .id(pull.back)
                     .transition(.asymmetric(
@@ -577,10 +580,11 @@ struct DragStrip: NSViewRepresentable {
             moved = false
         }
 
-        /// The window is not movable on its own (see dress in App.swift): a tab
-        /// picked up in the strip would carry the window off with it. Here
-        /// it is let go for the one drag, handed to the system's own window
-        /// drag so it snaps and tiles as any window does.
+        /// The window is not movable while a press lasts (see dress in
+        /// App.swift): a tab picked up in the strip would carry the window
+        /// off with it. Here it is let go for the one drag, handed to the
+        /// system's own window drag so it snaps and tiles as any window does,
+        /// and stays movable after it, as between presses.
         override func mouseDragged(with event: NSEvent) {
             guard let window, let pressed, !moved else { return }
             let dx = event.locationInWindow.x - pressed.locationInWindow.x
@@ -590,7 +594,6 @@ struct DragStrip: NSViewRepresentable {
             moved = true
             window.isMovable = true
             window.performDrag(with: pressed)
-            window.isMovable = false
         }
 
         /// A double-click does what a title bar's does, unless this strip

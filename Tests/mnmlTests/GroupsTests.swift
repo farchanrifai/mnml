@@ -114,4 +114,20 @@ final class GroupsTests: XCTestCase {
         XCTAssertEqual(back.groups?.first?.open, false)
         XCTAssertNil(back.groups?.first?.peek, "the peek isn't saved")
     }
+
+    func testExtraWindowKeepsMnmlSessionFields() throws {
+        let chat = UUID(), pin = UUID()
+        let entry = Session.Entry(url: "https://a.com", title: "A", pin: "A", group: g,
+                                  name: "Named", split: true, home: "https://a.com",
+                                  chat: chat, asking: true, pinID: pin)
+        var window = WindowRecord()
+        window.rows[Space.firstID.uuidString] = Session.Shape(tabs: [entry], active: 0)
+        let restored = try JSONDecoder().decode(WindowRecord.self, from: JSONEncoder().encode(window))
+        let tab = try XCTUnwrap(restored.rows[Space.firstID.uuidString]?.tabs.first)
+        XCTAssertEqual(tab.group, g)
+        XCTAssertEqual(tab.split, true)
+        XCTAssertEqual(tab.chat, chat)
+        XCTAssertEqual(tab.asking, true)
+        XCTAssertEqual(tab.pinID, pin)
+    }
 }

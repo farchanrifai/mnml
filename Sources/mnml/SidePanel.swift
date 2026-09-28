@@ -44,8 +44,8 @@ final class SidePanels: NSObject, WKUIDelegate {
 
     /// window.close() from the panel: Claude's toggle closes its own.
     func webViewDidClose(_ webView: WKWebView) {
-        guard let browser = Extensions.shared.browser,
-              let tab = pages.first(where: { $0.value === webView })?.key else { return }
+        guard let tab = pages.first(where: { $0.value === webView })?.key,
+              let browser = Browsers.all.first(where: { $0.docked[tab] != nil }) else { return }
         close(tab, in: browser)
     }
 
@@ -53,7 +53,9 @@ final class SidePanels: NSObject, WKUIDelegate {
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
         if let url = action.request.url, (try? Extensions.mayOpen(url)) != nil {
-            Extensions.shared.browser?.open(url, foreground: true)
+            let tab = pages.first(where: { $0.value === webView })?.key
+            let browser = tab.flatMap { id in Browsers.all.first { $0.docked[id] != nil } }
+            (browser ?? Browsers.front)?.open(url, foreground: true)
         }
         return nil
     }

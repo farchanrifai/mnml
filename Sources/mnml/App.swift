@@ -7,9 +7,12 @@ import os
 
 @main
 struct MnmlApp: App {
-    @StateObject private var browser = Browser()
+    @StateObject private var front = Front.shared
     /// Links from other apps, and the Dock icon.
     @NSApplicationDelegateAdaptor(Links.self) private var links
+
+    /// What the menus act on: the window in front's browser.
+    private var browser: Browser { front.browser ?? SceneSlot.shared.browser }
 
     var body: some Scene {
         // Where you left it, at the size you left it. SwiftUI saves a
@@ -19,24 +22,27 @@ struct MnmlApp: App {
         // name the frame has always been kept under. A test run keeps its own:
         // the name lives in the app's standard defaults, which every copy
         // shares, and a probe resized for a test once changed the size the
-        // real window came back at.
-        Window("mnml", id: Store.world.map { "search (\($0))" } ?? "search") {
-            ContentView(browser: browser)
+        // real window came back at. The other windows' frames are in
+        // windows.json (see Windows.swift).
+        Window("mnml", id: Browsers.sceneID) {
+            SceneRoot(slot: SceneSlot.shared)
                 .frame(minWidth: 640, minHeight: 420)
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1180, height: 780)
         .commands {
-            // One window. Tabs are the only kind of "new" there is.
             CommandGroup(replacing: .newItem) {
+                item("file.newWindow")
                 item("file.newTab")
                 item("file.newPrivateTab")
                 item("file.reopen")
-                    .disabled(browser.ghosts.isEmpty)
+                    .disabled(browser.ghosts.isEmpty && Browsers.lastClosedAt == nil)
                 Divider()
                 item("file.openAddress")
                 item("file.openPeek")
                     .disabled(browser.peekTab == nil)
+                Divider()
+                item("file.import")
                 Divider()
                 item("file.closeTab")
             }
@@ -562,6 +568,19 @@ struct ContentView: View {
         if browser.bringingIn != nil {
             sheet { ImportPanel(browser: browser) } close: { browser.bringingIn = nil }
         }
+        // What's new, once after an update, and every version's notes
+        // (see WhatsNew.swift).
+        if browser.newsShowing, let release = WhatsNew.current {
+            sheet {
+                WhatsNewCard(release: release, prefs: browser.prefs, close: { browser.newsShowing = false }) {
+                    browser.newsShowing = false
+                    browser.notesShowing = true
+                }
+            } close: { browser.newsShowing = false }
+        }
+        if browser.notesShowing {
+            sheet { ReleaseNotesPanel { browser.notesShowing = false } } close: { browser.notesShowing = false }
+        }
         if browser.reviewing {
             // No dimming for this one: the whole point is to keep looking at
             // the page while the list offers to put things back on it.
@@ -626,7 +645,7 @@ struct ContentView: View {
                 browser.appLeft()
             }
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { note in
-                if let window, (note.object as? NSWindow) === window { Browser.front = browser }
+                if let window, (note.object as? NSWindow) === window { Browsers.becameKey(browser) }
             }
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { note in
                 if let window, (note.object as? NSWindow) === window { browser.tabSwitcher.cancel() }
@@ -651,6 +670,8 @@ struct ContentView: View {
             .animation(Motion.settle, value: browser.welcoming)
             .animation(Motion.settle, value: browser.bookmarking)
             .animation(Motion.settle, value: browser.managing)
+            .animation(Motion.settle, value: browser.newsShowing)
+            .animation(Motion.settle, value: browser.notesShowing)
             .animation(Motion.settle, value: browser.bringingIn != nil)
             .animation(Motion.settle, value: browser.reviewing)
         .onAppear {
@@ -664,6 +685,7 @@ struct ContentView: View {
             // Addresses from other apps have somewhere to go from here on.
             Links.hand(to: browser)
             BookmarkMenu.shared.start(for: browser)
+            Browsers.watchFrames()
         }
     }
 
@@ -906,7 +928,8 @@ struct ContentView: View {
     }
 
     private func dress(_ window: NSWindow) {
-        Links.window = window
+        browser.window = window
+        window.tabbingMode = .disallowed
         // Light or dark is the app's to say (Settings › Appearance); the
         // window only has to be the ground colour that goes with it.
         window.titlebarAppearsTransparent = true
@@ -917,8 +940,12 @@ struct ContentView: View {
         window.isMovableByWindowBackground = false
         // Nor by its title bar, which the strip is all the way down: AppKit
         // would move the window on any drag there, a tab picked up to take
-        // it elsewhere in the row included. DragStrip moves it instead.
-        window.isMovable = false
+        // it elsewhere in the row included. DragStrip moves it instead. The
+        // window stays movable between clicks, though — macOS's Window ›
+        // Move & Resize, its tiling and the tools that arrange windows ask
+        // for a movable one (#286) — and is made unmovable only while a
+        // press lasts (see Browsers.watchFrames).
+        window.isMovable = true
         FullScreenEsc.keep(window)
         FullScreenLights.keep(window, browser: browser)
 
@@ -955,6 +982,11 @@ struct ContentView: View {
     private func watchKeys() {
         guard keys == nil else { return }
         keys = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
+            // Every window has a monitor, and every monitor hears every key:
+            // each takes only its own window's, and the one in front takes
+            // those of windows that aren't a browser's (a panel, the little
+            // window).
+            guard mine(event) else { return event }
             guard event.type == .keyDown else {
                 if browser.tabSwitcher.active, !event.modifierFlags.contains(.control) {
                     browser.commitTabSwitch()
@@ -965,12 +997,18 @@ struct ContentView: View {
             }
             return take(event) ? nil : event
         }
-        ContentView.keyHook = { event in take(event) ? nil : event }
+        ContentView.keyHooks[ObjectIdentifier(browser)] = { event in take(event) ? nil : event }
+    }
+
+    /// Whether a key is this window's to act on.
+    private func mine(_ event: NSEvent) -> Bool {
+        if let window = event.window, Browsers.browser(for: window) != nil { return window === self.window }
+        return Browsers.acting === browser
     }
 
     /// The same handling the key monitor gives an event, for the bench to
-    /// put a key through the app's own path.
-    static var keyHook: ((NSEvent) -> NSEvent?)?
+    /// put a key through the app's own path — each window's own.
+    static var keyHooks: [ObjectIdentifier: (NSEvent) -> NSEvent?] = [:]
 
     /// The keys of the top row, by where they sit rather than what they type.
     static let digits: [UInt16: Int] = [
@@ -989,6 +1027,18 @@ struct ContentView: View {
         // A key handed to the page first, sent back unused: mnml's after all.
         if let id = browser.keyRouter.takeBack(event) {
             browser.run(id)
+            return true
+        }
+
+        // ⌘Return in this window's address field opens behind the page;
+        // ⇧⌘Return opens in front. A page's Return stays with the page.
+        if (event.keyCode == 36 || event.keyCode == 76),
+           flags == .command || flags == [.command, .shift],
+           browser.fieldShowing, browser.editingTab == nil,
+           let window, event.window === window,
+           let editor = window.firstResponder as? NSTextView,
+           (editor.delegate as? NSTextField)?.delegate is AddressField.Coordinator {
+            browser.submit(aside: true, front: flags.contains(.shift))
             return true
         }
 
@@ -1052,6 +1102,14 @@ struct ContentView: View {
                 withAnimation(Motion.glide) { browser.makingSpace = false }
                 return true
             }
+            if browser.notesShowing {
+                browser.notesShowing = false
+                return true
+            }
+            if browser.newsShowing {
+                browser.newsShowing = false
+                return true
+            }
             if browser.tuning {
                 browser.tuning = false
                 return true
@@ -1099,6 +1157,18 @@ struct ContentView: View {
             }
             guard browser.editing, browser.active?.isBlank == false else { return false }
             browser.dismiss()
+            return true
+        }
+
+        // ⌘Return keeps a peek, as its other button does: Return or the
+        // keypad's Enter, by the key rather than what it types, whatever Caps
+        // Lock says. Not while typing in the peeked page — a comment box or
+        // a mail there sends with the same keys — by the page's word or by
+        // the caret being in something editable, in any frame.
+        if event.keyCode == 36 || event.keyCode == 76,
+           flags.intersection([.command, .shift, .option, .control]) == .command,
+           let peek = browser.peekTab, !peek.typing, peek.built?.inputContext == nil {
+            browser.keepPeek()
             return true
         }
 
@@ -1257,5 +1327,17 @@ enum FullScreenEsc {
             before(window, leave, sender)
         }
         method_setImplementation(method, imp_implementationWithBlock(block))
+    }
+}
+
+/// SwiftUI's window, around whichever browser it holds now (see SceneSlot):
+/// a fresh one, laid out afresh, when the old one went with its window.
+struct SceneRoot: View {
+    @ObservedObject var slot: SceneSlot
+
+    var body: some View {
+        ContentView(browser: slot.browser)
+            .id(ObjectIdentifier(slot.browser))
+            .onAppear { Browsers.restoreOnce() }
     }
 }

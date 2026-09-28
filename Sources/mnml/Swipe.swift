@@ -17,6 +17,12 @@ import WebKit
 // is before there is anything to show.
 
 enum Swipe {
+    /// Sheets uses horizontal wheel gestures to move around its grid.
+    static func pageUsesHorizontalSwipe(_ url: URL?) -> Bool {
+        guard let url, url.host?.lowercased() == "docs.google.com" else { return false }
+        return url.path == "/spreadsheets" || url.path.hasPrefix("/spreadsheets/")
+    }
+
     /// No rubber-banding. Pulling past the top of a page showed a band of
     /// blank ground above it, and nobody who came from Chrome read that as
     /// anything but a fault. WebKit lets a view turn off the bounce along

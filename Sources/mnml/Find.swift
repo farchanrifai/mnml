@@ -52,8 +52,13 @@ struct FindBar: View {
         .padding(.top, 12)
         .padding(.trailing, 14)
         .animation(Motion.quick, value: browser.missed)
-        .onAppear { focused = true }
-        .onChange(of: browser.findFocus) { _, _ in focused = true }
+        .onAppear(perform: focus)
+        .onChange(of: browser.findFocus) { _, _ in focus() }
+    }
+
+    private func focus() {
+        focused = true
+        DispatchQueue.main.async { if !focused { focused = true } }
     }
 
     private var tally: String {

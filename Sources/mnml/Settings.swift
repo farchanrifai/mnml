@@ -12,6 +12,8 @@ struct SettingsPanel: View {
     @ObservedObject private var updater = Updater.shared
     @ObservedObject private var shield = Shield.shared
     @State private var isDefault = Links.isDefault
+    /// A site shortcut being written, kept out of Preferences until it's saved.
+    @State private var draft: Keyword?
     @State private var page: Page = Page(rawValue: Store.settings.string(forKey: "settings.page") ?? "") ?? .general
     @State private var hovered: Page?
 
@@ -158,7 +160,6 @@ struct SettingsPanel: View {
                     case .ai: AISettings(prefs: prefs)
                     case .privacy: privacy
                     case .about: about
-                    case .shortcuts: EmptyView()
                     }
                 }
                 .padding(.bottom, 4)
@@ -194,6 +195,15 @@ struct SettingsPanel: View {
                 }
             }
             Rule()
+            // Coming from another browser, now or any time later: the same
+            // sheet as File › Bring Things Over… and the Welcome's.
+            Line("Bring things over", "Bookmarks, history, passwords and extensions from another browser on this Mac, or from a file it exported") {
+                Pill("Bring Things Over…") {
+                    browser.tuning = false
+                    browser.bringingIn = ""
+                }
+            }
+            Rule()
             Line("Search with", searchDetail) {
                 Picker("", selection: $prefs.engine) {
                     ForEach(Engine.allCases) { engine in
@@ -222,6 +232,68 @@ struct SettingsPanel: View {
                 .padding(.bottom, 11)
             }
             Rule()
+            Line("Site shortcuts", keywordDetail) {
+                if draft == nil {
+                    Pill("Add") { draft = Keyword() }
+                } else {
+                    HStack(spacing: 6) {
+                        Pill("Cancel") { draft = nil }
+                        Pill("Save", filled: true) { saveDraft() }
+                            .disabled(draftProblem != nil)
+                            .opacity(draftProblem == nil ? 1 : 0.4)
+                    }
+                }
+            }
+            if let current = draft {
+                HStack(spacing: 8) {
+                    TextField("yt", text: Binding(
+                        get: { current.keyword },
+                        set: { draft?.keyword = $0 }
+                    ))
+                    .textFieldStyle(.plain)
+                    .frame(width: 50)
+                    Text("→").foregroundStyle(Palette.muted)
+                    TextField("https://www.youtube.com/results?search_query=%s", text: Binding(
+                        get: { current.template },
+                        set: { draft?.template = $0 }
+                    ))
+                    .textFieldStyle(.plain)
+                    .onSubmit(saveDraft)
+                }
+                .font(.system(size: 12.5))
+                .foregroundStyle(Palette.ink)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(Palette.wash, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .padding(.horizontal, 14)
+                .padding(.bottom, 6)
+            }
+            ForEach(prefs.keywords) { entry in
+                HStack(spacing: 8) {
+                    Text(entry.keyword)
+                        .frame(width: 50, alignment: .leading)
+                    Text("→").foregroundStyle(Palette.muted)
+                    Text(entry.template)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Button {
+                        prefs.keywords.removeAll { $0.id == entry.id }
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(Palette.faint)
+                    }
+                    .buttonStyle(.plain)
+                }
+                .font(.system(size: 12.5))
+                .foregroundStyle(Palette.ink)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .background(Palette.wash, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .padding(.horizontal, 14)
+                .padding(.bottom, 6)
+            }
+            Rule()
             Line("Appearance", "Light, dark, or whatever the Mac is doing — pages follow it too") {
                 Segmented(options: Look.allCases.map { ($0, $0.title) }, selection: $prefs.look)
             }
@@ -243,6 +315,10 @@ struct SettingsPanel: View {
                 Switch(on: $prefs.littleLinks)
             }
             Rule()
+            Line("Address bar commands", "A word like \"settings\" or \"new tab\", typed alone in the address field, goes there instead of searching for it") {
+                Switch(on: $prefs.addressCommands)
+            }
+            Rule()
             Line("Show where links go", "Point at a link and its address shows at the bottom of the page") {
                 Switch(on: $prefs.showsLinks)
             }
@@ -255,7 +331,11 @@ struct SettingsPanel: View {
                 Switch(on: $prefs.fastPages)
             }
             Rule()
-            Line("Flick the floating video to a corner", "Two fingers on it send it to the corner or edge they point at, instead of pushing it along. Dragging still puts it anywhere") {
+            Line("Hold a swipe to pick from history", "Swipe back or forward and keep your fingers down: the pages that way appear, and moving up or down picks one to go to") {
+                Switch(on: $prefs.holdsHistory)
+            }
+            Rule()
+            Line("Flick the floating video to a corner", "Two fingers on it send it to the corner or edge they point at, instead of pushing it along; a strong swipe at the side of the screen it is against tucks it in there, a sliver left to bring it back by. Dragging still puts it anywhere") {
                 Switch(on: $prefs.floatFlicks)
             }
             Rule()
@@ -275,6 +355,32 @@ struct SettingsPanel: View {
                 Switch(on: $prefs.bench)
             }
         }
+    }
+
+    /// Checked when it's saved, not as it's typed into the list: a shortcut
+    /// only exists once its address is one it's safe to send words to.
+    private var draftProblem: String? {
+        guard let draft else { return nil }
+        return Keyword.problem(word: draft.keyword, template: draft.template, among: prefs.keywords)
+    }
+
+    private var keywordDetail: String {
+        guard let draft else {
+            return "A word before your search goes straight to that site, whatever engine you've picked — \"yt cats\" to YouTube"
+        }
+        if draft.keyword.isEmpty, draft.template.isEmpty {
+            return "A word, then the site's search address with %s where the words go"
+        }
+        return draftProblem ?? "\(draft.keyword.trimmingCharacters(in: .whitespacesAndNewlines)) will search \(draft.name)"
+    }
+
+    private func saveDraft() {
+        guard let current = draft, draftProblem == nil else { return }
+        prefs.keywords.append(Keyword(
+            keyword: current.keyword.trimmingCharacters(in: .whitespacesAndNewlines),
+            template: current.template.trimmingCharacters(in: .whitespacesAndNewlines)
+        ))
+        draft = nil
     }
 
     private var searchDetail: String {
@@ -377,6 +483,10 @@ struct SettingsPanel: View {
                 Switch(on: $prefs.sleepsTabs)
             }
             Rule()
+            Line("Load background tabs when you go to them", "A link opened behind the page, with ⌘-click or the middle button, or a batch of links from another app, waits until you go to its tab. ⇧⌘-click still takes you there at once.") {
+                Switch(on: $prefs.lazyTabs)
+            }
+            Rule()
             Line("Spaces", "Separate sets of tabs, signed in where the others are or starting afresh, switched with ⌃1–⌃9, two fingers sideways over the column, or the space's icon. Mission Control's own ⌃1–⌃9, if you turned them on, take those keys first.") {
                 Switch(on: $prefs.usesSpaces)
             }
@@ -467,6 +577,10 @@ struct SettingsPanel: View {
             Line("Ask where to save each file") {
                 Switch(on: $prefs.asksWhereToSave)
             }
+            Rule()
+            Line("Always show the downloads button", "Beside the other buttons, even with nothing downloading. Off, it shows only while a file comes in") {
+                Switch(on: $prefs.alwaysShowsDownloads)
+            }
         }
     }
 
@@ -549,6 +663,10 @@ struct SettingsPanel: View {
                 Rule()
                 Line("Found something wrong?", "Opens a GitHub issue with the version already in it") {
                     Pill("Send Feedback") { Links.writeFeedback() }
+                }
+                Rule()
+                Line("What's new", "Every version's notes, newest first") {
+                    Pill("What's New…") { browser.notesShowing = true }
                 }
             }
         }
@@ -802,34 +920,49 @@ struct TabMemory: View {
     }
 }
 
-/// Settings › AI: the Gemini key the chat beside a page uses (Ask.swift),
+/// Settings › AI: the chosen provider key the chat beside a page uses (Ask.swift),
 /// which model, where the chat shows, and the chats kept.
 private struct AISettings: View {
     @ObservedObject var prefs: Preferences
-    @State private var key = GeminiKey.read()
+    @State private var key: String?
+    @State private var keyLoaded = false
     @State private var typed = ""
+    @State private var customModel = ""
     @State private var changing = false
     @State private var kept = Chat.history().count
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Card {
-                Line("Gemini key", "Free from Google AI Studio. On the free tier Google may use what you send to improve its models.") {
-                    if let key, !changing {
+                Line("Provider", "Ask sends the page and attachments directly to this provider. Groq and Gemini have limited free tiers; OpenAI and Anthropic may charge.") {
+                    Picker("", selection: $prefs.askProvider) {
+                        ForEach(AIProvider.allCases) { Text($0.title).tag($0) }
+                    }
+                    .labelsHidden().fixedSize()
+                }
+                Rule()
+                Line("\(prefs.askProvider.title) key", "Stored in this Mac's Keychain") {
+                    if !keyLoaded {
+                        ProgressView().controlSize(.small)
+                    } else if let key, !changing {
                         HStack(spacing: 6) {
                             Text("••••\(key.suffix(4))").font(.system(size: 12, design: .monospaced)).foregroundStyle(Palette.muted)
                             Pill("Change") { changing = true }
                             Pill("Remove") {
-                                GeminiKey.keep("")
-                                self.key = nil
+                                let provider = prefs.askProvider
+                                Task {
+                                    await AIKey.keepAsync("", for: provider)
+                                    let saved = await AIKey.readAsync(provider)
+                                    if prefs.askProvider == provider { self.key = saved }
+                                }
                             }
                         }
                     } else {
-                        Link("Get a key", destination: URL(string: "https://aistudio.google.com/apikey")!)
+                        Link("Get a key", destination: prefs.askProvider.keyURL)
                             .font(.system(size: 12))
                     }
                 }
-                if key == nil || changing {
+                if keyLoaded && (key == nil || changing) {
                     HStack(spacing: 6) {
                         SecureField("Paste the key", text: $typed)
                             .textFieldStyle(.plain)
@@ -844,9 +977,29 @@ private struct AISettings: View {
                     .padding(.bottom, 11)
                 }
                 Rule()
-                Line("Model", "Flash reads tables and PDFs best; Flash-Lite is quicker and has more room on the free tier") {
-                    Segmented(options: Gemini.models.map { ($0.0, $0.1) }, selection: $prefs.askModel)
+                Line("Model", "Custom IDs start as text-only; curated models have verified attachment support") {
+                    Picker("", selection: $prefs.askModel) {
+                        ForEach(prefs.askProvider.models) { choice in Text(choice.title).tag(choice.id) }
+                        if !prefs.askProvider.models.contains(where: { $0.id == prefs.askModel }) {
+                            Text("Custom: \(prefs.askModel)").tag(prefs.askModel)
+                        }
+                    }
+                    .labelsHidden().fixedSize()
+                    .onChange(of: prefs.askModel) { _, model in
+                        customModel = prefs.askProvider.models.contains(where: { $0.id == model }) ? "" : model
+                    }
                 }
+                HStack(spacing: 6) {
+                    TextField("Custom model ID", text: $customModel)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12.5))
+                        .padding(7)
+                        .background(Palette.wash, in: RoundedRectangle(cornerRadius: 9))
+                        .onSubmit(saveModel)
+                    Pill("Use Model", action: saveModel)
+                }
+                .padding(.horizontal, 14)
+                .padding(.bottom, 11)
                 Rule()
                 Line("Chat shows", "⌘E on a page. ⇧⌘E opens a chat in a new tab of its own") {
                     Segmented(options: AskMode.allCases.map { ($0, $0.title) }, selection: $prefs.askMode)
@@ -868,14 +1021,41 @@ private struct AISettings: View {
                 }
             }
         }
+        .task(id: prefs.askProvider) {
+            keyLoaded = false
+            key = nil
+            changing = false
+            typed = ""
+            customModel = prefs.askProvider.models.contains(where: { $0.id == prefs.askModel }) ? "" : prefs.askModel
+            let provider = prefs.askProvider
+            let saved = await AIKey.readAsync(provider)
+            if !Task.isCancelled {
+                key = saved
+                keyLoaded = true
+            }
+        }
     }
 
     private func save() {
         guard !typed.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-        GeminiKey.keep(typed)
-        key = GeminiKey.read()
-        typed = ""
-        changing = false
+        let value = typed
+        let provider = prefs.askProvider
+        Task {
+            await AIKey.keepAsync(value, for: provider)
+            let saved = await AIKey.readAsync(provider)
+            guard prefs.askProvider == provider else { return }
+            key = saved
+            if saved != nil {
+                typed = ""
+                changing = false
+            }
+        }
+    }
+
+    private func saveModel() {
+        let id = customModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty else { return }
+        prefs.askModel = id
     }
 }
 

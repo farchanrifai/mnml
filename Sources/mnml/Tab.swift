@@ -181,6 +181,70 @@ enum Muter {
     }
 }
 
+/// Sites you let play sound by themselves, from the site card: Safari's
+/// per-site Allow All Auto-Play (#223). Every other site keeps the default,
+/// sound waiting for a click. Remembered for the site, as its zoom is, and
+/// never from a private tab. Settings › Videos wait for a click wins: with
+/// it on, no site plays by itself.
+///
+/// WebKit takes it for each page as it loads, through the page's own
+/// preferences, under a name outside the public framework — asked for
+/// first, as `Muter` asks, so a WebKit without it only leaves the site
+/// waiting for a click. Its values, checked on macOS 26: 0 the default,
+/// 1 allow, 2 allow without sound, 3 deny. Allow lets video play whatever
+/// `mediaTypesRequiringUserActionForPlayback` says, which is why the
+/// global switch is asked here and not left to that.
+enum Autoplay {
+    private static func key(_ host: String) -> String { "autoplay." + host }
+
+    static func allowed(_ host: String) -> Bool {
+        Store.settings.bool(forKey: key(host))
+    }
+
+    /// Off keeps nothing, as a site at the usual zoom keeps nothing.
+    static func set(_ on: Bool, for host: String) {
+        if on {
+            Store.settings.set(true, forKey: key(host))
+        } else {
+            Store.settings.removeObject(forKey: key(host))
+        }
+    }
+
+    /// For a page about to load at `url`: allowed to play, or left alone.
+    static func apply(to preferences: WKWebpagePreferences, for url: URL, shy: Bool) {
+        guard !shy, let host = url.host(), allowed(host),
+              !Store.settings.bool(forKey: Preferences.waitsKey) else { return }
+        let set = NSSelectorFromString("_setAutoplayPolicy:")
+        guard preferences.responds(to: set) else { return }
+        typealias Setter = @convention(c) (AnyObject, Selector, Int) -> Void
+        unsafeBitCast(preferences.method(for: set), to: Setter.self)(preferences, set, 1)
+    }
+}
+
+/// How far down its page a tab is. Its own object, watched by the fill in
+/// the tab's pill alone: as part of the tab, every percent scrolled re-ran
+/// everything that watches the tab — the page's stage, the buttons, the
+/// row — two to four milliseconds of the window's time each, while WebKit
+/// needed that thread to put the scrolled page on screen.
+@MainActor
+final class Reading: ObservableObject {
+    @Published var through: Double = 0
+}
+
+/// The fill itself: the grey that grows from the left of the tab you are on
+/// as you read down its page, in a width it is given.
+struct ReadingFill: View {
+    @ObservedObject var reading: Reading
+    let span: CGFloat
+
+    var body: some View {
+        Rectangle()
+            .fill(Palette.ink.opacity(0.055))
+            .frame(width: span * reading.through)
+            .animation(.easeOut(duration: 0.15), value: reading.through)
+    }
+}
+
 @MainActor
 final class Tab: ObservableObject, Identifiable {
     let id = UUID()
@@ -293,6 +357,11 @@ final class Tab: ObservableObject, Identifiable {
     /// The letter a pinned tab is reduced to, and what a tab shows in place of
     /// an icon it doesn't have yet.
     var monogram: String {
+        // A file on this Mac has no host: its name's first letter.
+        if let address, address.isFileURL {
+            let name = address.lastPathComponent.trimmingCharacters(in: CharacterSet(charactersIn: "/."))
+            return name.first.map { String($0).uppercased() } ?? "•"
+        }
         let host = address?.host()?.replacingOccurrences(of: "www.", with: "") ?? ""
         return host.first.map { String($0).uppercased() } ?? "•"
     }
@@ -438,6 +507,8 @@ final class Tab: ObservableObject, Identifiable {
     /// at the head of the row and gives up its title for that letter — which
     /// is all you need for the five or six pages you keep open all day.
     @Published var pin: String?
+    /// For a pin, which of the pins it is, in every window (see Pins.swift).
+    var pinID: UUID?
 
 
     /// Where a pinned tab, or one in a pinned group, was when it was pinned:
@@ -1123,8 +1194,9 @@ final class Tab: ObservableObject, Identifiable {
         }
         // A tab that slept has its own history to go back to — the page, its
         // back list and its scroll position, in one. Anything else starts
-        // from the address.
-        if let state {
+        // from the address. A file does too: its history comes back without
+        // the folder it may read, and showed nothing.
+        if let state, !url.isFileURL {
             view.interactionState = state
         } else {
             view.open(url)
@@ -1236,7 +1308,8 @@ final class Tab: ObservableObject, Identifiable {
         // the reload.
         guard !wake() else { return }
         reader = false
-        if hollow, let address {
+        // A file is read again with the folder it may read (see open).
+        if let address, hollow || address.isFileURL {
             web.open(address)
         } else if fromOrigin {
             web.reloadFromOrigin()
@@ -1416,7 +1489,7 @@ final class PageView: WKWebView {
     private var browser: Browser? {
         (uiDelegate as? Browser) ?? (tab?.delegate as? Browser) ?? {
             if #available(macOS 15.4, *) {
-                return Extensions.shared.browser
+                return tab.flatMap(Extensions.shared.browser(of:)) ?? Extensions.shared.browser
             }
             return nil
         }()
@@ -1442,7 +1515,7 @@ final class PageView: WKWebView {
             item.action = #selector(searchSelection(_:))
         }
         guard #available(macOS 15.4, *),
-              let tab = Extensions.shared.browser?.tabs.first(where: { $0.built === self })
+              let tab = Browsers.all.lazy.flatMap(\.tabs).first(where: { $0.built === self })
         else { return }
         let items = Extensions.shared.menuItems(for: tab)
         guard !items.isEmpty else { return }
@@ -1622,6 +1695,9 @@ final class PageView: WKWebView {
     /// How far the fingers have gone up (or down, below nought) since the
     /// last step through the list.
     private var climbed: CGFloat = 0
+    /// Settings › General › Hold a swipe to pick from history. Off unless
+    /// asked for; off, a held swipe is a swipe like any other.
+    static var holdsHistory = false
     /// How long armed before the list, and how far up or down a step is.
     private static let hold: TimeInterval = 0.45
     private static let step: CGFloat = 22
@@ -1719,10 +1795,17 @@ final class PageView: WKWebView {
 
     override func scrollWheel(with event: NSEvent) {
         onTouch?()
+        if Swipe.pageUsesHorizontalSwipe(url) {
+            super.scrollWheel(with: event)
+            return
+        }
         // The page gets every event first and scrolls as it always did. The
         // swipe is only read, never taken — except while its list is open,
-        // when up and down are picking a page, not scrolling this one.
-        if stops == nil { super.scrollWheel(with: event) }
+        // when up and down are picking a page, not scrolling this one. The
+        // gesture's end still reaches the page, which saw it begin.
+        if stops == nil || event.phase == .ended || event.phase == .cancelled {
+            super.scrollWheel(with: event)
+        }
         // Only a live trackpad gesture — not its glide afterwards, and not a
         // mouse wheel, which has no beginning or end to speak of.
         guard event.momentumPhase == [] else { return }
@@ -1823,7 +1906,7 @@ final class PageView: WKWebView {
         }
 
         let armed = travel >= PageView.arm
-        if stops == nil, armed != armedNow {
+        if PageView.holdsHistory, stops == nil, armed != armedNow {
             holding?.cancel()
             holding = nil
             if armed {
@@ -1886,6 +1969,9 @@ final class PageView: WKWebView {
 
     private func release() {
         defer { spent = true }
+        // Let go before the list came: it doesn't come now.
+        holding?.cancel()
+        holding = nil
         let flicked = !spent && free == true && travel >= PageView.flick
             && (asked.map { Date().timeIntervalSince($0) <= PageView.flickTime } ?? false)
         guard !spent, free == true, armedNow || stops != nil || flicked else {
@@ -1969,30 +2055,6 @@ final class ScrollRelay: NSObject, WKScriptMessageHandler {
     """
 }
 
-/// How far down the page you are, nought to one, for the tab's own fill.
-///
-/// An object of its own, not a property of the tab: a tab is watched by its row,
-/// by its helm and by its page's own host, and this changes every frame.
-@MainActor
-final class Reading: ObservableObject {
-    @Published var through: Double = 0
-}
-
-/// The grey that fills a row as you read down the page — a view of its own, so a
-/// frame of a scroll redraws this and nothing else.
-struct ReadingFill: View {
-    @ObservedObject var reading: Reading
-    let span: CGFloat
-    var body: some View {
-        Rectangle()
-            .fill(Palette.ink.opacity(0.055))
-            .frame(width: span * reading.through)
-            .animation(.easeOut(duration: 0.15), value: reading.through)
-    }
-}
-
-
-
 extension WKWebView {
     /// An address, or a file on this Mac. WebKit reads a file only when told
     /// which folder the page may read from, and loads nothing at all
@@ -2000,7 +2062,14 @@ extension WKWebView {
     /// Mac's browser, opened a tab that stayed empty.
     func open(_ url: URL) {
         if url.isFileURL {
-            loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
+            // Its folder, for the pictures and styles beside it — unless the
+            // folder is the home folder, the disk or a volume, where the
+            // file alone is what was opened.
+            let folder = url.deletingLastPathComponent().standardizedFileURL
+            let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL
+            let tooWide = folder == home || ["/", "/Users", "/Volumes"].contains(folder.path)
+                || folder.deletingLastPathComponent().path == "/Volumes"
+            loadFileURL(url, allowingReadAccessTo: tooWide ? url : folder)
         } else {
             load(URLRequest(url: url))
         }

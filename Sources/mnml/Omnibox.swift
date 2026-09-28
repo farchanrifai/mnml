@@ -161,6 +161,10 @@ struct Omnibox: View {
                         .fill(Palette.ink.opacity(0.55))
                         .frame(width: 5, height: 5)
                         .padding(.horizontal, 2)
+                case .command:
+                    Image(systemName: "command")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Palette.muted)
                 default:
                     EmptyView()
                 }
@@ -345,6 +349,11 @@ struct AddressField: NSViewRepresentable {
             DispatchQueue.main.async {
                 field.window?.makeFirstResponder(field)
                 guard let editor = field.currentEditor() as? NSTextView else { return }
+                // The command bar supplies its own address completion. Keep
+                // system text suggestions (including Mail codes) out of it.
+                editor.enabledTextCheckingTypes = 0
+                editor.inlinePredictionType = .no
+                editor.isAutomaticTextCompletionEnabled = false
                 // The system paints selected text as a block of accent colour,
                 // which over this pale field is the loudest thing in the
                 // window. A tenth of the ink says "selected" quietly enough.

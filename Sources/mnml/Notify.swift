@@ -97,7 +97,7 @@ final class Notify: NSObject, WKScriptMessageHandlerWithReply, UNUserNotificatio
         if let saved = Store.settings.object(forKey: Self.key(host)) as? Bool {
             return answer(saved ? "granted" : "denied")
         }
-        guard !host.isEmpty, let browser = Browser.front, browser.tab(for: web) != nil else { return answer("default") }
+        guard !host.isEmpty, let browser = Browsers.all.first(where: { $0.anyTab(for: web) != nil }) else { return answer("default") }
         // Off for mnml in System Settings, the Mac neither asks nor says why:
         // the bar says so instead, with the way there, and the site isn't
         // asked what it can't be given.
@@ -167,7 +167,7 @@ final class Notify: NSObject, WKScriptMessageHandlerWithReply, UNUserNotificatio
             MainActor.assumeIsolated {
                 defer { done() }
                 guard let entry = Notify.shared.shown[id], let web = entry.web.web else { return }
-                if clicked, let browser = Browser.front, let tab = browser.tab(for: web) {
+                if clicked, let browser = Browsers.all.first(where: { $0.anyTab(for: web) != nil }), let tab = browser.anyTab(for: web) {
                     browser.select(tab)
                     NSApp.activate(ignoringOtherApps: true)
                     web.window?.makeKeyAndOrderFront(nil)
