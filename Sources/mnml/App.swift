@@ -1044,6 +1044,10 @@ struct ContentView: View {
 
         // ⌃Tab with the recently used switcher on (Settings › Tabs): tabs in
         // the order you last looked at them. Off, ⌃Tab walks the row below.
+        if event.keyCode == 48, flags.contains(.control),
+           flags.isDisjoint(with: [.command, .option]), NSApp.keyWindow === window {
+            browser.closeFind()
+        }
         if browser.prefs.mruSwitcher, event.keyCode == 48, flags.contains(.control),
            !flags.contains(.command), !flags.contains(.option) {
             guard canSwitchTabs else { return false }

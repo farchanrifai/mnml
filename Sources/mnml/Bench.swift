@@ -592,6 +592,10 @@ final class Bench {
             // app, and every window the app owns.
             var out: [String: Any] = [
                 "settings": browser.tuning,
+                "finding": browser.finding,
+                "switchingTabs": browser.tabSwitcher.active,
+                "floating": browser.floating?.uuidString ?? "",
+                "systemPiP": browser.systemPiP?.uuidString ?? "",
                 "welcome": browser.welcoming,
                 "passwords": browser.managing,
                 "history": browser.recalling,

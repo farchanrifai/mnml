@@ -184,7 +184,8 @@ extension Browser {
         // Which way the icon at the foot turns over: the way the spaces lie.
         if !makingSpace { spaceStep = to > (spaces.firstIndex { $0.id == spaceID } ?? 0) ? 1 : -1 }
         cancelTabEdit()
-        if floater.showing { land() }
+        closeFind()
+        leaving()
         writeSession(now: true)
 
         // The row on screen is parked as it is, sound and all: music or a
@@ -202,6 +203,9 @@ extension Browser {
         } else {
             showRow([], active: nil)
             restoreSession()
+        }
+        if let activeID, floating == activeID || systemPiP == activeID {
+            DispatchQueue.main.async { [weak self] in self?.land() }
         }
         editing = active?.isBlank ?? true
         typed = ""
@@ -296,7 +300,7 @@ extension Browser {
     func deleteSpace(_ id: UUID) {
         guard id != Space.firstID, let at = spaces.firstIndex(where: { $0.id == id }) else { return }
         if spaceID == id { switchSpace(to: Space.firstID) }
-        for tab in parked.removeValue(forKey: id)?.tabs ?? [] { tab.close() }
+        forget(space: id)
         let shared = spaces[at].sharesSignIns == true
         spaces.remove(at: at)
         Spaces.write(spaces)
@@ -314,6 +318,7 @@ extension Browser {
     /// case they are turned on again.
     func leaveSpaces() {
         enter(Space.firstID)
+        if floating != nil || systemPiP != nil { land() }
         for (_, row) in parked { for tab in row.tabs { tab.close() } }
         parked = [:]
     }
@@ -560,6 +565,7 @@ enum Ask {
 extension Browser {
     /// A space deleted in another window: this window's row there goes.
     func forget(space id: UUID) {
+        if parked[id]?.tabs.contains(where: { $0.id == floating || $0.id == systemPiP }) == true { land() }
         for tab in parked.removeValue(forKey: id)?.tabs ?? [] { tab.close() }
         record.rows[id.uuidString] = nil
     }

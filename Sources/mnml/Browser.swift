@@ -1215,22 +1215,20 @@ final class Browser: NSObject, ObservableObject {
             // finding the tab again is how a little window survives the button
             // meant to dismiss it.
             let came = self.floating
+            if let came { self.revealVideo(came) }
             self.land()
-            if let came, let tab = self.tabs.first(where: { $0.id == came }) {
-                self.select(tab)
-            }
             NSApp.activate(ignoringOtherApps: true)
             self.window?.makeKeyAndOrderFront(nil)
         }
         floater.onSkip = { [weak self] seconds in
             guard let self, let id = self.floating,
-                  let tab = self.tabs.first(where: { $0.id == id })
+                  let tab = (self.tabs + self.parkedTabs).first(where: { $0.id == id })
             else { return }
             tab.web.evaluateInSearch(Isolate.skip(seconds))
         }
         floater.onProgress = { [weak self] answer in
             guard let self, let id = self.floating,
-                  let tab = self.tabs.first(where: { $0.id == id })
+                  let tab = (self.tabs + self.parkedTabs).first(where: { $0.id == id })
             else { return }
             tab.web.evaluateInSearch(Isolate.where_) { found in
                 MainActor.assumeIsolated {
@@ -1244,7 +1242,7 @@ final class Browser: NSObject, ObservableObject {
         }
         floater.onPlayPause = { [weak self] answer in
             guard let self, let id = self.floating,
-                  let tab = self.tabs.first(where: { $0.id == id })
+                  let tab = (self.tabs + self.parkedTabs).first(where: { $0.id == id })
             else { return }
             tab.web.evaluateInSearch(Isolate.toggle) { playing in
                 MainActor.assumeIsolated { answer((playing as? Bool) ?? true) }
@@ -1650,7 +1648,7 @@ final class Browser: NSObject, ObservableObject {
 
     /// Its window closed for good, with others open: every page let go.
     func closeAll() {
-        if floating != nil { land() }
+        if floating != nil || systemPiP != nil { land() }
         if peekTab != nil { closePeek() }
         for tab in tabs + parkedTabs { tab.close() }
         parked = [:]
@@ -2448,7 +2446,7 @@ final class Browser: NSObject, ObservableObject {
 
     /// Stepping away from a tab. A video you were watching does not stop
     /// existing because you went to look something up.
-    private func leaving() {
+    func leaving() {
         guard prefs.floatsOnLeave else { return }
         lift(active, quietly: true, leavingTab: true)
     }
@@ -2482,15 +2480,23 @@ final class Browser: NSObject, ObservableObject {
         guard pipReturn == nil else { return }
         pipReturn = NotificationCenter.default.addObserver(forName: SystemPiP.returned, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
-                guard let self, let id = self.systemPiP, let tab = self.tabs.first(where: { $0.id == id }) else { return }
+                guard let self, let id = self.systemPiP else { return }
+                self.revealVideo(id)
                 self.systemPiP = nil
                 NSApp.activate(ignoringOtherApps: true)
                 self.window?.makeKeyAndOrderFront(nil)
-                self.select(tab)
             }
         }
     }
     private var pipReturn: NSObjectProtocol?
+
+    /// A floated video can belong to the row parked in another Space.
+    private func revealVideo(_ id: Tab.ID) {
+        if let home = parked.first(where: { $0.value.tabs.contains(where: { $0.id == id }) })?.key {
+            switchSpace(to: home)
+        }
+        if let tab = tabs.first(where: { $0.id == id }) { select(tab) }
+    }
 
     /// ⌘⇧P, for lifting one out by hand.
     func toggleFloat() {
@@ -2508,7 +2514,7 @@ final class Browser: NSObject, ObservableObject {
     private func lift(_ tab: Tab?, quietly: Bool, leavingTab: Bool = false) {
         // A tab just put down with ⌘W has no page to lift a video out of, and
         // asking it would only build an empty view to ask.
-        guard let tab, !tab.isBlank, !tab.asleep, !floater.showing else { return }
+        guard let tab, !tab.isBlank, !tab.asleep, !floater.showing, systemPiP == nil else { return }
         // A video filling the screen stays in its own space, as in Safari.
         // Its page is lent to WebKit's full-screen window, and moving it out
         // into the floating one left that window up, empty and black, to
@@ -2578,12 +2584,12 @@ final class Browser: NSObject, ObservableObject {
         // Out in the system's window: back into its page.
         if let id = systemPiP {
             systemPiP = nil
-            if let tab = tabs.first(where: { $0.id == id }), let web = tab.built { SystemPiP.exit(web) }
+            if let tab = (tabs + parkedTabs).first(where: { $0.id == id }), let web = tab.built { SystemPiP.exit(web) }
         }
         // The window closes whatever else is true. Tying that to the bookkeeping
         // is how a little window outlives the thing that opened it.
         if floater.showing { floater.drop() }
-        guard let id = floating, let tab = tabs.first(where: { $0.id == id }) else { return }
+        guard let id = floating, let tab = (tabs + parkedTabs).first(where: { $0.id == id }) else { return }
         floating = nil
         tab.floating = false
         tab.web.evaluateInSearch(Isolate.off)
