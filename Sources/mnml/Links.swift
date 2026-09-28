@@ -24,9 +24,9 @@ final class Links: NSObject, NSApplicationDelegate {
         let alert = NSAlert()
         alert.messageText = "Quit mnml?"
         alert.informativeText = "Your tabs will be saved for next time."
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Quit")
-        guard alert.runModal() == .alertSecondButtonReturn else { return .terminateCancel }
+        alert.addButton(withTitle: "Quit").keyEquivalent = "\r"
+        alert.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
+        guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
         MainActor.assumeIsolated { Browsers.quitting = true }
         return .terminateNow
     }
