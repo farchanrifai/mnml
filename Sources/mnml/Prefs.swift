@@ -51,6 +51,26 @@ enum SidebarPosition: String, CaseIterable, Identifiable {
     }
 }
 
+enum TabMemoryProfile: String, CaseIterable, Identifiable {
+    case saver, balanced, keepLonger
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .saver: "Save memory"
+        case .balanced: "Balanced"
+        case .keepLonger: "Keep tabs longer"
+        }
+    }
+    var policy: (idle: TimeInterval, pinned: TimeInterval, awake: Int, warning: TimeInterval, background: UInt64) {
+        switch self {
+        case .saver: (30 * 60, 2 * 60 * 60, 10, 5 * 60, 2 << 30)
+        case .balanced: (2 * 60 * 60, 6 * 60 * 60, 20, 15 * 60, 4 << 30)
+        case .keepLonger: (8 * 60 * 60, 24 * 60 * 60, 40, 30 * 60, 6 << 30)
+        }
+    }
+}
+
 @MainActor
 final class Preferences: ObservableObject {
     private let store = Store.settings
@@ -120,10 +140,12 @@ final class Preferences: ObservableObject {
     @Published var keywords: [Keyword] {
         didSet { store.set((try? JSONEncoder().encode(keywords)) ?? Data(), forKey: "search.keywords") }
     }
-    /// Tabs nobody has looked at for half an hour give their page back and
-    /// keep where they were. On unless turned off.
+    /// Whether background tabs are put to sleep automatically.
     @Published var sleepsTabs: Bool {
         didSet { store.set(sleepsTabs, forKey: "tabs.sleep") }
+    }
+    @Published var tabMemoryProfile: TabMemoryProfile {
+        didSet { store.set(tabMemoryProfile.rawValue, forKey: "tabs.memory") }
     }
     /// ⌘-click on a link makes a tab group of the page and the link. Off
     /// unless turned on.
@@ -428,6 +450,7 @@ final class Preferences: ObservableObject {
         keywords = store.data(forKey: "search.keywords")
             .flatMap { try? JSONDecoder().decode([Keyword].self, from: $0) } ?? []
         sleepsTabs = store.object(forKey: "tabs.sleep") as? Bool ?? true
+        tabMemoryProfile = store.string(forKey: "tabs.memory").flatMap(TabMemoryProfile.init) ?? .balanced
         mruSwitcher = store.object(forKey: "tabs.mru") as? Bool ?? true
         commandBar = store.object(forKey: "tabs.commandBar") as? Bool ?? true
         groupsLinks = store.bool(forKey: "tabs.groupLinks")

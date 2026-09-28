@@ -6,7 +6,7 @@ import WebKit
 // A page open in a tab keeps its whole content process — a hundred to three
 // hundred megabytes, running its timers, holding its sockets — for as long as
 // the tab exists. Twenty tabs is two or three gigabytes spent on the nineteen
-// nobody is looking at. So a tab left alone for half an hour gives its page
+// nobody is looking at. So a tab left alone long enough gives its page
 // back, and keeps what it takes to come back exactly where it was: its
 // history, its scroll position, and a picture to show while the page is
 // rebuilt underneath (see Tab.sleep).
@@ -14,36 +14,30 @@ import WebKit
 // Some tabs never sleep, because waking them couldn't give back what they
 // were doing: the one on screen, a tab playing sound, on a call, sending a
 // download, holding its video out in the little window, or holding something
-// typed and not sent. A pinned tab waits two hours rather than half of one.
+// typed and not sent. Pinned tabs wait longer than ordinary tabs.
 //
-// And however recently used, only the ten used last stay awake: a day of
+// And however recently used, only the profile's most recent unpinned tabs stay awake: a day of
 // heavy pages — Google Sheets at a gigabyte or more each — otherwise piled up
 // until the Mac was swapping, and everything, ⌃Tab too, crawled.
 //
-// When macOS says memory is short, the waits shrink: to five minutes on a
-// warning, to nothing when it is critical.
+// When macOS says memory is short, the waits shrink; critical pressure
+// sleeps every eligible background tab.
 
 extension Browser {
-    /// How long a tab has to go without being looked at. Half an hour, or
-    /// `sleep.after` in seconds — for the bench and the measurements.
-    static var sleepAfter: TimeInterval {
+    /// `sleep.after` and `sleep.awake` are bench overrides.
+    var sleepAfter: TimeInterval {
         let set = Store.settings.double(forKey: "sleep.after")
-        return set > 0 ? set : 30 * 60
+        return set > 0 ? set : prefs.tabMemoryProfile.policy.idle
     }
 
-    /// How long a pinned tab goes unlooked-at before it sleeps.
-    static let pinSleepAfter: TimeInterval = 2 * 60 * 60
-
-    /// How many tabs, the ones used last, may stay awake however recently
-    /// used — or `sleep.awake`.
-    static var awakeCap: Int {
+    var awakeCap: Int {
         let set = Store.settings.integer(forKey: "sleep.awake")
-        return set > 0 ? set : 10
+        return set > 0 ? set : prefs.tabMemoryProfile.policy.awake
     }
 
     /// Started once, at launch.
     func watchForSleep() {
-        let every = min(60, max(5, Browser.sleepAfter / 4))
+        let every = min(60, max(5, sleepAfter / 4))
         let timer = Timer(timeInterval: every, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.sleepIdle() }
         }
@@ -55,7 +49,7 @@ extension Browser {
         source.setEventHandler { [weak self] in
             MainActor.assumeIsolated {
                 guard let self, let event = self.pressure?.data else { return }
-                self.sleepIdle(within: event.contains(.critical) ? 0 : 5 * 60)
+                self.sleepIdle(within: event.contains(.critical) ? 0 : self.prefs.tabMemoryProfile.policy.warning)
             }
         }
         source.resume()
@@ -66,21 +60,21 @@ extension Browser {
     /// left longest first.
     func sleepIdle(within given: TimeInterval? = nil) {
         guard prefs.sleepsTabs else { return }
-        let wait = given ?? Browser.sleepAfter
+        let wait = given ?? sleepAfter
         let now = Date()
         // The rows of the other spaces too: parked is not the same as used.
         let free = (tabs + parkedTabs).filter { awake(because: $0) == nil }
         let idle = free
-            .filter { now.timeIntervalSince($0.touched) >= ($0.pin != nil && given == nil ? Browser.pinSleepAfter : wait) }
+            .filter { now.timeIntervalSince($0.touched) >= ($0.pin != nil && given == nil ? prefs.tabMemoryProfile.policy.pinned : wait) }
             .sorted { $0.touched < $1.touched }
         for tab in idle { self.sleep(tab) }
         // Past the cap, the least recently used go too, whatever the clock —
         // though never one left only a minute ago, so going back and forth
         // between a few doesn't reload them.
         let over = free
-            .filter { tab in !idle.contains { $0 === tab } && now.timeIntervalSince(tab.touched) >= 60 }
+            .filter { tab in tab.pin == nil && !idle.contains { $0 === tab } && now.timeIntervalSince(tab.touched) >= 60 }
             .sorted { $0.touched > $1.touched }
-            .dropFirst(max(0, Browser.awakeCap - 1))
+            .dropFirst(max(0, awakeCap - 1))
         for tab in over { self.sleep(tab) }
         watchMemory()
     }

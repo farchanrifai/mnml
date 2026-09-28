@@ -5,7 +5,7 @@ import WebKit
 // What each tab's page holds in memory, and a guard for the ones that run
 // away. A Google Sheet reached ten gigabytes in six minutes one night
 // (25 Sep 2026): the Mac swapped, and everything crawled. A page in the
-// background past two gigabytes is put to sleep, as an idle one would be; the
+// background past the selected profile's limit is put to sleep, as an idle one would be; the
 // page on screen past four is only named — reloading it could lose what you
 // are doing there — and named again only if it grows by two more.
 
@@ -33,7 +33,6 @@ extension Tab {
 }
 
 extension Browser {
-    static let backgroundLimit: UInt64 = 2 << 30
     static let foregroundLimit: UInt64 = 4 << 30
 
     /// Run with the sleep timer, once a minute.
@@ -46,7 +45,7 @@ extension Browser {
                     memoryWarned[tab.id] = size
                     announce("This page is using \(Browser.gigabytes(size)) — ⌘R reloads it")
                 }
-            } else if size >= Browser.backgroundLimit {
+            } else if size >= prefs.tabMemoryProfile.policy.background {
                 sleep(tab)
             }
         }

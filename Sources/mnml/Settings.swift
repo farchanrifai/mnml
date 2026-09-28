@@ -479,8 +479,21 @@ struct SettingsPanel: View {
                 }
                 Rule()
             }
-            Line("Sleep tabs you aren't using", "After half an hour away, two hours for pinned tabs, and beyond the ten used last; a background page past 2 GB sleeps at once. They come back where you left them. Sound, calls and anything typed stay awake.") {
+            Line("Sleep tabs you aren't using", "Automatically releases inactive pages. Open them again to reload. Sound, calls and unsent text stay awake. macOS may still reclaim pages under pressure.") {
                 Switch(on: $prefs.sleepsTabs)
+            }
+            if prefs.sleepsTabs {
+                Rule()
+                Line("Tab memory", memoryProfileDetail) {
+                    Picker("", selection: $prefs.tabMemoryProfile) {
+                        ForEach(TabMemoryProfile.allCases) { profile in
+                            Text(profile.title).tag(profile)
+                        }
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.menu)
+                    .fixedSize()
+                }
             }
             Rule()
             Line("Load background tabs when you go to them", "A link opened behind the page, with ⌘-click or the middle button, or a batch of links from another app, waits until you go to its tab. ⇧⌘-click still takes you there at once.") {
@@ -492,6 +505,14 @@ struct SettingsPanel: View {
             }
         }
         TabMemory(browser: browser)
+        }
+    }
+
+    private var memoryProfileDetail: String {
+        switch prefs.tabMemoryProfile {
+        case .saver: "Sleep after 30 minutes (2 hours pinned), or beyond 10 recent unpinned tabs. Background pages over 2 GB sleep."
+        case .balanced: "Sleep after 2 hours (6 hours pinned), or beyond 20 recent unpinned tabs. Background pages over 4 GB sleep."
+        case .keepLonger: "Sleep after 8 hours (24 hours pinned), or beyond 40 recent unpinned tabs. Background pages over 6 GB sleep."
         }
     }
 
