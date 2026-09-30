@@ -301,9 +301,13 @@ struct ContentView: View {
         if let split = browser.shownSplit {
             return browser.tabs.first { split.has($0.id) && $0.immersed }
         }
+        if browser.peekTab?.immersed == true { return browser.peekTab }
         return browser.active?.immersed == true ? browser.active : nil
     }
     @ViewBuilder private var fullscreenWatch: some View {
+        if let peek = browser.peekTab {
+            TabImmersionWatch(tab: peek) { immersionRevision += 1 }.id(peek.id)
+        }
         if let split = browser.shownSplit {
             ForEach(browser.tabs.filter { split.has($0.id) }) { tab in
                 TabImmersionWatch(tab: tab) { immersionRevision += 1 }.id(tab.id)
@@ -458,7 +462,7 @@ struct ContentView: View {
     private func pane(_ tab: Tab, corner: CGFloat = 0, under: EdgeInsets) -> some View {
         Page(tab: tab, corner: corner, under: under, bleeds: !sliding)
             .overlay(alignment: .topTrailing) {
-                if browser.finding, tab.id == browser.activeID {
+                if browser.finding, tab.id == browser.pageTarget?.id {
                     FindBar(browser: browser)
                         .transition(.move(edge: .top).combined(with: .opacity))
                         .padding(.top, under.top)
@@ -1167,7 +1171,8 @@ struct ContentView: View {
                 browser.chosen = []
                 return true
             }
-            if browser.peekTab != nil {
+            if let peek = browser.peekTab {
+                if let web = peek.built, web.fullscreenState != .notInFullscreen { return false }
                 browser.closePeek()
                 return true
             }
@@ -1325,9 +1330,9 @@ struct ContentView: View {
         // Set to let websites have the key first: the page gets it, and
         // mnml acts only if the page sends it back unused.
         let conflict = browser.shortcuts.conflict(for: command.id)
-        if KeyRoute.decide(conflict, pageHasFocus: pageHasFocus(event)) == .hand, let page = browser.active?.built {
+        if KeyRoute.decide(conflict, pageHasFocus: pageHasFocus(event)) == .hand, let page = browser.pageTarget?.built {
             browser.keyRouter.hand(event, for: command.id, to: page, prompt: conflict == .prompt,
-                                   site: browser.active?.address?.host()) { id, site in
+                                   site: browser.pageTarget?.address?.host()) { id, site in
                 browser.shortcutAsk = Browser.ShortcutAsk(id: id, site: site)
             }
             return true
@@ -1338,10 +1343,10 @@ struct ContentView: View {
     /// The page is what the key is meant for: its view has the keyboard and
     /// nothing is open over it.
     private func pageHasFocus(_ event: NSEvent) -> Bool {
-        guard let page = browser.active?.built, let window = event.window,
-              window.firstResponder === page, !browser.fieldShowing, browser.peekTab == nil
+        guard let page = browser.pageTarget?.built, let window = event.window,
+              window.firstResponder === page, !browser.fieldShowing
         else { return false }
-        return nothingOver
+        return browser.peekTab != nil || nothingOver
     }
 
     private var canSwitchTabs: Bool {

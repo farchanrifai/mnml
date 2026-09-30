@@ -181,6 +181,10 @@ extension Browser {
     /// ⌃1–⌃9, and the menu on the space's dot.
     func switchSpace(to id: UUID, animated: Bool = true) {
         guard prefs.usesSpaces, spaces.contains(where: { $0.id == id }) else { return }
+        if peekTab != nil, id != spaceID {
+            closePeek { [weak self] in self?.switchSpace(to: id, animated: animated) }
+            return
+        }
         guard id != spaceID else {
             if animated { clearSpaceTransition(); spaceSwipe = 0; nameSwipe = 0 }
             return

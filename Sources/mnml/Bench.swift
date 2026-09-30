@@ -1352,6 +1352,18 @@ final class Bench {
             // shift-click on it would open it (see Peek.swift); "close" puts
             // it away. Only on a SEARCH_PROBE run.
             guard Store.testing else { answer(["error": "peek only works on a --test run"]); return }
+            if request["url"] as? String == "split" {
+                let id = browser.peekTab?.id
+                browser.splitPeek()
+                answer(["promoted": id?.uuidString ?? "", "split": browser.shownSplit != nil])
+                return
+            }
+            if request["url"] as? String == "keep" {
+                let id = browser.peekTab?.id
+                browser.keepPeek()
+                answer(["promoted": id?.uuidString ?? ""])
+                return
+            }
             if request["url"] as? String == "close" {
                 browser.closePeek()
                 answer(["peek": ""])

@@ -312,7 +312,7 @@ struct SettingsPanel: View {
                 Switch(on: $prefs.autocorrect)
             }
             Rule()
-            Line("Peek at a link with a shift-click", "Its page opens in a panel over the one you're reading. Escape puts it away; the other button keeps it as a tab") {
+            Line("Peek at links", "Shift-click previews a link. Links leaving a pinned site preview automatically; keep the page as a tab or split") {
                 Switch(on: $prefs.peeksLinks)
             }
             Rule()

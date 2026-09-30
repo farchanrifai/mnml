@@ -24,6 +24,10 @@ enum Session {
         var pinID: UUID? = nil
         /// A pin kept as a row (see Tab.listed). Nil for a square.
         var listed: Bool? = nil
+        var id: UUID? = nil
+        /// Explicit left partner; supports nonadjacent pinned pairs.
+        var partner: UUID? = nil
+        var touched: Date? = nil
     }
 
     struct Shape: Codable {
@@ -95,6 +99,13 @@ extension Session.Shape {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Keys.self)
         tabs = try c.decode([Session.Entry].self, forKey: .tabs)
+        var seen = Set<UUID>()
+        for index in tabs.indices {
+            if let id = tabs[index].id, !seen.insert(id).inserted {
+                tabs[index].id = UUID()
+                tabs[index].partner = nil
+            }
+        }
         active = try c.decode(Int.self, forKey: .active)
         groups = try? c.decodeIfPresent([TabGroup].self, forKey: .groups)
     }

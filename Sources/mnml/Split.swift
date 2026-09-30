@@ -4,10 +4,8 @@ import SwiftUI
 // page offers two places to land, one each side; let go on one and the two
 // share the window until one is closed or they are separated.
 //
-// A split is not kept anywhere of its own. The right half remembers the tab
-// on its left (`Tab.partner`) and sits just after it in the row, so the pair
-// travels with the row — into another space, into the session — and stops
-// being a pair the moment the two are no longer next to each other.
+// The right page keeps the left page's identity. Pairing does not depend on
+// sidebar adjacency: a pin keeps its position while sharing the content area.
 
 enum SplitSide: Hashable {
     case left, right
@@ -16,6 +14,17 @@ enum SplitSide: Hashable {
 struct Split: Equatable {
     let left: Tab.ID
     let right: Tab.ID
+
+    static func pair(of id: UUID?, in members: [(id: UUID, partner: UUID?)]) -> Split? {
+        guard let id, let member = members.first(where: { $0.id == id }) else { return nil }
+        if let left = member.partner, left != id, members.contains(where: { $0.id == left && $0.partner == nil }) {
+            return Split(left: left, right: id)
+        }
+        if member.partner == nil, let right = members.first(where: { $0.partner == id && $0.id != id }) {
+            return Split(left: id, right: right.id)
+        }
+        return nil
+    }
 
     func has(_ id: Tab.ID?) -> Bool { id == left || id == right }
 
@@ -45,18 +54,10 @@ extension Browser {
         return tabs.first { $0.id == id }
     }
 
-    /// The split this tab is half of. Both loose or in the same group, and
-    /// neither pinned: a pin is a square, not a page beside another.
+    /// The pair this tab belongs to, including nonadjacent pinned members.
     // ponytail: a scan of the row per call, fine for a few hundred tabs.
     func split(of id: Tab.ID?) -> Split? {
-        guard let id, let index = tabs.firstIndex(where: { $0.id == id }) else { return nil }
-        func pair(_ left: Int) -> Split? {
-            guard left >= 0, left + 1 < tabs.count else { return nil }
-            let (a, b) = (tabs[left], tabs[left + 1])
-            guard b.partner == a.id, a.pin == nil, b.pin == nil, a.group == b.group else { return nil }
-            return Split(left: a.id, right: b.id)
-        }
-        return pair(index - 1) ?? pair(index)
+        Split.pair(of: id, in: tabs.map { ($0.id, $0.partner) })
     }
 
     /// The split on screen, if the tab you are on is half of one.
@@ -66,9 +67,9 @@ extension Browser {
     /// screen — or, the one on screen itself, take one side and leave the
     /// other for a tab to be picked — or, over a split, take one side's place.
     func canSplit(_ id: Tab.ID) -> Bool {
-        guard prefs.sidebar, let here = active, here.pin == nil, !here.isBlank,
+        guard prefs.sidebar, let here = active, !here.isBlank,
               !here.immersed, peekTab == nil, splitPicking == nil, shownSplit?.has(id) != true,
-              let tab = tab(id), tab.pin == nil
+              tab(id) != nil
         else { return false }
         return true
     }
@@ -127,13 +128,13 @@ extension Browser {
     /// `tab` put next to `anchor` in the row, in its group, and the two made
     /// one split, the new one in front.
     func makeSplit(_ tab: Tab, beside anchor: Tab, on side: SplitSide) {
-        guard tab !== anchor, tab.pin == nil, anchor.pin == nil else { return }
+        guard tab !== anchor, tabs.contains(where: { $0 === anchor }) else { return }
         unsplit(tab.id)
         unsplit(anchor.id)
         var row = tabs.filter { $0 !== tab }
         guard let at = row.firstIndex(where: { $0 === anchor }) else { return }
-        tab.group = anchor.group
-        row.insert(tab, at: side == .left ? at : at + 1)
+        if tab.pin == nil { tab.group = anchor.pin == nil ? anchor.group : nil }
+        row.insert(tab, at: tab.pin == nil && anchor.pin == nil ? (side == .left ? at : at + 1) : row.count)
         let (left, right) = side == .left ? (tab, anchor) : (anchor, tab)
         left.partner = nil
         right.partner = left.id
@@ -144,7 +145,7 @@ extension Browser {
 
     /// The two halves go back to being two tabs, next to each other.
     func unsplit(_ id: Tab.ID) {
-        guard let split = split(of: id) else { return }
+        guard let split = split(of: id) else { tab(id)?.partner = nil; return }
         tab(split.right)?.partner = nil
         objectWillChange.send()
         rememberSession()
@@ -371,7 +372,7 @@ struct SplitPicker: View {
         let needle = hunt.trimmingCharacters(in: .whitespaces).lowercased()
         return browser.tabs
             .filter { tab in
-                guard tab.id != except, tab.pin == nil, !tab.bench, !tab.isBlank else { return false }
+                guard tab.id != except, !tab.bench, !tab.isBlank else { return false }
                 guard !needle.isEmpty else { return true }
                 return tab.label.lowercased().contains(needle)
                     || (tab.address?.absoluteString.lowercased().contains(needle) ?? false)

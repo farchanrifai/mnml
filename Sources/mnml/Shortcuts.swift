@@ -180,7 +180,8 @@ struct Command: Identifiable {
                 return true
             },
             Command("file.closeTab", "Close Tab", .file, KeyCombo("w"), "Closes the tab you're on.") { browser in
-                if let tab = browser.active { browser.close(tab) }
+                if browser.peekTab != nil { browser.closePeek() }
+                else if let tab = browser.active { browser.close(tab) }
             },
             Command("file.print", "Print…", .file, KeyCombo("p"), "Prints the page.") { $0.printPage() },
             Command("file.import", "Bring Things Over…", .file, nil, "Imports bookmarks and browsing data.") { $0.bringingIn = "" },
@@ -266,7 +267,7 @@ struct Command: Identifiable {
                 // Google Doc, a form, the address field. A web view has an
                 // input context only while the caret is in something editable.
                 let window = NSApp.keyWindow
-                if browser.active?.typing == true || browser.active?.built?.inputContext != nil
+                if browser.pageTarget?.typing == true || browser.pageTarget?.built?.inputContext != nil
                     || browser.editing || window?.firstResponder is NSTextView {
                     _ = window?.firstResponder?.tryToPerform(#selector(NSTextView.pasteAsPlainText(_:)), with: nil)
                 } else {
@@ -443,7 +444,7 @@ extension Browser {
     /// input context only while the caret is in something editable, in any
     /// frame (upstream #293).
     var editingText: Bool {
-        active?.typing == true || active?.built?.inputContext != nil
+        pageTarget?.typing == true || pageTarget?.built?.inputContext != nil
             || NSApp.keyWindow?.firstResponder is NSTextView
     }
 }
