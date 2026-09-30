@@ -101,21 +101,29 @@ enum SiteCardPanel {
         panel.hasShadow = true
         panel.becomesKeyOnlyIfNeeded = true
         panel.hidesOnDeactivate = true
-        // Under the address, lined up with the tab's own edge.
+        // Under the address, lined up with the tab's own edge — or over it,
+        // for a tab too near the bottom of the screen to have the room. Only
+        // ever beside the field: pushed up onto it, the card covered the
+        // address being edited, and what was typed there with it.
         let spot = window.convertToScreen(field.convert(field.bounds, to: nil))
         var origin = NSPoint(x: spot.minX - 12, y: spot.minY - 12 - size.height)
+        var above = false
         if let screen = window.screen?.visibleFrame {
             origin.x = min(max(origin.x, screen.minX + 8), screen.maxX - size.width - 8)
-            origin.y = max(origin.y, screen.minY + 8)
+            if origin.y < screen.minY + 8 {
+                above = true
+                origin.y = min(spot.maxY + 12, screen.maxY - size.height - 8)
+            }
         }
         panel.setFrameOrigin(origin)
         window.addChildWindow(panel, ordered: .above)
-        // Its size follows the card, keeping the top edge under the address.
+        // Its size follows the card, keeping the edge nearest the address
+        // where it is.
         host.onResize = { [weak panel] fitted in
             guard let panel, fitted.width > 0, fitted.height > 0,
                   panel.frame.size != fitted else { return }
             var frame = panel.frame
-            frame.origin.y += frame.height - fitted.height
+            if !above { frame.origin.y += frame.height - fitted.height }
             frame.size = fitted
             panel.setFrame(frame, display: true)
         }
@@ -286,7 +294,9 @@ struct SiteCard: View {
             sound
             if let host = tab.address?.host(), !host.isEmpty {
                 Separator()
-                Permission(title: "Notifications", choice: .notifications, host: host)
+                if !tab.shy, tab.store.isPersistent, let url = tab.address, let origin = SiteNotifications.origin(url) {
+                    Permission(title: "Notifications", choice: .notifications, host: origin)
+                }
                 Permission(title: "Camera", choice: .camera, host: host)
                 Permission(title: "Microphone", choice: .microphone, host: host)
             }
@@ -331,18 +341,20 @@ struct SiteCard: View {
         /// once (WKMediaCaptureType 0, 1, 2), and each question kept apart.
         private static func keys(_ choice: Choice, _ host: String) -> [String] {
             switch choice {
-            case .notifications: return [Notify.key(host)]
+            case .notifications: return [SiteNotifications.key(host)]
             case .camera: return ["capture.\(host)|0", "capture.\(host)|2"]
             case .microphone: return ["capture.\(host)|1", "capture.\(host)|2"]
             }
         }
 
         private static func read(_ choice: Choice, _ host: String) -> Bool? {
-            keys(choice, host).lazy.compactMap { Store.settings.object(forKey: $0) as? Bool }.first
+            if choice == .notifications { return SiteNotifications.choices[host] }
+            return keys(choice, host).lazy.compactMap { Store.settings.object(forKey: $0) as? Bool }.first
         }
 
         private func set(_ value: Bool?) {
             answer = value
+            if choice == .notifications { SiteNotifications.set(value, for: host); return }
             let keys = Self.keys(choice, host)
             // An answer given to both at once is the other's too: kept as its
             // own before the two part ways.

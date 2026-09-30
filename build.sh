@@ -181,6 +181,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <!-- A browser is asked for these by the pages it shows, not by itself. macOS
        still wants a sentence to put in its own prompt, and touching the APIs
        without one is a crash rather than a refusal. -->
+  <key>NSLocationUsageDescription</key>
+  <string>Websites you allow can use your location.</string>
   <key>NSCameraUsageDescription</key>
   <string>Websites you visit can ask to use your camera. mnml asks you the first time each site does and keeps your answer; Settings › Privacy forgets them.</string>
   <key>NSMicrophoneUsageDescription</key>

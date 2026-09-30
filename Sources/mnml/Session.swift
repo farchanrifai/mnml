@@ -22,6 +22,8 @@ enum Session {
         var asking: Bool?
         /// A pin’s identity, shared across windows.
         var pinID: UUID? = nil
+        /// A pin kept as a row (see Tab.listed). Nil for a square.
+        var listed: Bool? = nil
     }
 
     struct Shape: Codable {
@@ -35,6 +37,21 @@ enum Session {
     /// keeps its own beside it.
     private static func file(_ space: UUID) -> URL {
         Store.file(space == Space.firstID ? "session.json" : "session-\(space.uuidString).json")
+    }
+
+    /// Settings › General › Start with a fresh window, at launch, before any
+    /// window reads its row: each space's file keeps its pins — their
+    /// letters, names, homes, whole — and nothing else. Groups and Split
+    /// View pairs go with the tabs they held (a pin is in neither). No tab
+    /// is marked as in front, so the window opens on an empty tab beside
+    /// the pins (see Browser.restoreSession).
+    static func startFresh(spaces: [UUID]) {
+        for space in spaces {
+            let shape = read(space: space)
+            let pins = shape.tabs.filter { $0.pin != nil }
+            guard pins.count != shape.tabs.count || shape.active >= 0 else { continue }
+            write(now: true, space: space, Shape(tabs: pins, active: -1, groups: nil))
+        }
     }
 
     static func erase(space: UUID) {

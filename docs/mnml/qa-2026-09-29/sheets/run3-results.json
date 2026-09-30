@@ -1,0 +1,1185 @@
+{
+  "pid": 19925,
+  "initialTabs": 9,
+  "memoryProfile": "balanced (default key absent)",
+  "levels": [
+    {
+      "addedTabs": 40,
+      "mix": {
+        "sheets": 24,
+        "drive": 8,
+        "page": 8
+      },
+      "foregroundBefore": {
+        "appActive": true,
+        "windowKey": true,
+        "windowVisible": true
+      },
+      "memory": {
+        "phase": "level-40",
+        "appPhysicalFootprint": "330.0M",
+        "processes": [
+          {
+            "pid": 19925,
+            "rssMiB": 206.484375,
+            "cpuPercent": 8.3
+          },
+          {
+            "pid": 19931,
+            "rssMiB": 42.71875,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20853,
+            "rssMiB": 82.703125,
+            "cpuPercent": 0.1
+          },
+          {
+            "pid": 20856,
+            "rssMiB": 150.375,
+            "cpuPercent": 0.2
+          },
+          {
+            "pid": 20858,
+            "rssMiB": 77.625,
+            "cpuPercent": 0.1
+          },
+          {
+            "pid": 20863,
+            "rssMiB": 185.921875,
+            "cpuPercent": 4.7
+          },
+          {
+            "pid": 20865,
+            "rssMiB": 42.1875,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20867,
+            "rssMiB": 74.984375,
+            "cpuPercent": 0.1
+          },
+          {
+            "pid": 20869,
+            "rssMiB": 74.171875,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20871,
+            "rssMiB": 79.265625,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20878,
+            "rssMiB": 95.125,
+            "cpuPercent": 0.6
+          },
+          {
+            "pid": 20882,
+            "rssMiB": 42.65625,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20886,
+            "rssMiB": 80.71875,
+            "cpuPercent": 0.4
+          },
+          {
+            "pid": 20892,
+            "rssMiB": 77.71875,
+            "cpuPercent": 0.2
+          },
+          {
+            "pid": 20894,
+            "rssMiB": 75.96875,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20904,
+            "rssMiB": 42.140625,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20905,
+            "rssMiB": 53.890625,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20908,
+            "rssMiB": 75.828125,
+            "cpuPercent": 0.1
+          },
+          {
+            "pid": 20911,
+            "rssMiB": 77.34375,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20913,
+            "rssMiB": 73.40625,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20917,
+            "rssMiB": 98.484375,
+            "cpuPercent": 0.9
+          },
+          {
+            "pid": 20919,
+            "rssMiB": 42.40625,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20924,
+            "rssMiB": 81.5625,
+            "cpuPercent": 0.1
+          },
+          {
+            "pid": 20926,
+            "rssMiB": 78.4375,
+            "cpuPercent": 0.4
+          },
+          {
+            "pid": 20928,
+            "rssMiB": 85.515625,
+            "cpuPercent": 0.3
+          },
+          {
+            "pid": 20933,
+            "rssMiB": 137.78125,
+            "cpuPercent": 0.7
+          },
+          {
+            "pid": 20934,
+            "rssMiB": 42.296875,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20936,
+            "rssMiB": 81.96875,
+            "cpuPercent": 0.1
+          },
+          {
+            "pid": 20939,
+            "rssMiB": 77.828125,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20945,
+            "rssMiB": 93.34375,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20950,
+            "rssMiB": 725.140625,
+            "cpuPercent": 34.7
+          },
+          {
+            "pid": 20951,
+            "rssMiB": 41.546875,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20953,
+            "rssMiB": 82.890625,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20956,
+            "rssMiB": 94.375,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20959,
+            "rssMiB": 121.65625,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20964,
+            "rssMiB": 221.046875,
+            "cpuPercent": 0.1
+          },
+          {
+            "pid": 20965,
+            "rssMiB": 42.890625,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20967,
+            "rssMiB": 83.5625,
+            "cpuPercent": 0.2
+          },
+          {
+            "pid": 20970,
+            "rssMiB": 247.828125,
+            "cpuPercent": 0.1
+          },
+          {
+            "pid": 20972,
+            "rssMiB": 555.71875,
+            "cpuPercent": 0.1
+          },
+          {
+            "pid": 20975,
+            "rssMiB": 641.25,
+            "cpuPercent": 0.2
+          },
+          {
+            "pid": 20979,
+            "rssMiB": 186.21875,
+            "cpuPercent": 0.3
+          }
+        ],
+        "appAndKnownWebContentRSSMiB": 5574.984375,
+        "uniqueWebContentProcesses": 41,
+        "tabCount": 49,
+        "asleep": 8,
+        "hollow": 8
+      },
+      "switches": {
+        "count": 20,
+        "medianMs": 4.516416498518083,
+        "p95Ms": 36.66204199544154,
+        "maxMs": 37.752000003820285,
+        "over250ms": 0
+      },
+      "askPageWidths": [
+        1315,
+        1606,
+        1314,
+        1605,
+        1314,
+        1605,
+        1313,
+        1605
+      ],
+      "typing": {
+        "count": 21,
+        "medianMs": 12.652999997953884,
+        "p95Ms": 23.00108333292883,
+        "maxMs": 26.51799999875948,
+        "over250ms": 0
+      },
+      "foregroundAfter": {
+        "appActive": true,
+        "windowKey": true,
+        "windowVisible": true
+      }
+    }
+  ],
+  "loadChecks": [
+    {
+      "n": 1,
+      "kind": "sheets",
+      "seconds": 1.1817851660016458,
+      "state": {
+        "ready": "interactive",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 2,
+      "kind": "sheets",
+      "seconds": 0.8776400409988128,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 3,
+      "kind": "sheets",
+      "seconds": 1.2432310409931233,
+      "state": {
+        "ready": "interactive",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 4,
+      "kind": "drive",
+      "seconds": 2.7456445830030134,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 5,
+      "kind": "page",
+      "seconds": 0.640864208995481,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 6,
+      "kind": "sheets",
+      "seconds": 0.8733216669934336,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 7,
+      "kind": "sheets",
+      "seconds": 0.8767409159918316,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 8,
+      "kind": "sheets",
+      "seconds": 0.8850354169990169,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 9,
+      "kind": "drive",
+      "seconds": 2.407879624995985,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 10,
+      "kind": "page",
+      "seconds": 0.6221333339926787,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 11,
+      "kind": "sheets",
+      "seconds": 0.8644036250043428,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 12,
+      "kind": "sheets",
+      "seconds": 0.8835265829984564,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 13,
+      "kind": "sheets",
+      "seconds": 0.6372696250036824,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 14,
+      "kind": "drive",
+      "seconds": 0.6384915829985403,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 15,
+      "kind": "page",
+      "seconds": 0.6358319169958122,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 16,
+      "kind": "sheets",
+      "seconds": 0.8741034999984549,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 17,
+      "kind": "sheets",
+      "seconds": 0.9015589999908116,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 18,
+      "kind": "sheets",
+      "seconds": 0.9216698750096839,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 19,
+      "kind": "drive",
+      "seconds": 2.5393024170043645,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 20,
+      "kind": "page",
+      "seconds": 0.6835710000013933,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 21,
+      "kind": "sheets",
+      "seconds": 1.2727775840030517,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 22,
+      "kind": "sheets",
+      "seconds": 0.9214760000031674,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 23,
+      "kind": "sheets",
+      "seconds": 0.6493938750063535,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 24,
+      "kind": "drive",
+      "seconds": 2.7860919999948237,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 25,
+      "kind": "page",
+      "seconds": 0.6401514999888605,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 26,
+      "kind": "sheets",
+      "seconds": 0.6397598330077017,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 27,
+      "kind": "sheets",
+      "seconds": 2.8157363750069635,
+      "state": {
+        "ready": "interactive",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 28,
+      "kind": "sheets",
+      "seconds": 0.9774991669983137,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 29,
+      "kind": "drive",
+      "seconds": 0.6469522500119638,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 30,
+      "kind": "page",
+      "seconds": 1.0560812920011813,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 31,
+      "kind": "sheets",
+      "seconds": 0.6253650420112535,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 32,
+      "kind": "sheets",
+      "seconds": 0.660198625002522,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 33,
+      "kind": "sheets",
+      "seconds": 0.6818286250054371,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 34,
+      "kind": "drive",
+      "seconds": 3.024210707997554,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 35,
+      "kind": "page",
+      "seconds": 0.6834307920071296,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 36,
+      "kind": "sheets",
+      "seconds": 1.6090555420087185,
+      "state": {
+        "ready": "interactive",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 37,
+      "kind": "sheets",
+      "seconds": 1.1353070419863798,
+      "state": {
+        "ready": "interactive",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 38,
+      "kind": "sheets",
+      "seconds": 1.2015150830120547,
+      "state": {
+        "ready": "interactive",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 39,
+      "kind": "drive",
+      "seconds": 4.594252540991874,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 40,
+      "kind": "page",
+      "seconds": 0.6819592919928255,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    }
+  ],
+  "baseline": {
+    "phase": "baseline",
+    "appPhysicalFootprint": "161.1M",
+    "processes": [
+      {
+        "pid": 19925,
+        "rssMiB": 230.09375,
+        "cpuPercent": 2.8
+      },
+      {
+        "pid": 19931,
+        "rssMiB": 145.28125,
+        "cpuPercent": 6.0
+      }
+    ],
+    "appAndKnownWebContentRSSMiB": 375.375,
+    "uniqueWebContentProcesses": 1,
+    "tabCount": 9,
+    "asleep": 8,
+    "hollow": 8
+  },
+  "afterSoak": {
+    "phase": "soak-40",
+    "appPhysicalFootprint": "272.7M",
+    "processes": [
+      {
+        "pid": 19925,
+        "rssMiB": 177.84375,
+        "cpuPercent": 3.1
+      },
+      {
+        "pid": 20853,
+        "rssMiB": 122.15625,
+        "cpuPercent": 0.0
+      },
+      {
+        "pid": 20856,
+        "rssMiB": 235.234375,
+        "cpuPercent": 0.1
+      },
+      {
+        "pid": 20858,
+        "rssMiB": 289.8125,
+        "cpuPercent": 0.0
+      },
+      {
+        "pid": 20863,
+        "rssMiB": 564.640625,
+        "cpuPercent": 0.5
+      },
+      {
+        "pid": 20865,
+        "rssMiB": 40.3125,
+        "cpuPercent": 0.0
+      },
+      {
+        "pid": 20911,
+        "rssMiB": 286.65625,
+        "cpuPercent": 0.1
+      },
+      {
+        "pid": 20913,
+        "rssMiB": 287.96875,
+        "cpuPercent": 0.4
+      },
+      {
+        "pid": 20917,
+        "rssMiB": 441.953125,
+        "cpuPercent": 1.6
+      },
+      {
+        "pid": 20919,
+        "rssMiB": 162.0,
+        "cpuPercent": 0.0
+      },
+      {
+        "pid": 20924,
+        "rssMiB": 368.859375,
+        "cpuPercent": 0.1
+      },
+      {
+        "pid": 20926,
+        "rssMiB": 347.671875,
+        "cpuPercent": 0.0
+      },
+      {
+        "pid": 20928,
+        "rssMiB": 290.296875,
+        "cpuPercent": 0.1
+      },
+      {
+        "pid": 20933,
+        "rssMiB": 503.09375,
+        "cpuPercent": 63.7
+      },
+      {
+        "pid": 20934,
+        "rssMiB": 40.09375,
+        "cpuPercent": 0.0
+      },
+      {
+        "pid": 20936,
+        "rssMiB": 112.4375,
+        "cpuPercent": 0.0
+      },
+      {
+        "pid": 20939,
+        "rssMiB": 108.828125,
+        "cpuPercent": 0.0
+      },
+      {
+        "pid": 20945,
+        "rssMiB": 102.40625,
+        "cpuPercent": 0.0
+      },
+      {
+        "pid": 20950,
+        "rssMiB": 51.796875,
+        "cpuPercent": 0.0
+      },
+      {
+        "pid": 20951,
+        "rssMiB": 39.53125,
+        "cpuPercent": 0.0
+      },
+      {
+        "pid": 20953,
+        "rssMiB": 124.8125,
+        "cpuPercent": 0.0
+      },
+      {
+        "pid": 20956,
+        "rssMiB": 123.96875,
+        "cpuPercent": 0.0
+      },
+      {
+        "pid": 20959,
+        "rssMiB": 125.296875,
+        "cpuPercent": 0.0
+      },
+      {
+        "pid": 20964,
+        "rssMiB": 331.890625,
+        "cpuPercent": 0.3
+      },
+      {
+        "pid": 20965,
+        "rssMiB": 39.25,
+        "cpuPercent": 0.0
+      },
+      {
+        "pid": 20967,
+        "rssMiB": 137.421875,
+        "cpuPercent": 0.0
+      },
+      {
+        "pid": 20970,
+        "rssMiB": 154.140625,
+        "cpuPercent": 0.0
+      },
+      {
+        "pid": 20972,
+        "rssMiB": 349.984375,
+        "cpuPercent": 1.6
+      },
+      {
+        "pid": 20975,
+        "rssMiB": 199.46875,
+        "cpuPercent": 0.1
+      },
+      {
+        "pid": 20979,
+        "rssMiB": 43.359375,
+        "cpuPercent": 0.0
+      }
+    ],
+    "appAndKnownWebContentRSSMiB": 6203.1875,
+    "uniqueWebContentProcesses": 29,
+    "tabCount": 49,
+    "asleep": 20,
+    "hollow": 20
+  },
+  "sleep": {
+    "asleep": true,
+    "said": "asleep"
+  },
+  "wake": {
+    "ready": "interactive",
+    "grid": true,
+    "toolbar": true,
+    "canvas": 1,
+    "login": false,
+    "hidden": false,
+    "loaded": true
+  },
+  "finalMemory": {
+    "phase": "final",
+    "appPhysicalFootprint": "129.9M",
+    "processes": [
+      {
+        "pid": 19925,
+        "rssMiB": 224.75,
+        "cpuPercent": 2.9
+      },
+      {
+        "pid": 21193,
+        "rssMiB": 229.234375,
+        "cpuPercent": 0.0
+      }
+    ],
+    "appAndKnownWebContentRSSMiB": 453.984375,
+    "uniqueWebContentProcesses": 1,
+    "tabCount": 9,
+    "asleep": 8,
+    "hollow": 8
+  },
+  "focusRecoveries": [
+    {
+      "phase": "setup",
+      "time": 1790657778.114982
+    },
+    {
+      "phase": "idle-40",
+      "time": 1790657837.3467772
+    },
+    {
+      "phase": "switch-40",
+      "time": 1790657841.499844
+    },
+    {
+      "phase": "settle",
+      "time": 1790657967.4927459
+    },
+    {
+      "phase": "settle",
+      "time": 1790657968.140697
+    },
+    {
+      "phase": "settle",
+      "time": 1790657968.789984
+    },
+    {
+      "phase": "instrumentation",
+      "time": 1790657970.6711
+    }
+  ],
+  "latencies": {
+    "load-40": {
+      "count": 422,
+      "medianMs": 10.527666498092003,
+      "p95Ms": 28.60429199063219,
+      "maxMs": 43.42020899639465,
+      "over250ms": 0
+    },
+    "idle-40": {
+      "count": 75,
+      "medianMs": 18.79212500352878,
+      "p95Ms": 32.249875002889894,
+      "maxMs": 39.05091701017227,
+      "over250ms": 0
+    },
+    "switch-40": {
+      "count": 25,
+      "medianMs": 14.03133299027104,
+      "p95Ms": 45.707500001299195,
+      "maxMs": 73.97270800720435,
+      "over250ms": 0
+    },
+    "ask-40": {
+      "count": 35,
+      "medianMs": 14.187290988047607,
+      "p95Ms": 22.594791997107677,
+      "maxMs": 45.788250004989095,
+      "over250ms": 0
+    },
+    "sidebar-40": {
+      "count": 14,
+      "medianMs": 20.818020988372155,
+      "p95Ms": 54.19620900647715,
+      "maxMs": 62.90054200508166,
+      "over250ms": 0
+    },
+    "typing-40": {
+      "count": 16,
+      "medianMs": 12.623312999494374,
+      "p95Ms": 22.128833006718196,
+      "maxMs": 34.84575000766199,
+      "over250ms": 0
+    },
+    "soak-40": {
+      "count": 605,
+      "medianMs": 20.11429099366069,
+      "p95Ms": 29.77091699722223,
+      "maxMs": 410.2989169914508,
+      "over250ms": 1
+    },
+    "cleanup": {
+      "count": 154,
+      "medianMs": 10.077854494738858,
+      "p95Ms": 41.51112500403542,
+      "maxMs": 87.07312500337139,
+      "over250ms": 0
+    },
+    "settle": {
+      "count": 153,
+      "medianMs": 18.81466699705925,
+      "p95Ms": 20.506916000158526,
+      "maxMs": 23.45558299566619,
+      "over250ms": 0
+    }
+  },
+  "remainingOriginalTabs": 9,
+  "remainingCreatedTabs": 0
+}

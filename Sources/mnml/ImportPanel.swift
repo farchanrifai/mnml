@@ -388,8 +388,10 @@ struct ImportPanel: View {
             }
         }
         if marks {
-            let (added, already) = browser.takeBookmarks(from: source, profile: profile, replacing: replaceBookmarks)
-            said[1] = Said(ok: true, text: added == 0 && already == 0 ? "No bookmarks in \(source.name)"
+            let (added, already, kept) = browser.takeBookmarks(from: source, profile: profile, replacing: replaceBookmarks)
+            said[1] = kept
+                ? Said(ok: false, text: "Couldn't read all of \(source.name)'s bookmarks: what came from it before was kept, \(added.formatted()) new")
+                : Said(ok: true, text: added == 0 && already == 0 ? "No bookmarks in \(source.name)"
                            : already == 0 ? "\(added.formatted()) bookmarks"
                            : "\(added.formatted()) new bookmarks, \(already.formatted()) already here")
         }
@@ -406,7 +408,7 @@ struct ImportPanel: View {
             said[3] = Said(ok: true, text: extensions.count == 1 ? "1 extension to confirm" : "\(extensions.count) extensions to confirm")
         }
         if wantsArc, arcCounts[key(source, profile)] != nil, let sidebar = source.arcSidebar(profile: profile) {
-            let (spaces, pins, tabs) = browser.takeArc(sidebar)
+            let (spaces, pins, tabs) = browser.takeArc(sidebar, from: source, profile: profile)
             ImportRecords.note(source.name, spaces: spaces, pinned: pins + tabs)
             func count(_ n: Int, _ one: String) -> String { n == 1 ? "1 \(one)" : "\(n.formatted()) \(one)s" }
             said[4] = Said(ok: true, text: spaces + pins + tabs == 0 ? "Arc's spaces and pins were all here already"

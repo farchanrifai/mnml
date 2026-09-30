@@ -14,6 +14,15 @@ struct MnmlApp: App {
     /// What the menus act on: the window in front's browser.
     private var browser: Browser { front.browser ?? SceneSlot.shared.browser }
 
+    init() {
+        // Settings › General › Start with a fresh window: the files are cut
+        // down before any window reads its row from them.
+        if Store.settings.bool(forKey: Preferences.freshKey) {
+            Session.startFresh(spaces: Spaces.read().map(\.id))
+            Browsers.startFresh()
+        }
+    }
+
     var body: some Scene {
         // Where you left it, at the size you left it. SwiftUI saves a
         // window's frame under its id and puts it back before the window
@@ -31,6 +40,9 @@ struct MnmlApp: App {
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 1180, height: 780)
         .commands {
+            CommandGroup(after: .appInfo) {
+                if Updater.feed != nil { UpdateMenuItem() }
+            }
             CommandGroup(replacing: .newItem) {
                 item("file.newWindow")
                 item("file.newTab")
@@ -112,6 +124,7 @@ struct MnmlApp: App {
                 item("tabs.search")
                 Divider()
                 if let tab = browser.active {
+                    let rows = browser.prefs.showsPinRows
                     if tab.pin == nil {
                         item("tabs.pin")
                             .disabled(tab.isBlank)
@@ -160,7 +173,7 @@ struct MnmlApp: App {
                         Button {
                             browser.open(trace.url, foreground: true)
                         } label: {
-                            MenuLine(title: trace.title.isEmpty ? trace.key : trace.title, url: trace.url)
+                            MenuLine(title: trace.title.isEmpty ? Address.withoutWWW(trace.address) : trace.title, url: trace.url)
                         }
                     }
                 }
@@ -210,8 +223,8 @@ private struct MenuLine: View {
     let url: URL
 
     var body: some View {
-        if let host = url.host()?.lowercased(),
-           let icon = Favicons.shared.cached(host) {
+        if let site = Favicons.site(url),
+           let icon = Favicons.shared.cached(site) {
             Label {
                 Text(title)
             } icon: {
@@ -282,11 +295,30 @@ struct ContentView: View {
 
     /// The window: room at the top, one stage for the page, and the row when
     /// there is one.
+    @State private var immersionRevision = 0
+    private var fullscreenTab: Tab? {
+        _ = immersionRevision
+        if let split = browser.shownSplit {
+            return browser.tabs.first { split.has($0.id) && $0.immersed }
+        }
+        return browser.active?.immersed == true ? browser.active : nil
+    }
+    @ViewBuilder private var fullscreenWatch: some View {
+        if let split = browser.shownSplit {
+            ForEach(browser.tabs.filter { split.has($0.id) }) { tab in
+                TabImmersionWatch(tab: tab) { immersionRevision += 1 }.id(tab.id)
+            }
+        } else if let tab = browser.active {
+            TabImmersionWatch(tab: tab) { immersionRevision += 1 }.id(tab.id)
+        }
+    }
+
     private var window_: some View {
         ZStack(alignment: .topLeading) {
+            fullscreenWatch
             // Black while a page has the screen, so the frame of our own window
             // that survives the transition is not a white band across the top.
-            (browser.active?.immersed == true ? Color.black : Palette.ground)
+            (fullscreenTab != nil ? Color.black : Palette.ground)
 
             // One stage, always. It starts beside the column and under the
             // strip, not behind them — a page sliding beneath floating chrome
@@ -338,7 +370,7 @@ struct ContentView: View {
                     .zIndex(2)
             }
 
-            if !browser.prefs.sidebar, !browser.folded, browser.active?.immersed != true {
+            if !browser.prefs.sidebar, !browser.folded, fullscreenTab == nil {
                 TabBar(browser: browser)
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
@@ -397,7 +429,7 @@ struct ContentView: View {
         .animation(Motion.glide, value: browser.prefs.sidebar)
         .animation(.spring(response: 0.34, dampingFraction: 1), value: browser.askShowing)
         .animation(.spring(response: 0.34, dampingFraction: 1), value: browser.active.flatMap { browser.docked[$0.id] })
-        .animation(.easeOut(duration: 0.12), value: browser.active?.immersed)
+        .animation(.easeOut(duration: 0.12), value: fullscreenTab?.id)
         .onAppear { if room == nil { room = chrome } }
         .onChange(of: chrome) { old, new in make(room: new, after: old) }
     }
@@ -453,7 +485,7 @@ struct ContentView: View {
     /// aren't folded away or under a video filling the screen.
     private var barShown: Bool {
         browser.prefs.bookmarksBar && !browser.bookmarks.isEmpty && !browser.folded
-            && browser.active?.immersed != true
+            && fullscreenTab == nil
     }
 
     /// The room the page is laid out to leave them, which is not animated.
@@ -634,6 +666,9 @@ struct ContentView: View {
             .overlay { field }
             .overlay { panels }
             .overlay { TabSwitcherOverlay(browser: browser, switcher: browser.tabSwitcher) }
+            .overlay(alignment: .topTrailing) {
+                if let job = browser.fileImport { ImportProgress(browser: browser, job: job) }
+            }
             // The field comes on its spring, and goes quickly: once Return
             // is pressed the page is on its way, and the field is not what
             // there is to watch.
@@ -660,6 +695,12 @@ struct ContentView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { note in
                 if let window, (note.object as? NSWindow) === window { browser.tabSwitcher.cancel() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.willEnterFullScreenNotification)) { note in
+                if let window, (note.object as? NSWindow) === window { browser.fullScreen = true }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: NSWindow.willExitFullScreenNotification)) { note in
+                if let window, (note.object as? NSWindow) === window { browser.fullScreen = false }
             }
             .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
                 resting?.isHidden = true
@@ -764,16 +805,16 @@ struct ContentView: View {
     private func captureAsking(_ ask: Browser.CaptureAsk) -> some View {
         let off = ask.wants == "notifications off"
         return HStack(spacing: 12) {
-            Image(systemName: ask.wants.hasPrefix("notifications") ? (off ? "bell.slash" : "bell") : ask.wants == "microphone" ? "mic" : "video")
+            Image(systemName: ask.wants.hasPrefix("notifications") ? (off ? "bell.slash" : "bell") : ask.wants == "location" ? "location" : ask.wants == "microphone" ? "mic" : "video")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Palette.muted)
             Text(off ? "\(ask.host) wants to notify you, but notifications for mnml are off in System Settings"
                  : ask.wants == "notifications" ? "\(ask.host) wants to send you notifications"
-                 : "\(ask.host) wants to use your \(ask.wants)")
+                 : ask.wants == "location" ? "\(ask.host) wants to know your location" : "\(ask.host) wants to use your \(ask.wants)")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Palette.ink)
-            Button { browser.allowCapture() } label: {
-                Text(off ? "Open Settings" : "Allow")
+            Button { ask.once ? browser.allowCaptureOnce() : browser.allowCapture() } label: {
+                Text(off ? "Open Settings" : ask.once ? "Allow once" : "Allow")
                     .font(.system(size: 12))
                     .foregroundStyle(Palette.ground)
                     .padding(.horizontal, 11)
@@ -781,6 +822,14 @@ struct ContentView: View {
                     .background(Palette.ink, in: Capsule())
             }
             .buttonStyle(.plain)
+            if ask.once, ask.keeps {
+                Button { browser.allowCapture() } label: {
+                    Text("Always allow")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Palette.ink)
+                }
+                .buttonStyle(.plain)
+            }
             Button { browser.denyCapture() } label: {
                 Text(off ? "Not now" : "Don't allow")
                     .font(.system(size: 12))
@@ -907,13 +956,13 @@ struct ContentView: View {
 
     /// True while the tabs are down the left, and not folded away (see Fold.swift).
     private var sidebar: Bool {
-        browser.prefs.sidebar && !browser.folded && browser.active?.immersed != true
+        browser.prefs.sidebar && !browser.folded && fullscreenTab == nil
     }
 
     /// The column has its own corner for the lights, so the page beside it
     /// starts at the very top; the strip needs a band.
     private var band: CGFloat {
-        guard browser.active?.immersed != true else { return 0 }
+        guard fullscreenTab == nil else { return 0 }
         // Folded, the strip is out of the window and the page has its height.
         return browser.prefs.sidebar || browser.folded ? 0 : Metrics.strip
     }
@@ -992,7 +1041,16 @@ struct ContentView: View {
     /// keystrokes because this runs first.
     private func watchKeys() {
         guard keys == nil else { return }
-        keys = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
+        keys = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged, .leftMouseDown]) { event in
+            // A click on the tab switcher, in this window only (see
+            // Browser.clickTabSwitcher), turned into the top-left coordinates
+            // SwiftUI's frames are in.
+            if event.type == .leftMouseDown {
+                guard let window, event.window === window, let height = window.contentView?.bounds.height
+                else { return event }
+                let at = event.locationInWindow
+                return browser.clickTabSwitcher(at: CGPoint(x: at.x, y: height - at.y)) ? nil : event
+            }
             // Every window has a monitor, and every monitor hears every key:
             // each takes only its own window's, and the one in front takes
             // those of windows that aren't a browser's (a panel, the little
@@ -1032,6 +1090,11 @@ struct ContentView: View {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
 
+        if let popup = Browsers.browser(for: event.window), popup.extensionPopup != nil {
+            guard event.charactersIgnoringModifiers?.lowercased() == "w", flags == .command else { return false }
+            popup.window?.performClose(nil)
+            return true
+        }
         // Settings › Shortcuts is waiting for a key: it's the recorder's.
         if browser.recordingShortcut { return false }
 
@@ -1170,6 +1233,17 @@ struct ContentView: View {
                 browser.picked = nil
                 return true
             }
+            // A new tab never sent anywhere is itself what is open: Escape
+            // takes it away, back to the tab you were on, which is the one
+            // touched last. Chosen before closing, so close() doesn't wake a
+            // neighbour on the way. Anything typed keeps it; so does being
+            // the last tab, where closing it would close the window.
+            if let blank = browser.active, blank.isBlank, browser.typed.isEmpty,
+               let back = browser.tabs.filter({ $0.id != blank.id }).max(by: { $0.touched < $1.touched }) {
+                browser.select(back)
+                browser.close(blank)
+                return true
+            }
             guard browser.editing, browser.active?.isBlank == false else { return false }
             browser.dismiss()
             return true
@@ -1201,6 +1275,8 @@ struct ContentView: View {
                 return true
             }
             if browser.editingTab != nil { return true }
+            // "red" then Tab: Reddit, in the field (SiteSearch.swift).
+            if browser.fieldShowing, !flags.contains(.shift), browser.lockSiteOffer() { return true }
             if browser.fieldShowing, !browser.offers.isEmpty {
                 browser.walk(flags.contains(.shift) ? -1 : 1)
                 return true
@@ -1354,5 +1430,113 @@ struct SceneRoot: View {
         ContentView(browser: slot.browser)
             .id(ObjectIdentifier(slot.browser))
             .onAppear { Browsers.restoreOnce() }
+    }
+}
+
+/// A file being brought in, in the background (#380): its name, how far it
+/// has got, and Cancel — in the corner, in the quiet grey of everything
+/// else that floats over the page.
+private struct ImportProgress: View {
+    @ObservedObject var browser: Browser
+    let job: Browser.FileImportJob
+
+    private var fraction: CGFloat? {
+        guard let total = job.total, total > 0 else { return nil }
+        return min(1, CGFloat(job.completed) / CGFloat(total))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(job.filename)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(Palette.ink)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Text(job.message)
+                .font(.system(size: 12))
+                .foregroundStyle(Palette.muted)
+                .lineLimit(1)
+            bar
+            footer
+        }
+        .padding(14)
+        .frame(width: 250, alignment: .leading)
+        .background(Palette.ground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Palette.hairline, lineWidth: 1))
+        .shadow(color: .black.opacity(0.08), radius: 16, y: 5)
+        .padding(20)
+        .transition(.opacity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Importing \(job.filename), \(job.message)")
+    }
+
+    private var bar: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Palette.hairline)
+                if let fraction {
+                    Capsule().fill(Palette.ink.opacity(0.7)).frame(width: geo.size.width * fraction)
+                }
+            }
+        }
+        .frame(height: 3)
+    }
+
+    private var footer: some View {
+        HStack {
+            if let total = job.total, total > 0 {
+                Text("\(job.completed.formatted()) of \(total.formatted())")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Palette.muted)
+            }
+            Spacer(minLength: 0)
+            Button { browser.cancelFileImport() } label: {
+                Text(job.cancelling ? "Cancelling…" : "Cancel")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.ink)
+                    .padding(.horizontal, 10)
+                    .frame(height: 22)
+                    .background(Palette.ink.opacity(0.07), in: Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(job.cancelling)
+        }
+    }
+}
+
+private struct TabImmersionWatch: View {
+    let tab: Tab
+    let changed: () -> Void
+    @State private var previous: Bool?
+
+    var body: some View {
+        Color.clear.frame(width: 0, height: 0)
+            .onReceive(tab.$immersed.removeDuplicates()) { value in
+                let didChange = previous != nil && previous != value
+                previous = value
+                if didChange { changed() }
+            }
+    }
+}
+
+private struct UpdateMenuItem: View {
+    @ObservedObject private var updater = Updater.shared
+
+    var body: some View {
+        switch updater.stage {
+        case .none:
+            Button(updater.checking ? "Checking for Updates…" : "Check for Updates…") { updater.checkByHand() }
+                .disabled(updater.checking)
+        case .waiting:
+            Button("Install Update") { updater.install() }
+        case .fetching:
+            Button("Downloading Update…") {}
+                .disabled(true)
+        case .ready:
+            Button("Restart to Update") { updater.relaunch() }
+        case .offered:
+            Button(updater.fetchingDisk ? "Downloading Update…" : "Download Update…") { updater.openDisk() }
+                .disabled(updater.fetchingDisk)
+        }
     }
 }

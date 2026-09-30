@@ -4,6 +4,10 @@ import SwiftUI
 /// slides from the tab you left to the tab you picked rather than blinking out
 /// of one and into the other.
 struct TabBar: View {
+    /// The room kept at the start for the window's buttons: none to speak of
+    /// in full screen, where macOS takes them away (idea 184).
+    private var lights: CGFloat { browser.fullScreen ? 12 : Metrics.lights }
+
     @ObservedObject var browser: Browser
 
     @Namespace private var pill
@@ -237,7 +241,7 @@ struct TabBar: View {
     private func row(in strip: CGFloat) -> some View {
         let each = width(in: strip)
         return HStack(spacing: Metrics.tabGap) {
-            pinBox(in: strip)
+            pinBox(in: strip, each: each)
             HStack(spacing: Metrics.tabGap) {
                 ForEach(entries(pinned: true)) { entry in entryView(entry, each: each, strip: strip) }
                 if hasLine {
@@ -274,7 +278,7 @@ struct TabBar: View {
     }
 
     /// The pinned tabs in one box, after the space's name when there are spaces.
-    private func pinBox(in strip: CGFloat) -> some View {
+    private func pinBox(in strip: CGFloat, each: CGFloat) -> some View {
         let pins = browser.tabs.filter { $0.pin != nil }
         return HStack(spacing: 2) {
             if browser.prefs.usesSpaces, browser.spaces.count > 1 {
@@ -285,7 +289,7 @@ struct TabBar: View {
             HStack(spacing: 2) {
                 ForEach(Array(pins.enumerated()), id: \.element.id) { index, tab in
                     let held = dragging == tab.id
-                    pillView(tab, width: width(in: strip), strip: strip)
+                    pillView(tab, width: each, strip: strip)
                         .offset(x: held ? travel - CGFloat(index - from) * (Metrics.pinWidth + 2) : 0)
                         .transaction { if held { $0.animation = nil } }
                         .zIndex(held ? 1 : 0)
@@ -1096,6 +1100,16 @@ struct TabAddressField: NSViewRepresentable {
         coordinator.unwatch()
     }
 
+    /// The width it is offered, never the address's own. Left to its own,
+    /// the field was as wide as the whole address and the row cut it off:
+    /// a field that never runs out of room never scrolls, so the caret went
+    /// on out of sight with ← and →, and so did what was typed at the end.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView field: NSTextField, context: Context) -> CGSize? {
+        let natural = field.intrinsicContentSize
+        guard let width = proposal.width, width.isFinite else { return nil }
+        return CGSize(width: max(0, width), height: proposal.height ?? natural.height)
+    }
+
     func updateNSView(_ field: NSTextField, context: Context) {
         let coordinator = context.coordinator
         coordinator.browser = browser
@@ -1187,11 +1201,27 @@ struct TabMenu: View {
     let close: () -> Void
 
     var body: some View {
+        let rows = browser.prefs.showsPinRows
         if tab.pin == nil {
             Button("Pin") { browser.pin(tab) }
                 .disabled(tab.isBlank || tab.shy)
+            if rows {
+                Button("Pin as Row") { browser.pin(tab, listed: true) }
+                    .disabled(tab.isBlank || tab.shy)
+            }
         } else {
-            Button("Change Letter") { browser.editLetter(tab) }
+            if rows {
+                Button(tab.listed ? "Show as Square" : "Show as Row") { browser.setListed(tab, !tab.listed) }
+            }
+            // A row wears its title, not its letter; and a click on it is
+            // the address, so the way home a square's double-click is
+            // (Browser.goHome) is here instead, while it has wandered.
+            if rows && tab.listed {
+                Button("Back to Pinned Page") { browser.goHome(tab) }
+                    .disabled(tab.home.map { Browser.samePage($0, tab.address) } ?? true)
+            } else {
+                Button("Change Letter") { browser.editLetter(tab) }
+            }
             Button("Unpin") { browser.unpin(tab) }
         }
         // Tab groups, in the column and across the top (Groups.swift).
@@ -1246,7 +1276,7 @@ struct TabMenu: View {
         }
         if tab.pin == nil, !tab.bench {
             // Another window, or a new one (see Browser.moveToWindow).
-            let others = Browsers.all.filter { $0 !== browser && $0.isOpen }
+            let others = Browsers.all.filter { $0 !== browser && $0.isOpen && $0.extensionPopup == nil }
             if others.isEmpty {
                 Button("Move to New Window") { browser.moveToWindow(tab, nil) }
                     .disabled(browser.tabs.count < 2)

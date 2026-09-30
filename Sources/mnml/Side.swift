@@ -91,6 +91,10 @@ struct SideBar: View {
     /// The narrowest a pinned square gets before a row takes one fewer.
     private static let pinCell: CGFloat = 36
 
+    /// The window's buttons' corner: gone in full screen, where macOS takes
+    /// them away, and back, forward and reload move up to the edge (idea 184).
+    private var lights: CGFloat { browser.fullScreen ? 0 : Metrics.sideLights }
+
     var body: some View {
         ZStack(alignment: .top) {
             // Not under the card for a new space: it isn't made of views that
@@ -178,6 +182,9 @@ struct SideBar: View {
         .animation(Motion.glide, value: browser.editingTab)
         .animation(Motion.settle, value: browser.tabs.map(\.id))
         .animation(Motion.settle, value: browser.pinnedCount)
+        // The last square made the first row changes nothing in the row's
+        // order; only how many of each there are.
+        .animation(Motion.settle, value: browser.listedPins.count)
     }
 
     /// The column's edge: pull it to make the column wider or narrower,
@@ -321,7 +328,8 @@ struct SideBar: View {
     /// two read as one column while they pass — and nothing to press until
     /// it is the one on screen.
     private func preview(_ row: Parked, pill: Namespace.ID) -> some View {
-        let pins = row.tabs.filter { $0.pin != nil }
+        let pins = row.tabs.filter { $0.pin != nil && !($0.listed && prefs.showsPinRows) }
+        let listed = prefs.showsPinRows ? row.tabs.filter { $0.pin != nil && $0.listed } : []
         let rest = row.tabs.filter { $0.pin == nil }
         let cells = pinCells(pins.count)
         return VStack(alignment: .leading, spacing: 0) {
@@ -339,6 +347,14 @@ struct SideBar: View {
             }
             newTab(at: .top)
             VStack(spacing: SideBar.gap) {
+                ForEach(listed) { tab in
+                    SideRow(browser: browser, prefs: prefs, tab: tab, live: tab.id == row.active,
+                            pill: pill, close: {})
+                }
+                // Groups aren't drawn here, so the line goes over all the rest.
+                if !pins.isEmpty || !listed.isEmpty {
+                    KeepLine(clears: false) {}
+                }
                 ForEach(rest) { tab in
                     SideRow(browser: browser, prefs: prefs, tab: tab, live: tab.id == row.active, pill: pill, close: {})
                 }
@@ -359,7 +375,7 @@ struct SideBar: View {
 
     // MARK: - the pinned squares
 
-    private var pinnedTabs: [Tab] { browser.tabs.filter { $0.pin != nil } }
+    private var pinnedTabs: [Tab] { browser.squarePins }
 
     /// Every row fills the column, with counts balanced across rows.
     static func pinRows(_ count: Int, most: Int) -> [Int] {
@@ -476,6 +492,11 @@ struct SideBar: View {
     private var list: some View {
         let pinnedGroups = entries(pinned: true)
         return VStack(alignment: .leading, spacing: 0) {
+            if !browser.listedPins.isEmpty {
+                VStack(spacing: SideBar.gap) {
+                    ForEach(browser.listedPins) { tab in tabRow(tab) }
+                }.padding(.bottom, 8)
+            }
             if !pinnedGroups.isEmpty {
                 VStack(spacing: SideBar.gap) {
                     ForEach(pinnedGroups) { entry in entryView(entry) }
@@ -483,12 +504,8 @@ struct SideBar: View {
                 .padding(.bottom, 8)
             }
             if hasLine {
-                Rectangle()
-                    .fill(Palette.hairline)
-                    .frame(height: 1)
-                    .padding(.horizontal, 6)
-                    .report(.line)
-                    .padding(.bottom, 8)
+                KeepLine(clears: browser.tabs.contains { $0.pin == nil && $0.group == nil && !$0.bench }) { browser.clearTabs() }
+                    .report(.line).padding(.bottom, 8)
             }
             newTab(at: .top)
             VStack(spacing: SideBar.gap) {
@@ -934,6 +951,9 @@ private struct PinSquare: View {
         .frame(width: width, height: height)
         .background {
             if live {
+                // Darker than the resting squares' grey by as much as a live
+                // row is darker than the white it sits on (Drice: the live
+                // pin barely showed among the others).
                 RoundedRectangle(cornerRadius: scale * 9 / 34, style: .continuous)
                     .fill(SideBar.pinLiveFill)
                     .matchedGeometryEffect(id: "live", in: pill)
@@ -1070,7 +1090,7 @@ struct SideRow: View {
                     if hovering && speaker { Speaker(tab: tab).transition(.opacity) }
                     ZStack {
                         if hovering {
-                            Image(systemName: "xmark")
+                            Image(systemName: tab.pin != nil ? "minus" : "xmark")
                                 .font(.system(size: 8, weight: .semibold))
                                 .foregroundStyle(Palette.muted)
                                 .frame(width: 15, height: 15)
@@ -1210,6 +1230,46 @@ struct Quiet: View {
             .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
         }
         .buttonStyle(.plain)
+        .onHover { hovering = $0 }
+        .animation(Motion.quick, value: hovering)
+    }
+}
+
+/// The line between what is kept and the tabs that come and go, as Arc
+/// draws it over its Today tabs, with Clear at its end under the pointer:
+/// the tabs below it closed, everything above it left as it was.
+struct KeepLine: View {
+    static let height: CGFloat = 18
+    /// Whether there is anything under it to clear.
+    let clears: Bool
+    let act: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Rectangle()
+                .fill(Palette.hairline)
+                .frame(height: 1)
+            if clears && hovering {
+                Button(action: act) {
+                    HStack(spacing: 3) {
+                        Image(systemName: "arrow.down")
+                            .font(.system(size: 8, weight: .semibold))
+                        Text("Clear")
+                            .font(.system(size: 11))
+                    }
+                    .foregroundStyle(Palette.muted)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Close the tabs under the line. Pins and groups stay; ⇧⌘T brings a tab back.")
+                .transition(.opacity)
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(height: KeepLine.height)
+        .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .animation(Motion.quick, value: hovering)
     }

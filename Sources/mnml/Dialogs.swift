@@ -114,19 +114,33 @@ extension Browser {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping ([URL]?) -> Void
     ) {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = true
-        panel.canChooseDirectories = parameters.allowsDirectories
-        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
-        panel.resolvesAliases = true
-        let finish: (NSApplication.ModalResponse) -> Void = { answer in
-            completionHandler(answer == .OK ? panel.urls : nil)
+        // Over its own page only, as its other questions are (see ask): a
+        // page behind, or the other page of a pair, choosing a file would
+        // have it chosen under the page you are looking at. A test run never
+        // shows one — it would be a window on the screen of whoever is
+        // working beside it — and is answered as cancelled.
+        if Store.testing {
+            Dialogs.askedInTest.append("Choose a file (\(frame.securityOrigin.host))")
+            return completionHandler(nil)
         }
-        if let window = Dialogs.window(for: webView) {
-            panel.beginSheetModal(for: window, completionHandler: finish)
-        } else {
-            finish(panel.runModal())
-        }
+        ask(from: webView, show: {
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = true
+            panel.canChooseDirectories = parameters.allowsDirectories
+            panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+            panel.resolvesAliases = true
+            // The site the file goes to, named.
+            let host = frame.securityOrigin.host
+            panel.message = host.isEmpty ? "Choose a file for this page" : "Choose a file for \(host)"
+            let finish: (NSApplication.ModalResponse) -> Void = { answer in
+                completionHandler(answer == .OK ? panel.urls : nil)
+            }
+            if let window = Dialogs.window(for: webView) {
+                panel.beginSheetModal(for: window, completionHandler: finish)
+            } else {
+                finish(panel.runModal())
+            }
+        }, drop: { completionHandler(nil) })
     }
 
     // MARK: - a site that asks who you are, or can't prove who it is
@@ -182,20 +196,23 @@ extension Browser {
             completionHandler(.performDefaultHandling, nil)
             return
         }
-        let alert = NSAlert()
-        alert.messageText = "\(host) can't prove who it is"
-        alert.informativeText = "Its certificate isn't trusted by this Mac. Someone could be reading what you send. Continue only if you know why it looks like this."
-        alert.alertStyle = .warning
-        alert.addButton(withTitle: "Go Back")
-        alert.addButton(withTitle: "Continue Anyway")
-        Dialogs.show(alert, over: webView) { answer in
-            guard answer == .alertSecondButtonReturn else {
-                completionHandler(.cancelAuthenticationChallenge, nil)
-                return
+        // Over its own tab only, as a page's own questions are (see ask).
+        ask(from: webView, show: {
+            let alert = NSAlert()
+            alert.messageText = "\(host) can't prove who it is"
+            alert.informativeText = "Its certificate isn't trusted by this Mac. Someone could be reading what you send. Continue only if you know why it looks like this."
+            alert.alertStyle = .warning
+            alert.addButton(withTitle: "Go Back")
+            alert.addButton(withTitle: "Continue Anyway")
+            Dialogs.show(alert, over: webView) { answer in
+                guard answer == .alertSecondButtonReturn else {
+                    completionHandler(.cancelAuthenticationChallenge, nil)
+                    return
+                }
+                Dialogs.excused.insert(host)
+                completionHandler(.useCredential, URLCredential(trust: trust))
             }
-            Dialogs.excused.insert(host)
-            completionHandler(.useCredential, URLCredential(trust: trust))
-        }
+        }, drop: { completionHandler(.cancelAuthenticationChallenge, nil) })
     }
 
     /// A site behind a name and a password — a staging server, a router. One
@@ -209,6 +226,19 @@ extension Browser {
             completionHandler(.cancelAuthenticationChallenge, nil)
             return
         }
+        // A tab behind yours asking for a name and a password would put the
+        // question over the page you are looking at, where it would pass for
+        // that page's. It waits for its own tab, as a page's questions do.
+        ask(from: webView, show: { [weak self] in
+            self?.askSignIn(webView, challenge, completionHandler)
+        }, drop: { completionHandler(.cancelAuthenticationChallenge, nil) })
+    }
+
+    private func askSignIn(
+        _ webView: WKWebView,
+        _ challenge: URLAuthenticationChallenge,
+        _ completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
+    ) {
         let space = challenge.protectionSpace
         let alert = NSAlert()
         alert.messageText = "\(space.host) asks you to sign in"
@@ -281,11 +311,23 @@ enum Dialogs {
         webView.window ?? NSApp.mainWindow ?? NSApp.windows.first { $0.contentView != nil && $0.isVisible }
     }
 
+    /// A test run's questions, in the order they would have been shown.
+    static var askedInTest: [String] = []
+
     static func show(
         _ alert: NSAlert,
         over webView: WKWebView,
         then finish: @escaping (NSApplication.ModalResponse) -> Void
     ) {
+        // A test run never shows one — a sheet, or a window of its own for a
+        // page without one, would be on the screen of whoever is working
+        // beside it. What it would have asked is written down (bench probe),
+        // and it is answered as if cancelled.
+        if Store.testing {
+            askedInTest.append(alert.messageText)
+            finish(.cancel)
+            return
+        }
         if let window = window(for: webView) {
             alert.beginSheetModal(for: window, completionHandler: finish)
         } else {

@@ -1,0 +1,341 @@
+{
+  "world": "perf-fixed-qa",
+  "pid": 18526,
+  "cycles": [
+    {
+      "number": 1,
+      "footprint": "72.0M",
+      "playback": [
+        {
+          "phase": "idle",
+          "before": {
+            "hidden": false,
+            "paused": false,
+            "total": 1,
+            "dropped": 0
+          },
+          "after": {
+            "hidden": false,
+            "paused": false,
+            "total": 496,
+            "dropped": 1
+          },
+          "seconds": 5.013556000005337,
+          "appActive": false,
+          "windowKey": false,
+          "windowVisible": true
+        },
+        {
+          "phase": "ask",
+          "before": {
+            "hidden": false,
+            "paused": false,
+            "total": 543,
+            "dropped": 3
+          },
+          "after": {
+            "hidden": true,
+            "paused": true,
+            "total": 543,
+            "dropped": 3
+          },
+          "seconds": 4.072532666003099,
+          "appActive": false,
+          "windowKey": false,
+          "windowVisible": false
+        },
+        {
+          "phase": "sidebar",
+          "before": {
+            "hidden": true,
+            "paused": true,
+            "total": 543,
+            "dropped": 3
+          },
+          "after": {
+            "hidden": true,
+            "paused": true,
+            "total": 543,
+            "dropped": 3
+          },
+          "seconds": 1.8806996660132427,
+          "appActive": false,
+          "windowKey": false,
+          "windowVisible": false
+        }
+      ]
+    },
+    {
+      "number": 2,
+      "footprint": "72.7M",
+      "playback": [
+        {
+          "phase": "idle",
+          "before": {
+            "hidden": false,
+            "paused": false,
+            "total": 1,
+            "dropped": 0
+          },
+          "after": {
+            "hidden": false,
+            "paused": false,
+            "total": 493,
+            "dropped": 0
+          },
+          "seconds": 5.0284727919934085,
+          "appActive": true,
+          "windowKey": true,
+          "windowVisible": true
+        },
+        {
+          "phase": "ask",
+          "before": {
+            "hidden": false,
+            "paused": false,
+            "total": 553,
+            "dropped": 0
+          },
+          "after": {
+            "hidden": false,
+            "paused": false,
+            "total": 738,
+            "dropped": 0
+          },
+          "seconds": 4.069185000000289,
+          "appActive": true,
+          "windowKey": true,
+          "windowVisible": true
+        },
+        {
+          "phase": "sidebar",
+          "before": {
+            "hidden": false,
+            "paused": false,
+            "total": 798,
+            "dropped": 0
+          },
+          "after": {
+            "hidden": false,
+            "paused": false,
+            "total": 858,
+            "dropped": 0
+          },
+          "seconds": 1.8896485419973033,
+          "appActive": true,
+          "windowKey": true,
+          "windowVisible": true
+        }
+      ]
+    },
+    {
+      "number": 3,
+      "footprint": "72.8M",
+      "playback": [
+        {
+          "phase": "idle",
+          "before": {
+            "hidden": false,
+            "paused": false,
+            "total": 1,
+            "dropped": 0
+          },
+          "after": {
+            "hidden": false,
+            "paused": false,
+            "total": 495,
+            "dropped": 0
+          },
+          "seconds": 5.026217999999062,
+          "appActive": true,
+          "windowKey": true,
+          "windowVisible": true
+        },
+        {
+          "phase": "ask",
+          "before": {
+            "hidden": false,
+            "paused": false,
+            "total": 543,
+            "dropped": 0
+          },
+          "after": {
+            "hidden": false,
+            "paused": false,
+            "total": 738,
+            "dropped": 0
+          },
+          "seconds": 4.059924333996605,
+          "appActive": true,
+          "windowKey": true,
+          "windowVisible": true
+        },
+        {
+          "phase": "sidebar",
+          "before": {
+            "hidden": false,
+            "paused": false,
+            "total": 786,
+            "dropped": 0
+          },
+          "after": {
+            "hidden": false,
+            "paused": false,
+            "total": 858,
+            "dropped": 0
+          },
+          "seconds": 1.9074715830065543,
+          "appActive": true,
+          "windowKey": true,
+          "windowVisible": true
+        }
+      ]
+    },
+    {
+      "number": 4,
+      "footprint": "73.1M",
+      "playback": [
+        {
+          "phase": "idle",
+          "before": {
+            "hidden": true,
+            "paused": false,
+            "total": 0,
+            "dropped": 0
+          },
+          "after": {
+            "hidden": true,
+            "paused": false,
+            "total": 0,
+            "dropped": 0
+          },
+          "seconds": 5.015158665992203,
+          "appActive": false,
+          "windowKey": false,
+          "windowVisible": false
+        },
+        {
+          "phase": "ask",
+          "before": {
+            "hidden": true,
+            "paused": false,
+            "total": 0,
+            "dropped": 0
+          },
+          "after": {
+            "hidden": true,
+            "paused": false,
+            "total": 0,
+            "dropped": 0
+          },
+          "seconds": 4.0592868749954505,
+          "appActive": false,
+          "windowKey": false,
+          "windowVisible": false
+        },
+        {
+          "phase": "sidebar",
+          "before": {
+            "hidden": true,
+            "paused": false,
+            "total": 0,
+            "dropped": 0
+          },
+          "after": {
+            "hidden": true,
+            "paused": false,
+            "total": 0,
+            "dropped": 0
+          },
+          "seconds": 1.877287333001732,
+          "appActive": false,
+          "windowKey": false,
+          "windowVisible": false
+        }
+      ]
+    }
+  ],
+  "foreground": {
+    "appActive": true,
+    "windowKey": true,
+    "windowVisible": true
+  },
+  "baseline": "42.9M",
+  "recording": {
+    "before": {
+      "hidden": true,
+      "paused": true,
+      "total": 543,
+      "dropped": 3
+    },
+    "after": {
+      "hidden": true,
+      "paused": true,
+      "total": 543,
+      "dropped": 3
+    },
+    "seconds": 0.14106091599387582,
+    "exit": 1,
+    "error": "",
+    "bytes": 0
+  },
+  "finalFootprint": "72.9M",
+  "latencies": {
+    "setup": {
+      "count": 25,
+      "medianMs": 0.454084001830779,
+      "p95Ms": 0.668916996801272,
+      "maxMs": 46.28045800200198,
+      "over250ms": 0
+    },
+    "load": {
+      "count": 152,
+      "medianMs": 0.6853334998595528,
+      "p95Ms": 1.3565419940277934,
+      "maxMs": 8.340249987668358,
+      "over250ms": 0
+    },
+    "idle": {
+      "count": 192,
+      "medianMs": 0.7821460021659732,
+      "p95Ms": 1.1229999945499003,
+      "maxMs": 1.3944579986855388,
+      "over250ms": 0
+    },
+    "ask": {
+      "count": 155,
+      "medianMs": 1.1469169985502958,
+      "p95Ms": 6.061791995307431,
+      "maxMs": 60.94295899674762,
+      "over250ms": 0
+    },
+    "sidebar": {
+      "count": 72,
+      "medianMs": 0.8105205051833764,
+      "p95Ms": 4.417042000568472,
+      "maxMs": 16.509291002876125,
+      "over250ms": 0
+    },
+    "recording": {
+      "count": 1,
+      "medianMs": 0.38737499562557787,
+      "p95Ms": 0.38737499562557787,
+      "maxMs": 0.38737499562557787,
+      "over250ms": 0
+    },
+    "close": {
+      "count": 383,
+      "medianMs": 0.7470830023521557,
+      "p95Ms": 1.1095840018242598,
+      "maxMs": 12.048332995618694,
+      "over250ms": 0
+    },
+    "final-settle": {
+      "count": 287,
+      "medianMs": 0.5630829982692376,
+      "p95Ms": 1.0219590039923787,
+      "maxMs": 1.7070419999072328,
+      "over250ms": 0
+    }
+  }
+}

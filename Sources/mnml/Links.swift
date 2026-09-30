@@ -17,18 +17,45 @@ final class Links: NSObject, NSApplicationDelegate {
     @MainActor static var window: NSWindow? { Browsers.front?.window ?? Browsers.primary?.window }
     /// Whether the window has been asked for on a link's behalf (summon).
     private static var summoned = false
+    /// A first quit waits for an import worker to remove its temporary files.
+    /// AppKit calls us again when that cleanup has finished.
+    private var terminationPending = false
 
     /// Quitting closes every window on the way out; that isn't a window
     /// closed for good, whose tabs would go (see Browsers.closing).
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let alert = NSAlert()
-        alert.messageText = "Quit mnml?"
-        alert.informativeText = "Your tabs will be saved for next time."
-        alert.addButton(withTitle: "Quit").keyEquivalent = "\r"
-        alert.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
-        guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
-        MainActor.assumeIsolated { Browsers.quitting = true }
-        return .terminateNow
+        if !terminationPending {
+            let alert = NSAlert()
+            alert.messageText = "Quit mnml?"
+            alert.informativeText = "Your tabs will be saved for next time."
+            alert.addButton(withTitle: "Quit").keyEquivalent = "\r"
+            alert.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
+            guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
+        }
+        let waiting = MainActor.assumeIsolated {
+            Browsers.quitting = true
+            return Browser.cancelAllFileImports()
+        }
+        guard waiting else {
+            terminationPending = false
+            return .terminateNow
+        }
+        if !terminationPending {
+            terminationPending = true
+            Task { @MainActor in
+                // Five seconds at most: an import stuck on a slow disk
+                // doesn't keep mnml from quitting.
+                let until = Date().addingTimeInterval(5)
+                while Browser.hasActiveFileImports, Date() < until {
+                    try? await Task.sleep(for: .milliseconds(50))
+                }
+                sender.terminate(nil)
+            }
+        }
+        // Returning from AppKit's first terminate call lets MainActor finish
+        // the worker continuation and remove it from Browser's registry.
+        return .terminateCancel
+
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -85,6 +112,10 @@ final class Links: NSObject, NSApplicationDelegate {
     /// window is asked for here instead; started hidden, it stays hidden
     /// with the app until the app is shown.
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // What an import left in the temporary folder when Search stopped
+        // in the middle of it — a Safari export's passwords in the clear
+        // among it — goes (Security).
+        DispatchQueue.global(qos: .utility).async { ImportFile.sweepScratch() }
         let plain = notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? Bool ?? true
         guard !plain else { return }
         DispatchQueue.main.async {
@@ -94,6 +125,9 @@ final class Links: NSObject, NSApplicationDelegate {
     }
 
     @objc private func handle(getURL event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
+        // A test run takes nothing from outside it: an address from another
+        // app would bring a window forward. The bench hands links in itself.
+        guard !Store.testing else { return }
         guard let text = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
               let url = URL(string: text), url.scheme?.lowercased().hasPrefix("http") == true
         else { return }
@@ -105,6 +139,7 @@ final class Links: NSObject, NSApplicationDelegate {
     /// once Search is the Mac's browser (it says it can open them, see
     /// build.sh), which this used to drop without a word.
     func application(_ application: NSApplication, open urls: [URL]) {
+        guard !Store.testing else { return }
         for url in urls where url.isFileURL || url.scheme?.lowercased().hasPrefix("http") == true {
             Links.take(url)
         }
@@ -114,6 +149,10 @@ final class Links: NSObject, NSApplicationDelegate {
     /// rather than doing nothing, which is what a hidden-title-bar SwiftUI
     /// window does by default.
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        // A test run started hidden stays so: another launch of the same app
+        // (`open -n` of a second probe) can reach it as a reopen, and nothing
+        // is brought back, made or brought forward for it.
+        guard !Store.testing else { return false }
         if !flag { Browsers.ensureWindow() }
         return true
     }
@@ -202,6 +241,8 @@ final class Links: NSObject, NSApplicationDelegate {
     /// macOS 14.
     @MainActor
     private static func comeForward() {
+        // Never a test run's: a probe started hidden stays off every screen.
+        guard !Store.testing else { return }
         guard #available(macOS 14, *) else {
             NSApp.activate(ignoringOtherApps: true)
             return

@@ -1,0 +1,26 @@
+Process:         mnml [18483]
+Path:            /Applications/mnml Test.app/Contents/MacOS/mnml
+Load Address:    0x104fb8000
+Identifier:      com.farchan.mnml.test
+Version:         1.0.4 (202609291118)
+Code Type:       ARM64
+Platform:        macOS
+Parent Process:  launchd [1]
+Target Type:     live task
+
+Date/Time:       2026-09-29 11:19:33.797 +0700
+Launch Time:     2026-09-29 11:18:30.150 +0700
+OS Version:      macOS 27.2 (26B5091g)
+Report Version:  7
+Analysis Tool:   /usr/bin/leaks
+
+Physical footprint:         107.5M
+Physical footprint (peak):  184.2M
+Idle exit:                  untracked
+----
+
+leaks Report Version: 4.0
+Process 18483: 250617 nodes malloced for 32798 KB
+Process 18483: 1 leak for 32 total leaked bytes.
+
+    1 (32 bytes) ROOT LEAK: <_NSLocalEventObserver 0x78a780bcc0> [32]

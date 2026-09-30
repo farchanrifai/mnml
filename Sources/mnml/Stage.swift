@@ -233,7 +233,7 @@ private struct HistoryList: View {
 
     @ViewBuilder
     private func icon(_ url: URL) -> some View {
-        if let host = url.host(), let image = Favicons.shared.cached(host) {
+        if let site = Favicons.site(url), let image = Favicons.shared.cached(site) {
             Image(nsImage: image).resizable().interpolation(.high)
         } else {
             Image(systemName: "globe")
@@ -375,6 +375,21 @@ final class StageView: NSView {
         guard here != told else { return }
         told = here
         wanted.renewGState()
+    }
+
+    /// A key the page didn't use, stopped here. WebKit gives such a key back
+    /// to the view's superclass, which walks it up from the page, and the
+    /// page's own view never sees it again: nothing in PageView is asked.
+    /// Nothing above a page wants a plain key either, since Search's own are
+    /// taken by the window's key monitor before the page sees them and the
+    /// menus take theirs as key equivalents, so it goes all the way up and
+    /// falls off the end of the responder chain, where macOS plays its
+    /// "can't do that" sound. A page that reads the arrows itself without
+    /// taking them from the page, as a game or a map does, beeped on every
+    /// press (#402); Safari keeps them quiet. The stage is the page's frame,
+    /// and the first thing of ours the key meets, so it stops here.
+    override func keyDown(with event: NSEvent) {
+        guard wanted != nil else { return super.keyDown(with: event) }
     }
 
     func show(_ page: NSView?) {

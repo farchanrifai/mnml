@@ -118,6 +118,7 @@ final class Bench {
     func start(for browser: Browser) {
         guard !running else { return }
         self.browser = browser
+        if Store.testing, !Store.testCopy { Bench.watchScreens() }
         // Nor App Nap, which a test run behind other windows falls into.
         if Store.testing, !Store.measuring, awake == nil {
             awake = ProcessInfo.processInfo.beginActivity(options: .userInitiated, reason: "Bench")
@@ -245,6 +246,10 @@ final class Bench {
         private func say(_ answer: [String: Any]) {
             guard !answered else { return }
             answered = true
+            var answer = answer
+            // The socket's queue is the main one.
+            let caught = MainActor.assumeIsolated { Bench.caught }
+            if !caught.isEmpty { answer["onScreen"] = caught }
             var out = (try? JSONSerialization.data(withJSONObject: answer)) ?? Data("{\"error\":\"unwritable answer\"}".utf8)
             out.append(0x0A)
             out.withUnsafeBytes { raw in
@@ -279,7 +284,8 @@ final class Bench {
             answered = true
             given(reply)
         }
-        let patience = (request["do"] as? String) == "wait" ? (request["seconds"] as? Double ?? 30) + 5 : 25
+        let patience = (request["do"] as? String) == "wait" ? (request["seconds"] as? Double ?? 30) + 5 :
+            (request["do"] as? String) == "import-file" ? (request["timeout"] as? Double ?? 120) : 25
         DispatchQueue.main.asyncAfter(deadline: .now() + patience) { answer(["error": "no answer within \(Int(patience)) s"]) }
         // --window N: the Nth window's browser, oldest first; the first
         // window's otherwise.
@@ -290,6 +296,17 @@ final class Bench {
             return
         }
         let verb = request["do"] as? String ?? ""
+
+        // With pages shown (`pages on`) the app is no longer hidden: whatever
+        // opens or brings back a window would put it on the screen. Refused
+        // until `pages off`; listing and closing windows stay.
+        if Bench.pagesShown {
+            let action = request["action"] as? String ?? "list"
+            if ["little", "towindow"].contains(verb) || (verb == "windows" && !["list", "close"].contains(action)) {
+                answer(["error": "pages are on: run `pages off` before opening or bringing back a window"])
+                return
+            }
+        }
 
         switch verb {
         case "tabs":
@@ -348,10 +365,13 @@ final class Bench {
             // Pin a tab, or unpin it with "off". Only on a SEARCH_PROBE run.
             guard Store.testing else { answer(["error": "pin only works on a --test run"]); return }
             guard let tab = find(request, in: browser) else { answer(missing(request)); return }
+            // "listed": pinned as a row, or an existing pin made a row
+            // (true) or a square (false).
             if request["off"] as? Bool == true { browser.unpin(tab) }
             else if request["home"] as? Bool == true { browser.goHome(tab) }
-            else { browser.pin(tab) }
-            answer(["pin": tab.pin ?? "", "pinned": browser.pinnedCount, "home": tab.home?.absoluteString ?? "",
+            else if let listed = request["listed"] as? Bool, tab.pin != nil { browser.setListed(tab, listed) }
+            else { browser.pin(tab, listed: request["listed"] as? Bool ?? false) }
+            answer(["pin": tab.pin ?? "", "listed": tab.listed, "pinned": browser.pinnedCount, "home": tab.home?.absoluteString ?? "",
                     "address": tab.address?.absoluteString ?? "", "editingLetter": browser.editingPin == tab.id])
 
         case "select":
@@ -528,6 +548,12 @@ final class Bench {
                 // probe's windows never become key on their own.
                 guard let n, Browsers.all.indices.contains(n) else { answer(["error": "no window \((n ?? -1) + 1)"]); return }
                 Browsers.becameKey(Browsers.all[n])
+                // Timing a background/covered window measures WebKit throttling.
+                // Only an explicitly requested measurement run may come forward.
+                if Store.measuring {
+                    NSApp.activate(ignoringOtherApps: true)
+                    Browsers.all[n].window?.makeKeyAndOrderFront(nil)
+                }
             case "link":
                 // A link from another app, the way macOS hands it over.
                 guard let text = request["url"] as? String, let url = URL(string: text) else { answer(["error": "link needs a url"]); return }
@@ -591,6 +617,9 @@ final class Bench {
             // page: which panels are up, whether something modal has the
             // app, and every window the app owns.
             var out: [String: Any] = [
+                "appActive": NSApp.isActive,
+                "windowKey": browser.window?.isKeyWindow ?? false,
+                "windowVisible": browser.window?.occlusionState.contains(.visible) ?? false,
                 "settings": browser.tuning,
                 "spaceAppearance": browser.spaceAppearanceOpen,
                 "finding": browser.finding,
@@ -678,6 +707,9 @@ final class Bench {
             case .denied: out["passkeyAccess"] = "denied"
             default: out["passkeyAccess"] = "notDetermined"
             }
+            out["dialogs"] = Dialogs.askedInTest
+            out["asking"] = browser.asking.map { "\($0.host) \($0.wants)" + ($0.once ? " once" : "") + ($0.keeps ? "" : " unkept") } ?? ""
+            out["locationAnswered"] = Browser.locationAnswered ?? ""
             out["passkeyAsks"] = Passkeys.asked
             out["handedOff"] = Browser.handedOff
             out["passkeyLast"] = Passkeys.last
@@ -911,6 +943,48 @@ final class Bench {
                 next(0)
             }
 
+        case "sitesearch":
+            // Search a site from the address field (SiteSearch.swift): what
+            // it offers and holds, Tab, ⌫ in an empty field, Esc, Return,
+            // and the sites it has learned. Only on a MNML_PROBE run.
+            guard Store.testing else { answer(["error": "sitesearch only works on a --test run"]); return }
+            func state(_ extra: [String: Any] = [:]) -> [String: Any] {
+                var out: [String: Any] = [
+                    "offer": browser.siteOffer?.name ?? "", "chip": browser.siteChip?.name ?? "",
+                    "typed": browser.typed, "offers": browser.offers.map { [$0.key, $0.url.absoluteString] },
+                    "editing": browser.editing, "learned": SiteSearch.learned.map { [$0.name, $0.host, $0.template] },
+                    "address": browser.active?.address?.absoluteString ?? "",
+                ]
+                out.merge(extra) { _, new in new }
+                return out
+            }
+            switch request["action"] as? String ?? "state" {
+            case "tab": answer(state(["took": browser.lockSiteOffer()]))
+            case "delete":
+                guard let field = Bench.addressField(in: (browser.window ?? Links.window)?.contentView),
+                      let editor = field.currentEditor() as? NSTextView else { answer(["error": "no field editor"]); return }
+                editor.doCommand(by: #selector(NSResponder.deleteBackward(_:)))
+                answer(state())
+            case "esc": browser.dismiss(); answer(state())
+            case "go":
+                browser.submit()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { answer(state(["pending": browser.active?.pending?.absoluteString ?? ""])) }
+            case "learn":
+                guard let page = (request["page"] as? String).flatMap(URL.init(string:)),
+                      let description = (request["description"] as? String).flatMap(URL.init(string:)) else {
+                    answer(["error": "sitesearch learn needs page and description"]); return
+                }
+                SiteSearch.learn(from: page, description: description)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { answer(state()) }
+            case "adopt":
+                // A learned site kept as learn keeps one, past the fetch: the
+                // name a description gives itself is never read.
+                SiteSearch.adopt(host: request["host"] as? String ?? "", template: request["template"] as? String ?? "")
+                answer(state())
+            case "forget": SiteSearch.forget(); answer(state())
+            default: answer(state())
+            }
+
         case "bookmark":
             // A bookmark picked from the button's list, through the same
             // call the list makes: how long until WebKit is loading it, and
@@ -934,6 +1008,31 @@ final class Bench {
                             "viewWasBuilt": built, "listStillOpen": browser.bookmarksOpen, "sameTab": browser.active?.id == tab.id])
                 }
             }
+
+        case "dropdown":
+            // The bookmark button's list, laid out off every screen, never in
+            // a popover: its height as it opens, the list's part of it, and
+            // how tall the tree is with every folder open.
+            let dropdown = BookmarksDropdown(browser: browser, bookmarks: browser.bookmarks)
+            let whole = NSHostingView(rootView: dropdown).fittingSize
+            let all = Set(Bookmarks.folders(browser.bookmarks.roots).map(\.node.id))
+            let outline = BookmarkOutline(bookmarks: browser.bookmarks, expanded: .constant(all), open: { _ in }, openInNewTab: { _ in })
+                .padding(6)
+                .frame(width: 280)
+            // As it opens, folders closed: what the list was once sized by.
+            let closed = BookmarkOutline(bookmarks: browser.bookmarks, expanded: .constant([]), open: { _ in }, openInNewTab: { _ in })
+                .padding(6)
+                .frame(width: 280)
+            // And as it opens now, with what opens with it.
+            let opening = BookmarksDropdown.opening(browser.bookmarks.roots)
+            let shown = BookmarkOutline(bookmarks: browser.bookmarks, expanded: .constant(opening), open: { _ in }, openInNewTab: { _ in })
+                .padding(6)
+                .frame(width: 280)
+            answer(["height": Double(whole.height), "width": Double(whole.width), "list": Double(dropdown.listHeight),
+                    "allOpen": Double(NSHostingView(rootView: outline).fittingSize.height),
+                    "closed": Double(NSHostingView(rootView: closed).fittingSize.height),
+                    "shown": Double(NSHostingView(rootView: shown).fittingSize.height),
+                    "opening": opening.count])
 
         case "import":
             // Another browser's passwords, bookmarks and history, brought in
@@ -963,8 +1062,8 @@ final class Bench {
             var out: [String: Any] = ["found": found.map(\.name), "profiles": source.profiles.map(\.id),
                                       "profile": profile ?? "all"]
             if what.contains("bookmarks") {
-                let (added, already) = browser.takeBookmarks(from: source, profile: profile, replacing: request["replace"] as? Bool == true)
-                out["bookmarks"] = ["added": added, "already": already, "total": browser.bookmarks.count,
+                let (added, already, kept) = browser.takeBookmarks(from: source, profile: profile, replacing: request["replace"] as? Bool == true)
+                out["bookmarks"] = ["added": added, "already": already, "kept": kept, "total": browser.bookmarks.count,
                                     "top": browser.bookmarks.roots.map(\.title)]
             }
             if what.contains("history") {
@@ -985,7 +1084,7 @@ final class Bench {
             }
             if what.contains("spaces") {
                 if let sidebar = source.arcSidebar(profile: profile) {
-                    let (spaces, pins, tabs) = browser.takeArc(sidebar)
+                    let (spaces, pins, tabs) = browser.takeArc(sidebar, from: source, profile: profile)
                     ImportRecords.note(source.name, spaces: spaces, pinned: pins + tabs)
                     out["arc"] = ["spaces": spaces, "pins": pins, "tabs": tabs,
                                   "names": browser.spaces.map(\.name), "usesSpaces": browser.prefs.usesSpaces]
@@ -1029,10 +1128,31 @@ final class Bench {
             // File… buttons make after their chooser. Only on a SEARCH_PROBE run.
             guard Store.testing else { answer(["error": "import-file only works on a --test run"]); return }
             guard let path = request["path"] as? String else { answer(["error": "import-file needs a path"]); return }
-            let took = browser.takeFile(URL(fileURLWithPath: path))
-            answer(["said": took.said, "bookmarks": took.bookmarks, "already": took.already, "places": took.places,
-                    "kept": took.kept, "skipped": took.skipped, "total": browser.bookmarks.count,
-                    "top": browser.bookmarks.roots.map(\.title), "saved": browser.saved.count])
+            Task { @MainActor in
+                let took = await browser.takeFile(URL(fileURLWithPath: path))
+                answer(["said": took.said, "bookmarks": took.bookmarks, "already": took.already, "places": took.places,
+                        "kept": took.kept, "skipped": took.skipped, "cancelled": took.cancelled,
+                        "total": browser.bookmarks.count, "top": browser.bookmarks.roots.map(\.title), "saved": browser.saved.count])
+            }
+
+        case "import-file-start":
+            guard Store.testing else { answer(["error": "import-file only works on a --test run"]); return }
+            guard let path = request["path"] as? String else { answer(["error": "import-file needs a path"]); return }
+            guard browser.fileImport == nil else { answer(["error": "import already running"]); return }
+            Task { @MainActor in _ = await browser.takeFile(URL(fileURLWithPath: path)) }
+            answer(["started": true])
+
+        case "import-file-status":
+            guard Store.testing else { answer(["error": "import-file only works on a --test run"]); return }
+            if let job = browser.fileImport {
+                answer(["running": true, "filename": job.filename, "message": job.message,
+                        "completed": job.completed, "total": job.total ?? -1, "cancelling": job.cancelling])
+            } else { answer(["running": false]) }
+
+        case "import-file-cancel":
+            guard Store.testing else { answer(["error": "import-file only works on a --test run"]); return }
+            browser.cancelFileImport()
+            answer(["cancelling": browser.fileImport?.cancelling ?? false])
 
         case "menu":
             // The Bookmarks menu as it is about to open: the menu bar
@@ -1058,6 +1178,7 @@ final class Bench {
             answer(["delegate": wrapped, "before": before, "after": menu.items.count, "ours": BookmarkMenu.shared.count, "fillMs": filled,
                     "titles": menu.items.prefix(8).map { $0.isSeparatorItem ? "—" : $0.title },
                     "firstFolder": folder?.items.prefix(4).map(\.title) ?? [],
+                    "firstFolderImages": folder?.items.prefix(4).map { $0.image != nil } ?? [],
                     "active": browser.active?.address?.absoluteString ?? ""])
 
         case "keyeq":
@@ -1093,6 +1214,111 @@ final class Bench {
                     }
                 }
             }
+
+        case "image-data":
+            // What Copy Image would put on the pasteboard, without putting it
+            // there: the picture at an address, read as the menu reads it.
+            guard Store.testing else { answer(["error": "image-data only works on a --test run"]); return }
+            guard let tab = (request["id"] as? String).flatMap({ id in browser.tabs.first { $0.id.uuidString.lowercased().hasPrefix(id) } }) ?? browser.active,
+                  let text = request["url"] as? String, let url = URL(string: text)
+            else { answer(["error": "image-data needs a url"]); return }
+            Task {
+                let data = await browser.imageData(at: url, in: tab)
+                let image = data.flatMap { NSImage(data: $0) }
+                answer(["bytes": data?.count ?? 0, "image": image.map { [Int($0.size.width), Int($0.size.height)] } ?? []])
+            }
+
+        case "notifications":
+            // What a test run would have posted, and every site's answer.
+            guard Store.testing else { answer(["error": "notifications only works on a --test run"]); return }
+            answer(["recorded": SiteNotifications.shared.recorded, "choices": SiteNotifications.choices,
+                    "asking": browser.asking.map { "\($0.host) \($0.wants)" } ?? ""])
+
+
+        case "switcher":
+            // The ⌃Tab switcher as it stands: up or not, the pick, and where
+            // the panel and each card are in the window (top-left points).
+            let sw = browser.tabSwitcher
+            if Store.testing {
+                switch request["action"] as? String {
+                case "start":
+                    if let id = browser.activeID {
+                        sw.step(eligible: browser.tabs.filter { !$0.bench }.map(\.id), current: id, backwards: false)
+                    }
+                case "click":
+                    if let point = request["point"] as? [Double], point.count == 2 {
+                        _ = browser.clickTabSwitcher(at: CGPoint(x: point[0], y: point[1]))
+                    }
+                default: break
+                }
+            }
+            func short(_ id: Tab.ID?) -> String {
+                guard let id, let tab = browser.tabs.first(where: { $0.id == id }) else { return "" }
+                return Bench.short(tab)
+            }
+            func box(_ r: CGRect) -> [Double] { [r.minX, r.minY, r.width, r.height].map { Double($0) } }
+            answer([
+                "visible": sw.visible, "selected": short(sw.selectedID),
+                "candidates": sw.candidates.map { short($0) },
+                "panel": box(sw.panelFrame),
+                "cards": Dictionary(sw.cardFrames.map { (short($0.key), box($0.value)) }, uniquingKeysWith: { a, _ in a }),
+                "active": short(browser.activeID),
+            ])
+
+        case "find":
+            // Find on Page as typed into its bar, then Next or Previous
+            // pressed, and what the bar says once the page has answered.
+            guard Store.testing else { answer(["error": "find only works on a --test run"]); return }
+            let start = Date()
+            browser.finding = true
+            browser.matchCase = request["case"] as? Bool ?? false
+            browser.wholeWords = request["words"] as? Bool ?? false
+            // The same words again would count as Next, as they do in the bar.
+            let text = request["text"] as? String ?? ""
+            if browser.needle != text { browser.needle = text }
+            for _ in 0..<(request["next"] as? Int ?? 0) { browser.look(forward: true) }
+            for _ in 0..<(request["back"] as? Int ?? 0) { browser.look(forward: false) }
+            func settled(_ tries: Int) {
+                let status = browser.findStatus
+                if (status != nil && !browser.findBusy) || tries > 200 {
+                    answer(["status": status ?? "", "ms": Int(Date().timeIntervalSince(start) * 1000)])
+                    return
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.025) { settled(tries + 1) }
+            }
+            settled(0)
+        case "visible":
+            // Refused: it lent the tab to a window of its own, off every
+            // screen, so that WebKit would count the page as seen. No bench
+            // verb makes a window for now, off screen or not, after windows
+            // reached a screen during test runs; what needs a page to be
+            // seen is checked on a release candidate instead.
+            answer(["error": "visible is switched off: it made a window, and no bench verb makes one for now — check this on a release candidate"])
+
+        case "answer":
+            // The card of a page asking for the camera, microphone or your
+            // location: once, always or no. Only on a MNML_PROBE run.
+            guard Store.testing else { answer(["error": "answer only works on a --test run"]); return }
+            switch request["with"] as? String {
+            case "once": browser.allowCaptureOnce()
+            case "always": browser.allowCapture()
+            case "no": browser.denyCapture()
+            default: answer(["error": "answer once|always|no"]); return
+            }
+            answer(["asking": browser.asking.map { "\($0.host) \($0.wants)" } ?? "", "locationAnswered": Browser.locationAnswered ?? ""])
+
+        case "accounts":
+            // The list under the sign-in box the caret is in — passkeys, then
+            // passwords — and, with "pick", a click on its row by number,
+            // counted from 0. Only on a MNML_PROBE run: it would sign in.
+            guard Store.testing else { answer(["error": "accounts only works on a --test run"]); return }
+            guard let list = browser.suggesting else { answer(["shown": false]); return }
+            let rows = list.passkeys.map { ["passkey": $0.name] } + list.logins.map { ["login": $0.user] }
+            if let pick = request["pick"] as? Int {
+                guard rows.indices.contains(pick) else { answer(["error": "no row \(pick)"]); return }
+                if pick < list.passkeys.count { browser.choose(list.passkeys[pick]) } else { browser.choose(list.logins[pick - list.passkeys.count]) }
+            }
+            answer(["shown": true, "rows": rows, "spot": [list.spot.minX, list.spot.minY, list.spot.width, list.spot.height]])
 
         case "fill":
             // What the window spends on the page scrolling: the page's report
@@ -1224,6 +1450,7 @@ final class Bench {
                 _ = room ?? makeRoom()
                 window.orderOut(nil)
                 for other in NSApp.windows where other !== room && onScreen(other) { other.orderOut(nil) }
+                Bench.pagesShown = true
                 NSApp.unhideWithoutActivation()
                 let showing = NSApp.windows.filter { $0.isVisible && onScreen($0) }
                 if !showing.isEmpty {
@@ -1234,6 +1461,7 @@ final class Bench {
                 answer(["pages": true])
             } else {
                 NSApp.hide(nil)
+                Bench.pagesShown = false
                 window.orderFront(nil)
                 answer(["pages": false])
             }
@@ -2056,6 +2284,9 @@ final class Bench {
             if let on = request["spaces"] as? Bool { browser.prefs.usesSpaces = on }
             if let on = request["hides"] as? Bool { browser.prefs.sideHides = on }
             if let on = request["folded"] as? Bool { browser.folded = on }
+            // The window's own full screen as the chrome sees it, without
+            // the window going there: a test run never takes the screen.
+            if let on = request["fullscreen"] as? Bool, Store.testing { browser.fullScreen = on }
             if let on = request["peek"] as? Bool { browser.peeking = on }
             // A peek at a link (Peek.swift): its two buttons.
             if let what = request["peeklink"] as? String {
@@ -2280,6 +2511,62 @@ final class Bench {
     // MARK: - the room off screen
 
     private var room: NSWindow?
+
+    // MARK: - nothing on a screen
+
+    /// Set once `pages on` has shown a hidden probe again, so WebKit paints
+    /// its pages: from then on the app is no longer hidden, and a window
+    /// ordered in would come onto the screen.
+    static var pagesShown = false
+    /// Windows a test run let onto a screen. Every answer names them from
+    /// then on, and ./bench fails: a test must never show a window there.
+    private(set) static var caught: [String] = []
+    private static var watching: [NSObjectProtocol] = []
+
+    static func onScreen(_ window: NSWindow) -> Bool {
+        NSScreen.screens.contains { $0.frame.intersects(window.frame) }
+    }
+
+    /// A window about to be ordered in during a test run with pages shown
+    /// (Windows.open, Windows.show): the app hidden again first, so it
+    /// waits unseen. Moving it off the screen isn't enough — AppKit pulls a
+    /// titled window back onto one as it comes in. `pages on` again puts
+    /// every window away before it shows the app.
+    static func keepOff(_ window: NSWindow) {
+        guard Store.testing, pagesShown else { return }
+        NSApp.hide(nil)
+        pagesShown = false
+    }
+
+    /// Any other window that comes onto a screen in a test run — a sheet, a
+    /// panel, one made by a path nobody thought of: taken off at once and
+    /// named in every answer.
+    static func watchScreens() {
+        guard watching.isEmpty else { return }
+        // The app itself shown or brought forward by anything but `pages on`
+        // (which never activates it): hidden again at once.
+        for name in [NSApplication.didBecomeActiveNotification, NSApplication.didUnhideNotification] {
+            watching.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { note in
+                MainActor.assumeIsolated {
+                    if note.name == NSApplication.didUnhideNotification, pagesShown { return }
+                    caught.append("the app \(note.name == NSApplication.didUnhideNotification ? "shown" : "brought forward")")
+                    NSApp.hide(nil)
+                    pagesShown = false
+                }
+            })
+        }
+        watching.append(NotificationCenter.default.addObserver(
+            forName: NSWindow.didChangeOcclusionStateNotification, object: nil, queue: .main
+        ) { note in
+            MainActor.assumeIsolated {
+                guard let window = note.object as? NSWindow, window.isVisible,
+                      window.occlusionState.contains(.visible), onScreen(window) else { return }
+                caught.append("\(type(of: window)) “\(window.title)” at \(NSStringFromRect(window.frame))")
+                NSApp.hide(nil)
+                pagesShown = false
+            }
+        })
+    }
     /// Where `film float` lends the tab's stage, off every screen.
     private var hall: NSWindow?
 

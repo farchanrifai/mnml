@@ -85,16 +85,22 @@ enum ExtensionNative {
         // have left its host behind.
         stopOrphans()
         let pipe = HostPipe(program: program, origin: "chrome-extension://\(extensionID)/")
-        try pipe.start()
-        pipe.onMessage = { message in
-            DispatchQueue.main.async { port.sendMessage(message, completionHandler: nil) }
-        }
-        pipe.onExit = {
-            DispatchQueue.main.async { if !port.isDisconnected { port.disconnect() } }
-        }
         var beating: Timer?
-        port.messageHandler = { message, _ in
-            guard let message else { return }
+        pipe.onMessage = { [weak port] message in
+            DispatchQueue.main.async { if let port, !port.isDisconnected { port.sendMessage(message, completionHandler: nil) } }
+        }
+        pipe.onExit = { [weak port] in
+            DispatchQueue.main.async {
+                beating?.invalidate()
+                beating = nil
+                guard let port else { return }
+                port.messageHandler = nil
+                port.disconnectHandler = nil
+                if !port.isDisconnected { port.disconnect() }
+            }
+        }
+        port.messageHandler = { [weak pipe, weak port] message, _ in
+            guard let message, let pipe, let port, !port.isDisconnected else { return }
             // A worker's shim asking whether the port has arrived (see the
             // shim, after its WebSocket): answered here, never passed on.
             if let asked = message as? [String: Any], let word = asked["__searchNative"] {
@@ -110,8 +116,8 @@ enum ExtensionNative {
                 // shim, has the worker answer on it, which is what WebKit
                 // counts.
                 if beating == nil {
-                    beating = Timer.scheduledTimer(withTimeInterval: 25, repeats: true) { timer in
-                        guard !port.isDisconnected else { timer.invalidate(); return }
+                    beating = Timer.scheduledTimer(withTimeInterval: 25, repeats: true) { [weak port] timer in
+                        guard let port, !port.isDisconnected else { timer.invalidate(); return }
                         port.sendMessage(["__searchNative": "alive"], completionHandler: nil)
                     }
                 }
@@ -119,8 +125,9 @@ enum ExtensionNative {
             }
             try? pipe.write(message)
         }
-        port.disconnectHandler = { _ in beating?.invalidate(); pipe.stop() }
+        port.disconnectHandler = { [weak pipe] _ in pipe?.stop() }
         Live.keep(pipe, for: port)
+        do { try pipe.start() } catch { pipe.stop(); throw error }
     }
 
     /// WebKit doesn't always say when a port goes: an extension unloaded —
@@ -139,11 +146,12 @@ enum ExtensionNative {
     private enum Live {
         nonisolated(unsafe) static var pipes: [ObjectIdentifier: (pipe: HostPipe, port: WKWebExtension.MessagePort)] = [:]
         static func keep(_ pipe: HostPipe, for port: WKWebExtension.MessagePort) {
-            pipes[ObjectIdentifier(pipe)] = (pipe, port)
+            let id = ObjectIdentifier(pipe)
+            pipes[id] = (pipe, port)
             let previous = pipe.onExit
             pipe.onExit = {
                 previous?()
-                DispatchQueue.main.async { pipes[ObjectIdentifier(pipe)] = nil }
+                DispatchQueue.main.async { pipes[id] = nil }
             }
         }
     }
@@ -163,6 +171,8 @@ final class HostPipe: @unchecked Sendable {
     var onMessage: ((Any) -> Void)?
     var onExit: (() -> Void)?
     private var waiters: [CheckedContinuation<Any?, Error>] = []
+    private var finished = false
+    private var stopping = false
 
     init(program: URL, origin: String) {
         self.program = program
@@ -216,7 +226,9 @@ final class HostPipe: @unchecked Sendable {
         reaper.setEventHandler { [weak self, pid] in
             var status: Int32 = 0
             waitpid(pid, &status, 0)
-            self?.reaper?.cancel()
+            // Reap even if the one-shot caller has already released its pipe.
+            reaper.setEventHandler(handler: nil)
+            reaper.cancel()
             self?.finish()
         }
         reaper.resume()
@@ -224,8 +236,16 @@ final class HostPipe: @unchecked Sendable {
     }
 
     func stop() {
+        lock.lock()
+        guard !stopping else { lock.unlock(); return }
+        stopping = true
+        let child = pid > 0 && reaper?.isCancelled == false ? pid : 0
+        lock.unlock()
         output.fileHandleForReading.readabilityHandler = nil
-        if pid > 0, reaper?.isCancelled == false { kill(pid, SIGTERM) }
+        if child > 0 { kill(child, SIGTERM) }
+        try? input.fileHandleForWriting.close()
+        try? output.fileHandleForReading.close()
+        finish()
     }
 
     /// Chrome's call for the same thing: the host, not the browser, is what
@@ -247,6 +267,10 @@ final class HostPipe: @unchecked Sendable {
     func readOne() async throws -> Any? {
         try await withCheckedThrowingContinuation { continuation in
             lock.lock()
+            guard !finished else {
+                lock.unlock()
+                return continuation.resume(throwing: ExtensionNative.Refused(why: "Native host has exited."))
+            }
             waiters.append(continuation)
             lock.unlock()
         }
@@ -254,6 +278,7 @@ final class HostPipe: @unchecked Sendable {
 
     private func take(_ chunk: Data) {
         lock.lock()
+        guard !finished else { lock.unlock(); return }
         buffer.append(chunk)
         var messages: [Any] = []
         while buffer.count >= 4 {
@@ -270,18 +295,24 @@ final class HostPipe: @unchecked Sendable {
             handed.append((waiters.removeFirst(), message))
         }
         let rest = messages.dropFirst(handed.count)
+        let deliver = onMessage
         lock.unlock()
         handed.forEach { $0.0.resume(returning: $0.1) }
-        rest.forEach { onMessage?($0) }
+        rest.forEach { deliver?($0) }
     }
 
     private func finish() {
         lock.lock()
+        guard !finished else { lock.unlock(); return }
+        finished = true
         let pending = waiters
+        let exited = onExit
         waiters = []
+        buffer = Data()
+        onMessage = nil
+        onExit = nil
         lock.unlock()
         pending.forEach { $0.resume(throwing: ExtensionNative.Refused(why: "Native host has exited.")) }
-        onExit?()
-        onExit = nil
+        exited?()
     }
 }

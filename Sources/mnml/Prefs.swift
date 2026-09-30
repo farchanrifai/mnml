@@ -207,6 +207,16 @@ final class Preferences: ObservableObject {
     /// of links from another app — waits to load until it is gone to, as a
     /// tab brought back from the last session does (see Browser.open).
     /// Off unless asked for.
+    /// Settings › Privacy › Let sites ask to send notifications. On: a site
+    /// asks on a card, and only what you allow ever reaches the Mac.
+    @Published var siteNotifications: Bool {
+        didSet { store.set(siteNotifications, forKey: "notifications.ask") }
+    }
+    @Published var startsFresh: Bool { didSet { store.set(startsFresh, forKey: Preferences.freshKey) } }
+    nonisolated static let freshKey = "start.fresh"
+    @Published var searchesSites: Bool { didSet { store.set(searchesSites, forKey: "search.sites") } }
+    @Published var listsPins: Bool { didSet { store.set(listsPins, forKey: "pins.list") } }
+    var showsPinRows: Bool { listsPins && sidebar }
     @Published var lazyTabs: Bool {
         didSet { store.set(lazyTabs, forKey: "tabs.lazy") }
     }
@@ -465,6 +475,10 @@ final class Preferences: ObservableObject {
         chromeTintDark = store.string(forKey: "tabs.tint.dark") ?? Tint.same
         chromeTintStrength = store.object(forKey: "tabs.tint.strength") as? Double ?? Tint.strength
         lazyTabs = store.bool(forKey: "tabs.lazy")
+        startsFresh = store.bool(forKey: Preferences.freshKey)
+        searchesSites = store.bool(forKey: "search.sites")
+        listsPins = store.bool(forKey: "pins.list")
+        siteNotifications = store.object(forKey: "notifications.ask") as? Bool ?? true
         shielded = store.object(forKey: "shield") as? Bool ?? true
         let keeps = store.bool(forKey: "sites.keep")
         keepsSignIns = keeps

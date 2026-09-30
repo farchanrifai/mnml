@@ -1,3 +1,4 @@
+import ImageIO
 import SwiftUI
 import WebKit
 
@@ -42,7 +43,17 @@ final class Favicons {
         NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
 
-    /// The name an icon is kept under: the host, with a suffix for the dark
+    /// Which site an address is, for its icon: its host, and its port when
+    /// it names one — localhost:3000 and localhost:4321 are two projects,
+    /// not one (#413). The port a scheme has anyway doesn't count.
+    nonisolated static func site(_ url: URL) -> String? {
+        guard let host = url.host()?.lowercased(), !host.isEmpty else { return nil }
+        let scheme = url.scheme?.lowercased()
+        guard let port = url.port, !(scheme == "http" && port == 80), !(scheme == "https" && port == 443) else { return host }
+        return "\(host):\(port)"
+    }
+
+    /// The name an icon is kept under: the site, with a suffix for the dark
     /// variant a site offered. Sites without one keep one file for both.
     private static func key(_ host: String, dark: Bool) -> String { dark ? host + "@dark" : host }
 
@@ -93,8 +104,8 @@ final class Favicons {
     func relook(_ tabs: [Tab]) {
         missing = []
         for tab in tabs {
-            guard let host = tab.address?.host()?.lowercased() else { continue }
-            tab.icon = cached(host)
+            guard let site = tab.address.flatMap(Favicons.site) else { continue }
+            tab.icon = cached(site)
             fetch(for: tab)
         }
     }
@@ -109,40 +120,33 @@ final class Favicons {
     }
 
     /// Asks the page which icon it wants to be known by, fetches it, and keeps
-    /// it. Nothing happens if a fresh one is already on disk.
-    func fetch(for tab: Tab) {
-        guard let url = tab.address, let host = url.host()?.lowercased(),
+    /// it. Nothing happens if a fresh one is already on disk — unless the
+    /// page has just changed its icon (`changed`), which is fetched again.
+    ///
+    /// What the page shows is kept under the look it was asked in: a page
+    /// follows Search's light or dark look, and a site that swaps its icon
+    /// with it from script (GitHub), rather than declaring both, would
+    /// otherwise have one look's icon overwrite the other's (#423).
+    func fetch(for tab: Tab, changed: Bool = false) {
+        guard let url = tab.address, let host = Favicons.site(url),
               url.scheme?.hasPrefix("http") == true
         else { return }
 
         let dark = Favicons.dark
-        // Fresh and right for this look: nothing to do. In the dark, a fresh
-        // light icon is not enough on its own — the site may offer a dark
-        // one that has never been asked for — so the page is asked.
-        if Favicons.fresh(Favicons.key(host, dark: dark)), let known = known(Favicons.key(host, dark: dark)) {
-            if tab.address?.host()?.lowercased() == host { tab.icon = known }
+        let key = Favicons.key(host, dark: dark)
+        // Fresh and right for this look: nothing to do.
+        if !changed, Favicons.fresh(key), let known = known(key) {
+            if tab.address.flatMap(Favicons.site) == host { tab.icon = known }
             return
         }
-        guard !busy.contains(host), !missing.contains(host) else { return }
+        guard !busy.contains(host), changed || !missing.contains(host) else { return }
         busy.insert(host)
 
         tab.web.evaluateJavaScript(Favicons.probe) { [weak self, weak tab] answer, _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 let declared = (answer as? [[String: String]]) ?? []
-                let offersDark = declared.contains { Favicons.media($0["media"]) == .dark }
-                let wantDark = dark && offersDark
-                let key = Favicons.key(host, dark: wantDark)
-                // No dark variant here after all, and the ordinary one is
-                // fresh: it is the one to wear.
-                if !wantDark, Favicons.fresh(key), let known = self.known(key) {
-                    if tab?.address?.host()?.lowercased() == host {
-                        tab?.icon = known
-                    }
-                    self.busy.remove(host)
-                    return
-                }
-                let candidates = Favicons.rank(declared, page: url, dark: wantDark)
+                let candidates = Favicons.rank(declared, page: url, dark: dark)
                 let shy = tab?.shy ?? false
                 Task { await self.download(candidates, host: host, key: key, shy: shy) }
             }
@@ -175,6 +179,7 @@ final class Favicons {
             else { continue }
             guard let image = await Favicons.square(data) else { continue }
             memory[key] = image
+            absent.remove(key)
             if !shy { Favicons.keep(image, for: key) }
             arrived?(host, image)
             return
@@ -184,13 +189,43 @@ final class Favicons {
         missing.insert(host)
     }
 
+    /// The kinds of picture a site's icon may be. Anything else a site sends
+    /// — a PDF, a TIFF, an icns, PostScript — isn't opened at all: every
+    /// kind is one more decoder a site can reach in this process.
+    private static let kinds: Set<String> = [
+        "public.png", "com.microsoft.ico", "public.jpeg", "com.compuserve.gif", "org.webmproject.webp", "com.microsoft.bmp",
+    ]
+
     /// Decoded and drawn into a square off the main thread — an .ico can hold
-    /// a dozen sizes and take a moment to unpack.
+    /// a dozen sizes and take a moment to unpack. Only the kinds above, no
+    /// larger than 4096 pixels a side, and decoded straight to the small size
+    /// a tab needs.
     private static func square(_ data: Data) async -> NSImage? {
         await Task.detached(priority: .utility) { () -> NSImage? in
-            guard let image = NSImage(data: data), image.isValid,
-                  image.size.width > 0, image.size.height > 0
+            guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
+                  let kind = CGImageSourceGetType(source) as String?, Favicons.kinds.contains(kind)
             else { return nil }
+            // The frame nearest 64 pixels from above, for an .ico of many.
+            var best = 0, bestSide = 0
+            for index in 0..<min(CGImageSourceGetCount(source), 32) {
+                let properties = CGImageSourceCopyPropertiesAtIndex(source, index, nil) as? [CFString: Any]
+                let w = properties?[kCGImagePropertyPixelWidth] as? Int ?? 0
+                let h = properties?[kCGImagePropertyPixelHeight] as? Int ?? 0
+                guard w > 0, h > 0, w <= 4096, h <= 4096 else { continue }
+                let side = max(w, h)
+                if bestSide == 0 || (side >= 64 && (bestSide < 64 || side < bestSide)) || (bestSide < 64 && side > bestSide) {
+                    best = index
+                    bestSide = side
+                }
+            }
+            guard bestSide > 0,
+                  let decoded = CGImageSourceCreateThumbnailAtIndex(source, best, [
+                      kCGImageSourceCreateThumbnailFromImageAlways: true,
+                      kCGImageSourceThumbnailMaxPixelSize: 128,
+                      kCGImageSourceCreateThumbnailWithTransform: true,
+                  ] as CFDictionary)
+            else { return nil }
+            let image = NSImage(cgImage: decoded, size: NSSize(width: decoded.width, height: decoded.height))
             let side: CGFloat = 64
             let out = NSImage(size: NSSize(width: side, height: side))
             out.lockFocus()
@@ -277,7 +312,8 @@ final class Favicons {
             scored.append((url, score))
         }
         var list = scored.sorted { $0.1 > $1.1 }.map(\.0)
-        if let host = page.host(), let root = URL(string: "\(page.scheme ?? "https")://\(host)/favicon.ico") {
+        // The same site's root, its port included.
+        if page.host() != nil, let root = URL(string: "/favicon.ico", relativeTo: page)?.absoluteURL {
             list.append(root)
         }
         // The same address twice is a wasted request.
@@ -339,4 +375,46 @@ struct Mark: View {
         .transition(.opacity)
         .animation(Motion.quick, value: icon == nil)
     }
+}
+
+/// A page that changes its icon after it has loaded — GitHub swaps it with
+/// its theme, a chat puts a count on it — says so, and the icon is asked for
+/// again (see Favicons.fetch). Changes that come close together are taken as
+/// one, at most every two seconds; the top page only.
+final class IconRelay: NSObject, WKScriptMessageHandler {
+    static let name = "officeIcon"
+
+    weak var tab: Tab?
+
+    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.frameInfo.isMainFrame else { return }
+        MainActor.assumeIsolated {
+            guard let tab, tab.built === message.webView else { return }
+            Favicons.shared.fetch(for: tab, changed: true)
+        }
+    }
+
+    static let script = """
+    (function () {
+      if (window.top !== window || !document.head) return;
+      var timer = null, last = 0;
+      var icon = function (n) {
+        return n && n.nodeType === 1 && n.tagName === 'LINK' && /icon/i.test(n.getAttribute('rel') || '');
+      };
+      var touched = function (r) {
+        if (icon(r.target)) return true;
+        for (var i = 0; i < r.addedNodes.length; i++) if (icon(r.addedNodes[i])) return true;
+        for (var j = 0; j < r.removedNodes.length; j++) if (icon(r.removedNodes[j])) return true;
+        return false;
+      };
+      new MutationObserver(function (records) {
+        if (!records.some(touched)) return;
+        clearTimeout(timer);
+        timer = setTimeout(function () {
+          last = Date.now();
+          try { webkit.messageHandlers.officeIcon.postMessage(1); } catch (e) {}
+        }, Math.max(500, 2000 - (Date.now() - last)));
+      }).observe(document.head, { childList: true, subtree: true, attributes: true, attributeFilter: ['href', 'rel', 'media'] });
+    })();
+    """
 }

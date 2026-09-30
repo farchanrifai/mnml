@@ -1,0 +1,879 @@
+{
+  "pid": 19925,
+  "initialTabs": 9,
+  "memoryProfile": "balanced (default key absent)",
+  "levels": [
+    {
+      "addedTabs": 10,
+      "mix": {
+        "sheets": 6,
+        "drive": 2,
+        "page": 2
+      },
+      "foregroundBefore": {
+        "appActive": true,
+        "windowKey": true,
+        "windowVisible": true
+      },
+      "memory": {
+        "phase": "level-10",
+        "appPhysicalFootprint": "172.3M",
+        "processes": [
+          {
+            "pid": 19925,
+            "rssMiB": 158.40625,
+            "cpuPercent": 2.3
+          },
+          {
+            "pid": 19931,
+            "rssMiB": 45.203125,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20575,
+            "rssMiB": 416.359375,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20577,
+            "rssMiB": 536.46875,
+            "cpuPercent": 0.2
+          },
+          {
+            "pid": 20579,
+            "rssMiB": 550.359375,
+            "cpuPercent": 0.3
+          },
+          {
+            "pid": 20583,
+            "rssMiB": 601.046875,
+            "cpuPercent": 0.2
+          },
+          {
+            "pid": 20585,
+            "rssMiB": 162.5,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20587,
+            "rssMiB": 552.734375,
+            "cpuPercent": 0.1
+          },
+          {
+            "pid": 20589,
+            "rssMiB": 573.65625,
+            "cpuPercent": 0.1
+          },
+          {
+            "pid": 20591,
+            "rssMiB": 589.0625,
+            "cpuPercent": 0.5
+          },
+          {
+            "pid": 20598,
+            "rssMiB": 581.28125,
+            "cpuPercent": 0.8
+          },
+          {
+            "pid": 20609,
+            "rssMiB": 198.609375,
+            "cpuPercent": 0.0
+          }
+        ],
+        "appAndKnownWebContentRSSMiB": 4965.6875,
+        "uniqueWebContentProcesses": 11,
+        "tabCount": 19,
+        "asleep": 8,
+        "hollow": 8
+      },
+      "switches": {
+        "count": 20,
+        "medianMs": 1.0819375020219013,
+        "p95Ms": 4.524667005171068,
+        "maxMs": 6.673124997178093,
+        "over250ms": 0
+      },
+      "askPageWidths": [
+        1315,
+        1606,
+        1313,
+        1605,
+        1314,
+        1605,
+        1313,
+        1605
+      ],
+      "typing": {
+        "count": 21,
+        "medianMs": 12.364291673293337,
+        "p95Ms": 19.527958327671513,
+        "maxMs": 31.820166666875593,
+        "over250ms": 0
+      },
+      "foregroundAfter": {
+        "appActive": true,
+        "windowKey": true,
+        "windowVisible": true
+      }
+    },
+    {
+      "addedTabs": 20,
+      "mix": {
+        "sheets": 12,
+        "drive": 4,
+        "page": 4
+      },
+      "foregroundBefore": {
+        "appActive": true,
+        "windowKey": true,
+        "windowVisible": true
+      },
+      "memory": {
+        "phase": "level-20",
+        "appPhysicalFootprint": "194.7M",
+        "processes": [
+          {
+            "pid": 19925,
+            "rssMiB": 161.5,
+            "cpuPercent": 1.7
+          },
+          {
+            "pid": 19931,
+            "rssMiB": 40.578125,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20575,
+            "rssMiB": 113.84375,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20577,
+            "rssMiB": 196.046875,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20579,
+            "rssMiB": 128.609375,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20583,
+            "rssMiB": 94.921875,
+            "cpuPercent": 0.5
+          },
+          {
+            "pid": 20585,
+            "rssMiB": 40.09375,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20587,
+            "rssMiB": 109.984375,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20589,
+            "rssMiB": 99.734375,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20591,
+            "rssMiB": 111.75,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20598,
+            "rssMiB": 92.125,
+            "cpuPercent": 0.5
+          },
+          {
+            "pid": 20609,
+            "rssMiB": 39.984375,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20646,
+            "rssMiB": 301.71875,
+            "cpuPercent": 0.2
+          },
+          {
+            "pid": 20649,
+            "rssMiB": 135.8125,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20654,
+            "rssMiB": 248.015625,
+            "cpuPercent": 0.2
+          },
+          {
+            "pid": 20658,
+            "rssMiB": 42.9375,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20659,
+            "rssMiB": 229.078125,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20661,
+            "rssMiB": 283.875,
+            "cpuPercent": 0.1
+          },
+          {
+            "pid": 20663,
+            "rssMiB": 498.703125,
+            "cpuPercent": 0.0
+          },
+          {
+            "pid": 20666,
+            "rssMiB": 634.921875,
+            "cpuPercent": 0.1
+          },
+          {
+            "pid": 20670,
+            "rssMiB": 648.375,
+            "cpuPercent": 0.1
+          },
+          {
+            "pid": 20676,
+            "rssMiB": 199.28125,
+            "cpuPercent": 0.1
+          }
+        ],
+        "appAndKnownWebContentRSSMiB": 4451.890625,
+        "uniqueWebContentProcesses": 21,
+        "tabCount": 29,
+        "asleep": 8,
+        "hollow": 8
+      },
+      "switches": {
+        "count": 20,
+        "medianMs": 1.2877705012215301,
+        "p95Ms": 5.228666996117681,
+        "maxMs": 6.9988339964766055,
+        "over250ms": 0
+      },
+      "askPageWidths": [
+        1314,
+        1606,
+        1314,
+        1605,
+        1314,
+        1605,
+        1314,
+        1605
+      ],
+      "typing": {
+        "count": 21,
+        "medianMs": 9.918583338730969,
+        "p95Ms": 20.20345833443571,
+        "maxMs": 25.714833333040588,
+        "over250ms": 0
+      },
+      "foregroundAfter": {
+        "appActive": true,
+        "windowKey": true,
+        "windowVisible": true
+      }
+    }
+  ],
+  "loadChecks": [
+    {
+      "n": 1,
+      "kind": "sheets",
+      "seconds": 0.8690213329973631,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 2,
+      "kind": "sheets",
+      "seconds": 0.9095226670033298,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 3,
+      "kind": "sheets",
+      "seconds": 0.8887945000024047,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 4,
+      "kind": "drive",
+      "seconds": 2.7814265839988366,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 5,
+      "kind": "page",
+      "seconds": 0.6484244169987505,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 6,
+      "kind": "sheets",
+      "seconds": 1.108240041998215,
+      "state": {
+        "ready": "interactive",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 7,
+      "kind": "sheets",
+      "seconds": 1.2295457080035703,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 8,
+      "kind": "sheets",
+      "seconds": 0.6439428750018124,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 9,
+      "kind": "drive",
+      "seconds": 2.473369375002221,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 10,
+      "kind": "page",
+      "seconds": 0.6817095830047037,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 11,
+      "kind": "sheets",
+      "seconds": 0.631200625008205,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 12,
+      "kind": "sheets",
+      "seconds": 0.9007397499954095,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 13,
+      "kind": "sheets",
+      "seconds": 0.6664084999938495,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 14,
+      "kind": "drive",
+      "seconds": 0.6238538329926087,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 15,
+      "kind": "page",
+      "seconds": 0.6326240409980528,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 16,
+      "kind": "sheets",
+      "seconds": 1.0782017080055084,
+      "state": {
+        "ready": "interactive",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 17,
+      "kind": "sheets",
+      "seconds": 1.2752570409938926,
+      "state": {
+        "ready": "interactive",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 18,
+      "kind": "sheets",
+      "seconds": 0.6562375419889577,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 19,
+      "kind": "drive",
+      "seconds": 4.056207208006526,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 20,
+      "kind": "page",
+      "seconds": 0.6447201249975478,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 21,
+      "kind": "sheets",
+      "seconds": 1.1956880829966394,
+      "state": {
+        "ready": "interactive",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 1,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 22,
+      "kind": "sheets",
+      "seconds": 0.6520938750036294,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 23,
+      "kind": "sheets",
+      "seconds": 0.6565078749990789,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 24,
+      "kind": "drive",
+      "seconds": 2.9507153750018915,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 25,
+      "kind": "page",
+      "seconds": 0.6379320000123698,
+      "state": {
+        "ready": "complete",
+        "grid": false,
+        "toolbar": false,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 26,
+      "kind": "sheets",
+      "seconds": 0.6415562910115113,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 27,
+      "kind": "sheets",
+      "seconds": 0.6650171670044074,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    },
+    {
+      "n": 28,
+      "kind": "sheets",
+      "seconds": 0.67532895799377,
+      "state": {
+        "ready": "loading",
+        "grid": true,
+        "toolbar": true,
+        "canvas": 0,
+        "login": false,
+        "hidden": false,
+        "loaded": true
+      },
+      "normalTab": true
+    }
+  ],
+  "baseline": {
+    "phase": "baseline",
+    "appPhysicalFootprint": "175.8M",
+    "processes": [
+      {
+        "pid": 19925,
+        "rssMiB": 215.875,
+        "cpuPercent": 17.0
+      },
+      {
+        "pid": 19931,
+        "rssMiB": 151.796875,
+        "cpuPercent": 13.7
+      }
+    ],
+    "appAndKnownWebContentRSSMiB": 367.671875,
+    "uniqueWebContentProcesses": 1,
+    "tabCount": 9,
+    "asleep": 8,
+    "hollow": 8
+  },
+  "error": "('eval', {'error': 'JavaScript execution returned a result of an unsupported type'})",
+  "finalMemory": {
+    "phase": "final",
+    "appPhysicalFootprint": "159.4M",
+    "processes": [
+      {
+        "pid": 19925,
+        "rssMiB": 230.25,
+        "cpuPercent": 1.6
+      },
+      {
+        "pid": 19931,
+        "rssMiB": 144.1875,
+        "cpuPercent": 1.5
+      }
+    ],
+    "appAndKnownWebContentRSSMiB": 374.4375,
+    "uniqueWebContentProcesses": 1,
+    "tabCount": 9,
+    "asleep": 8,
+    "hollow": 8
+  },
+  "focusRecoveries": [
+    {
+      "phase": "setup",
+      "time": 1790657652.852627
+    },
+    {
+      "phase": "instrumentation",
+      "time": 1790657653.620529
+    },
+    {
+      "phase": "instrumentation",
+      "time": 1790657655.068785
+    },
+    {
+      "phase": "settle",
+      "time": 1790657764.059841
+    },
+    {
+      "phase": "settle",
+      "time": 1790657764.693098
+    }
+  ],
+  "latencies": {
+    "load-10": {
+      "count": 103,
+      "medianMs": 8.76316700305324,
+      "p95Ms": 14.11191700026393,
+      "maxMs": 29.895875006332062,
+      "over250ms": 0
+    },
+    "idle-10": {
+      "count": 83,
+      "medianMs": 18.381792004220188,
+      "p95Ms": 21.50683299987577,
+      "maxMs": 27.972208001301624,
+      "over250ms": 0
+    },
+    "switch-10": {
+      "count": 32,
+      "medianMs": 10.909833501500543,
+      "p95Ms": 27.387957990868017,
+      "maxMs": 38.5788749990752,
+      "over250ms": 0
+    },
+    "ask-10": {
+      "count": 35,
+      "medianMs": 13.63487500930205,
+      "p95Ms": 26.10708300198894,
+      "maxMs": 38.306041999021545,
+      "over250ms": 0
+    },
+    "sidebar-10": {
+      "count": 16,
+      "medianMs": 14.664042006188538,
+      "p95Ms": 19.800499998382293,
+      "maxMs": 22.40329199412372,
+      "over250ms": 0
+    },
+    "typing-10": {
+      "count": 16,
+      "medianMs": 14.975207996030804,
+      "p95Ms": 22.78083300916478,
+      "maxMs": 25.369958995725028,
+      "over250ms": 0
+    },
+    "load-20": {
+      "count": 98,
+      "medianMs": 9.577833501680288,
+      "p95Ms": 21.36683400021866,
+      "maxMs": 44.35012499743607,
+      "over250ms": 0
+    },
+    "idle-20": {
+      "count": 80,
+      "medianMs": 20.020812502480112,
+      "p95Ms": 30.741916998522356,
+      "maxMs": 50.53758299618494,
+      "over250ms": 0
+    },
+    "switch-20": {
+      "count": 30,
+      "medianMs": 10.527208498388063,
+      "p95Ms": 58.12204199901316,
+      "maxMs": 119.43824999616481,
+      "over250ms": 0
+    },
+    "ask-20": {
+      "count": 35,
+      "medianMs": 14.693499993882142,
+      "p95Ms": 23.382416999083944,
+      "maxMs": 28.456625004764646,
+      "over250ms": 0
+    },
+    "sidebar-20": {
+      "count": 16,
+      "medianMs": 13.36464599444298,
+      "p95Ms": 33.207417000085115,
+      "maxMs": 40.43225001078099,
+      "over250ms": 0
+    },
+    "typing-20": {
+      "count": 16,
+      "medianMs": 12.888062497950159,
+      "p95Ms": 22.79712499876041,
+      "maxMs": 35.49616700911429,
+      "over250ms": 0
+    },
+    "load-40": {
+      "count": 74,
+      "medianMs": 13.082875004329253,
+      "p95Ms": 23.181332988315262,
+      "maxMs": 34.864250003010966,
+      "over250ms": 0
+    },
+    "cleanup": {
+      "count": 112,
+      "medianMs": 9.491729004366789,
+      "p95Ms": 35.93504198943265,
+      "maxMs": 120.17308399663307,
+      "over250ms": 0
+    },
+    "settle": {
+      "count": 153,
+      "medianMs": 18.51304199954029,
+      "p95Ms": 20.719958003610373,
+      "maxMs": 23.63458400941454,
+      "over250ms": 0
+    }
+  },
+  "remainingOriginalTabs": 9,
+  "remainingCreatedTabs": 0
+}

@@ -20,6 +20,11 @@ struct Bookmark: Codable, Identifiable, Hashable {
         url.flatMap { URL(string: $0)?.host()?.lowercased() }
     }
 
+    /// Its site, as its icon is kept: the host, and the port when there is one.
+    var site: String? {
+        url.flatMap { URL(string: $0) }.flatMap(Favicons.site)
+    }
+
     static func site(_ title: String, _ url: URL) -> Bookmark {
         Bookmark(title: title.isEmpty ? Address.pretty(url) : title, url: url.absoluteString, children: nil)
     }
@@ -32,8 +37,14 @@ struct Bookmark: Codable, Identifiable, Hashable {
 @MainActor
 final class Bookmarks: ObservableObject {
     @Published private(set) var roots: [Bookmark] = [] {
-        didSet { kept = Set(Bookmarks.urls(roots).map(\.absoluteString)) }
+        didSet {
+            revision &+= 1
+            kept = preparedKept ?? Set(Bookmarks.urls(roots).map(\.absoluteString))
+            preparedKept = nil
+        }
     }
+    private var revision = 0
+    private var preparedKept: Set<String>?
 
     /// Every address kept, for `contains` — asked on every redraw of the
     /// button, which fills in on a page that is kept.
@@ -51,7 +62,7 @@ final class Bookmarks: ObservableObject {
     }
 
     /// Every site in the list, in order, folders opened.
-    static func urls(_ nodes: [Bookmark]) -> [URL] {
+    nonisolated static func urls(_ nodes: [Bookmark]) -> [URL] {
         nodes.flatMap { node -> [URL] in
             if node.isFolder { return urls(node.children ?? []) }
             return node.url.flatMap(URL.init(string:)).map { [$0] } ?? []
@@ -272,6 +283,62 @@ final class Bookmarks: ObservableObject {
         return (added, already, ids)
     }
 
+    /// Prepare a potentially large file merge away from the UI thread. A live
+    /// edit wins: if bookmarks changed while preparing, merge a fresh snapshot.
+    func takeFile(_ incoming: [Bookmark], from name: String, control: ImportFile.Control) async throws -> (added: Int, already: Int) {
+        guard !incoming.isEmpty else { return (0, 0) }
+        while true {
+            try control.checkCancellation()
+            let snapshot = roots
+            let version = revision
+            let top = Store.settings.string(forKey: Bookmarks.topKey)
+            let prepared: (roots: [Bookmark], kept: Set<String>, added: Int, already: Int, top: Bool) = try await withCheckedThrowingContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        try control.checkCancellation()
+                        var output = snapshot
+                        var added = 0, already = 0
+                        var setTop = false
+                        if snapshot.isEmpty {
+                            output = incoming
+                            added = try Bookmarks.fileCount(incoming, control: control)
+                            setTop = true
+                        } else {
+                            let intoTop: Bool
+                            if let top { intoTop = top == name }
+                            else {
+                                let theirs = try Bookmarks.fileURLs(incoming, control: control)
+                                let ours = Set(try Bookmarks.fileURLs(snapshot, control: control))
+                                intoTop = !theirs.isEmpty && theirs.filter { ours.contains($0) }.count * 2 >= theirs.count
+                                setTop = intoTop
+                            }
+                            if intoTop {
+                                try Bookmarks.mergeFile(incoming, into: &output, added: &added, already: &already, control: control)
+                            } else {
+                                var kids = output.first { $0.isFolder && $0.title == name }?.children ?? []
+                                try Bookmarks.mergeFile(incoming, into: &kids, added: &added, already: &already, control: control)
+                                if let at = output.firstIndex(where: { $0.isFolder && $0.title == name }) {
+                                    output[at].children = kids
+                                } else {
+                                    output.append(.folder(name, kids))
+                                }
+                            }
+                        }
+                        try control.checkCancellation()
+                        continuation.resume(returning: (output, Set(try Bookmarks.fileURLs(output, control: control)), added, already, setTop))
+                    } catch { continuation.resume(throwing: error) }
+                }
+            }
+            try control.checkCancellation()
+            guard revision == version, Store.settings.string(forKey: Bookmarks.topKey) == top else { continue }
+            preparedKept = prepared.kept
+            roots = prepared.roots
+            if prepared.top { Store.settings.set(name, forKey: Bookmarks.topKey) }
+            save()
+            return (prepared.added, prepared.already)
+        }
+    }
+
     /// Takes back out what an import added: every bookmark among `ids`
     /// wherever it now sits, then every folder among them left empty. A
     /// folder of theirs that you have put something of your own in stays,
@@ -299,8 +366,70 @@ final class Bookmarks: ObservableObject {
     }
 
     /// Every id in a tree, folders and all.
-    private static func ids(_ nodes: [Bookmark]) -> [Bookmark.ID] {
+    nonisolated private static func ids(_ nodes: [Bookmark]) -> [Bookmark.ID] {
         nodes.flatMap { [$0.id] + ids($0.children ?? []) }
+    }
+
+    nonisolated private static func fileURLs(_ nodes: [Bookmark], control: ImportFile.Control) throws -> [String] {
+        var urls: [String] = []
+        var pending = nodes
+        var scanned = 0
+        while let node = pending.popLast() {
+            scanned += 1
+            if scanned % 256 == 0 {
+                try control.checkCancellation()
+            }
+            if let url = node.url, let canonical = URL(string: url)?.absoluteString { urls.append(canonical) }
+            if let children = node.children { pending.append(contentsOf: children) }
+        }
+        try control.checkCancellation()
+        return urls
+    }
+
+    nonisolated private static func fileCount(_ nodes: [Bookmark], control: ImportFile.Control) throws -> Int {
+        var count = 0
+        var scanned = 0
+        var pending = nodes
+        while let node = pending.popLast() {
+            scanned += 1
+            if scanned % 256 == 0 { try control.checkCancellation() }
+            if node.isFolder { pending.append(contentsOf: node.children ?? []) }
+            else { count += 1 }
+        }
+        try control.checkCancellation()
+        return count
+    }
+
+    nonisolated private static func mergeFile(_ incoming: [Bookmark], into nodes: inout [Bookmark], added: inout Int, already: inout Int, control: ImportFile.Control) throws {
+        var folders: [String: Int] = [:]
+        var pages = Set<String>()
+        for (index, node) in nodes.enumerated() {
+            if index % 256 == 0 { try control.checkCancellation() }
+            if node.isFolder { if folders[node.title] == nil { folders[node.title] = index } }
+            else if let url = node.url { pages.insert(url) }
+        }
+        for (index, node) in incoming.enumerated() {
+            if index % 256 == 0 {
+                try control.checkCancellation()
+            }
+            if node.isFolder {
+                if let at = folders[node.title] {
+                    var kids = nodes[at].children ?? []
+                    try mergeFile(node.children ?? [], into: &kids, added: &added, already: &already, control: control)
+                    nodes[at].children = kids
+                } else {
+                    folders[node.title] = nodes.count
+                    nodes.append(node)
+                    added += try fileCount([node], control: control)
+                }
+            } else if pages.contains(node.url ?? "") {
+                already += 1
+            } else {
+                if let url = node.url { pages.insert(url) }
+                nodes.append(node)
+                added += 1
+            }
+        }
     }
 
     /// Which browser filled the empty top level, the first time.
@@ -323,21 +452,28 @@ final class Bookmarks: ObservableObject {
     /// `incoming` into `nodes`, level by level: a folder into the folder of
     /// the same name, a page only if the same address isn't already at
     /// that level.
-    private static func merge(_ incoming: [Bookmark], into nodes: inout [Bookmark], added: inout Int, already: inout Int, ids: inout [Bookmark.ID]) {
+    nonisolated private static func merge(_ incoming: [Bookmark], into nodes: inout [Bookmark], added: inout Int, already: inout Int, ids: inout [Bookmark.ID]) {
+        var folders: [String: Int] = [:]
+        for (index, node) in nodes.enumerated() where node.isFolder {
+            if folders[node.title] == nil { folders[node.title] = index }
+        }
+        var pages = Set(nodes.compactMap { $0.isFolder ? nil : $0.url })
         for node in incoming {
             if node.isFolder {
-                if let at = nodes.firstIndex(where: { $0.isFolder && $0.title == node.title }) {
+                if let at = folders[node.title] {
                     var kids = nodes[at].children ?? []
                     merge(node.children ?? [], into: &kids, added: &added, already: &already, ids: &ids)
                     nodes[at].children = kids
                 } else {
+                    folders[node.title] = nodes.count
                     nodes.append(node)
                     added += count([node])
                     ids += Bookmarks.ids([node])
                 }
-            } else if nodes.contains(where: { !$0.isFolder && $0.url == node.url }) {
+            } else if pages.contains(node.url ?? "") {
                 already += 1
             } else {
+                if let url = node.url { pages.insert(url) }
                 nodes.append(node)
                 added += 1
                 ids.append(node.id)
@@ -456,16 +592,19 @@ struct BookmarkOutline: View {
         VStack(alignment: .leading, spacing: 1) {
             rows(bookmarks.roots, depth: 0, parent: nil)
             // Past the last row: the end of the top level, which "after" on
-            // an open folder at the bottom can't reach.
-            Color.clear
-                .frame(height: 10)
-                .overlay(alignment: .top) { if aimed == Aim(id: nil, zone: .after) { Line(depth: 0) } }
-                .modifier(Landing(
-                    isFolder: false,
-                    allowed: { true },
-                    aim: { aim($0.map { _ in Aim(id: nil, zone: .after) }) },
-                    land: { _, providers in drop(providers) { bookmarks.move($0, into: nil) } }
-                ))
+            // an open folder at the bottom can't reach. Only there while a
+            // row is carried, or it is an empty band under the list (#391).
+            if dragging != nil {
+                Color.clear
+                    .frame(height: 10)
+                    .overlay(alignment: .top) { if aimed == Aim(id: nil, zone: .after) { Line(depth: 0) } }
+                    .modifier(Landing(
+                        isFolder: false,
+                        allowed: { true },
+                        aim: { aim($0.map { _ in Aim(id: nil, zone: .after) }) },
+                        land: { _, providers in drop(providers) { bookmarks.move($0, into: nil) } }
+                    ))
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -477,6 +616,9 @@ struct BookmarkOutline: View {
             Row(
                 node: node,
                 depth: depth,
+                // A folder's arrow has a place in front of every row, so the
+                // icons line up; with no folder at all, it is only a gap.
+                arrows: bookmarks.roots.contains(where: \.isFolder),
                 // An extension can write an address that does not parse,
                 // and the menu below already unwraps this the same way.
                 open: node.isFolder ? nil : { if let text = node.url, let url = URL(string: text) { open(url) } },
@@ -501,6 +643,7 @@ struct BookmarkOutline: View {
             }
             .onDrag {
                 dragging = node.id
+                settleWhenLetGo()
                 return NSItemProvider(object: node.id.uuidString as NSString)
             }
             .modifier(Landing(
@@ -577,6 +720,25 @@ struct BookmarkOutline: View {
         let work = DispatchWorkItem { withAnimation(Motion.settle) { _ = expanded.wrappedValue.insert(id) } }
         spring = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7, execute: work)
+    }
+
+    /// SwiftUI says when a row lands on the list, not when it is let go
+    /// anywhere else or the drag is called off, which left the line where
+    /// it was last aimed and the row faded (#391). The button coming up says
+    /// it: looked at a few times a second, which a drag's own loop holds
+    /// back until it is over.
+    private func settleWhenLetGo() {
+        let aimed = $aimed, dragging = $dragging, spring = $spring
+        Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { timer in
+            guard NSEvent.pressedMouseButtons & 1 == 0 else { return }
+            timer.invalidate()
+            MainActor.assumeIsolated {
+                spring.wrappedValue?.cancel()
+                spring.wrappedValue = nil
+                aimed.wrappedValue = nil
+                dragging.wrappedValue = nil
+            }
+        }
     }
 
     private func drop(_ providers: [NSItemProvider], then move: @escaping (Bookmark.ID) -> Void) -> Bool {
@@ -661,6 +823,7 @@ struct BookmarkOutline: View {
     private struct Row: View {
         let node: Bookmark
         let depth: Int
+        let arrows: Bool
         /// Nil for a folder — folders open in place, not out to a page.
         let open: (() -> Void)?
         let isOpen: Bool
@@ -693,8 +856,8 @@ struct BookmarkOutline: View {
                                 .foregroundStyle(Palette.muted)
                         )
                 } else {
-                    Spacer().frame(width: 10)
-                    Mark(icon: Favicons.shared.cached(node.host ?? ""), letter: String((node.host ?? "•").prefix(1)).uppercased(), size: 15)
+                    if arrows { Spacer().frame(width: 10) }
+                    Mark(icon: Favicons.shared.cached(node.site ?? ""), letter: String((node.host ?? "•").prefix(1)).uppercased(), size: 15)
                 }
                 Text(node.title)
                     .font(.system(size: 12.5))
@@ -926,7 +1089,22 @@ struct BookmarksDropdown: View {
     @ObservedObject var browser: Browser
     @ObservedObject var bookmarks: Bookmarks
 
-    @State private var expanded: Set<Bookmark.ID> = []
+    @State private var expanded: Set<Bookmark.ID>
+
+    init(browser: Browser, bookmarks: Bookmarks) {
+        self.browser = browser
+        self.bookmarks = bookmarks
+        _expanded = State(initialValue: Self.opening(bookmarks.roots))
+    }
+
+    /// Open as the list opens: a top level that is one folder and nothing
+    /// else, as bringing bookmarks in from another browser often leaves
+    /// ("Dia", "Imported from Chrome"). Closed, it was one row in a list
+    /// sized for all it holds (see listHeight).
+    static func opening(_ roots: [Bookmark]) -> Set<Bookmark.ID> {
+        guard roots.count == 1, let only = roots.first, only.isFolder else { return [] }
+        return [only.id]
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -944,7 +1122,7 @@ struct BookmarksDropdown: View {
                     }
                     .padding(6)
                 }
-                .frame(maxHeight: 360)
+                .frame(height: listHeight)
             }
             Divider().overlay(Palette.hairline)
             VStack(spacing: 1) {
@@ -959,6 +1137,32 @@ struct BookmarksDropdown: View {
         .background(Palette.ground)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Palette.hairline, lineWidth: 1))
+    }
+
+    /// The list as tall as the whole tree would be with every folder open,
+    /// up to 360 points. The popover takes its height once, from what the
+    /// list holds as it opens, and doesn't grow with a folder opened in it:
+    /// a list of one closed folder was one row high, and the folder opened
+    /// into a sliver above Add This Page.
+    var listHeight: CGFloat {
+        let most: CGFloat = 360
+        var lines = 0
+        Self.count(bookmarks.roots, into: &lines, upTo: Int(most / Self.line) + 1)
+        return min(most, CGFloat(lines) * Self.line + 12)
+    }
+
+    /// A row's height and the gap under it (see BookmarkOutline.Row).
+    private static let line: CGFloat = 28
+
+    /// Every row with every folder open, an empty one's "Empty" included,
+    /// counted only as far as the list can be tall.
+    private static func count(_ nodes: [Bookmark], into lines: inout Int, upTo limit: Int) {
+        for node in nodes {
+            guard lines < limit else { return }
+            lines += 1
+            guard node.isFolder else { continue }
+            if let kids = node.children, !kids.isEmpty { count(kids, into: &lines, upTo: limit) } else { lines += 1 }
+        }
     }
 
     private struct Foot: View {
@@ -1125,7 +1329,7 @@ struct BookmarksPanel: View {
                     Mark(icon: nil, letter: "", size: 16)
                         .overlay(Image(systemName: "folder.fill").font(.system(size: 9.5)).foregroundStyle(Palette.muted))
                 } else {
-                    Mark(icon: Favicons.shared.cached(node.host ?? ""), letter: String((node.host ?? "•").prefix(1)).uppercased(), size: 16)
+                    Mark(icon: Favicons.shared.cached(node.site ?? ""), letter: String((node.host ?? "•").prefix(1)).uppercased(), size: 16)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(node.title)
@@ -1256,6 +1460,7 @@ final class BookmarkMenu: NSObject, NSMenuDelegate {
             let item: NSMenuItem
             if node.isFolder {
                 item = NSMenuItem(title: node.title, action: nil, keyEquivalent: "")
+                item.image = NSImage(systemSymbolName: "folder", accessibilityDescription: nil)
                 let sub = NSMenu(title: node.title)
                 sub.delegate = self
                 folders[ObjectIdentifier(sub)] = node.children ?? []
@@ -1264,6 +1469,13 @@ final class BookmarkMenu: NSObject, NSMenuDelegate {
                 item = NSMenuItem(title: node.title, action: #selector(open(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = url
+                // The site's icon, as the bar wears it: a folder opened from
+                // the bar, or the Bookmarks menu, had none (idea 183).
+                if let icon = Favicons.shared.cached(node.site ?? "") {
+                    let small = icon.copy() as? NSImage ?? icon
+                    small.size = NSSize(width: 16, height: 16)
+                    item.image = small
+                }
             } else {
                 return nil
             }

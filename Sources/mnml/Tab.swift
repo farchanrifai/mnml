@@ -28,7 +28,7 @@ enum Web {
     /// included, and registering a name twice is a hard crash.
     @MainActor static func release(_ controller: WKUserContentController) {
         for name in [ScrollRelay.name, VeilRelay.name, FormRelay.name, ImageRelay.name,
-                     StoreRelay.name, PasskeyRelay.name, MiddleRelay.name, SelectionRelay.name, Notify.name] {
+                     StoreRelay.name, PasskeyRelay.name, MiddleRelay.name, SelectionRelay.name, IconRelay.name] {
             controller.removeScriptMessageHandler(forName: name, contentWorld: world)
             controller.removeScriptMessageHandler(forName: name, contentWorld: .page)
         }
@@ -85,6 +85,9 @@ enum Web {
         // cookies, its own sign-ins, and nothing left behind when it closes.
         // With spaces on, each space's tabs share a store of that space's.
         config.websiteDataStore = store ?? (shy ? .nonPersistent() : MainActor.assumeIsolated { Spaces.store(for: space ?? Spaces.current) })
+        // Web notifications go through the store (see Notifications.swift);
+        // a private tab's is left without, and a page there is refused.
+        if !shy { let kept = config.websiteDataStore; MainActor.assumeIsolated { SiteNotifications.shared.attach(kept) } }
         config.processPool = Web.pool
         // Chrome extensions see every page but a private one, unless Settings
         // › Extensions says they may. The controller has to be there when the
@@ -293,6 +296,9 @@ final class Tab: ObservableObject, Identifiable {
     var pageAddress: URL? { committed ?? address }
 
     func didCommit() {
+        // A new document: whatever the old one waited for under its field
+        // went with it.
+        if let built { Passkeys.shared.forget(built) }
         if let url = built?.url, url.absoluteString != "about:blank" { committed = url }
         // A page arrived after all: the address is its own again.
         if held != nil, let url = built?.url, url.absoluteString != "about:blank" {
@@ -366,12 +372,12 @@ final class Tab: ObservableObject, Identifiable {
         return host.first.map { String($0).uppercased() } ?? "•"
     }
 
-    private func adoptIcon() {
-        guard let host = address?.host()?.lowercased() else {
+    func adoptIcon() {
+        guard let site = address.flatMap(Favicons.site) else {
             icon = nil
             return
         }
-        icon = Favicons.shared.cached(host)
+        icon = Favicons.shared.cached(site)
     }
 
     /// True while the caret is in something on the page that takes typing.
@@ -443,7 +449,7 @@ final class Tab: ObservableObject, Identifiable {
     var onSignIn: ((Tab) -> Void)?
     /// The caret has entered or left one of the sign-in boxes; where the box
     /// is, in the web view's points, or nil when it has left.
-    var onField: ((Tab, CGRect?) -> Void)?
+    var onField: ((Tab, CGRect?, Bool) -> Void)?
     /// The site the sign-in was sent from — not the one it landed on —
     /// then the name and the password, and whether that page came over
     /// plain http.
@@ -454,6 +460,8 @@ final class Tab: ObservableObject, Identifiable {
     /// download it and then, on at least some sites, does neither — see
     /// ImageMenu.swift for why this is built rather than patched.
     var onImageMenu: ((Tab, URL) -> Void)?
+    /// Where the last image right-clicked came from (see ImageMenu.swift).
+    var imageFrame: WKFrameInfo? { images.frame }
     var searchName: (() -> String?)?
     var onSearch: ((Tab, String) -> Void)?
     /// "Add to mnml" was pressed on the Chrome Web Store page this tab shows.
@@ -479,6 +487,7 @@ final class Tab: ObservableObject, Identifiable {
     /// chat's Selected Text chip (Ask.swift); nil when nothing is.
     @Published var picked: Picked?
     private let shop = StoreRelay()
+    private let iconChanges = IconRelay()
     private let middles = MiddleRelay()
     private let passkeyRelay = PasskeyRelay()
     private let hovered = HoveredLink()
@@ -509,6 +518,12 @@ final class Tab: ObservableObject, Identifiable {
     @Published var pin: String?
     /// For a pin, which of the pins it is, in every window (see Pins.swift).
     var pinID: UUID?
+    /// For a pin, kept as a row under the squares rather than as a square:
+    /// Arc's pinned list, below its favourites. Still a pin in every other
+    /// way: put down by ⌘W, the same in every window, never in a group.
+    /// Drawn as a square while Settings › Tabs › Pinned rows is off, or
+    /// with the tabs across the top.
+    @Published var listed = false
 
 
     /// Where a pinned tab, or one in a pinned group, was when it was pinned:
@@ -531,6 +546,11 @@ final class Tab: ObservableObject, Identifiable {
     /// When you last looked at it. The summon lists pages by this, because
     /// what you were just reading is what you are most likely to want back.
     private(set) var touched = Date()
+
+    /// What was typed into this blank tab's field and not sent, kept while
+    /// another tab is in front: the field is one for every tab. Only ever in
+    /// memory, and gone once the tab goes somewhere or closes.
+    var draft = ""
 
     /// Set on a tab brought back from the last session and not yet opened. It
     /// has a name and an address in the row, and costs nothing until you go to
@@ -609,6 +629,7 @@ final class Tab: ObservableObject, Identifiable {
         Web.inspector(web.configuration.preferences)
         web.navigationDelegate = delegate
         web.uiDelegate = delegate
+        if !shy { PageNotifications.provide(web) }
 
         // Each name is cleared before being claimed — registering one twice is
         // a hard crash rather than an error. A tab opened by a link gets a
@@ -620,9 +641,9 @@ final class Tab: ObservableObject, Identifiable {
         controller.add(veils_, contentWorld: Web.world, name: VeilRelay.name)
         controller.add(images, contentWorld: Web.world, name: ImageRelay.name)
         controller.add(shop, contentWorld: Web.world, name: StoreRelay.name)
+        controller.add(iconChanges, contentWorld: Web.world, name: IconRelay.name)
         controller.add(forms, contentWorld: Web.world, name: FormRelay.name)
         controller.addScriptMessageHandler(passkeyRelay, contentWorld: Web.world, name: PasskeyRelay.name)
-        controller.addScriptMessageHandler(Notify.shared, contentWorld: Web.world, name: Notify.name)
         hovered.tab = self
         controller.add(hovered, contentWorld: .defaultClient, name: HoveredLink.name)
         controller.add(middles, contentWorld: Web.world, name: MiddleRelay.name)
@@ -685,6 +706,7 @@ final class Tab: ObservableObject, Identifiable {
         forms.tab = self
         images.tab = self
         shop.tab = self
+        iconChanges.tab = self
         middles.tab = self
         ears.watch(web) { [weak self, weak web] on in
             self?.noisy = on
@@ -737,6 +759,9 @@ final class Tab: ObservableObject, Identifiable {
         controller.addUserScript(
             WKUserScript(source: FormRelay.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: Web.world)
         )
+        controller.addUserScript(
+            WKUserScript(source: IconRelay.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: Web.world)
+        )
         if AutoScroll.on {
             controller.addUserScript(
                 WKUserScript(source: AutoScroll.script, injectionTime: .atDocumentEnd, forMainFrameOnly: true, in: Web.world)
@@ -775,13 +800,8 @@ final class Tab: ObservableObject, Identifiable {
         controller.addUserScript(
             WKUserScript(source: MiddleRelay.watch, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: Web.world)
         )
-        // A page's notifications, through the Mac's (Notify.swift): in the
-        // page's world to stand in for its Notification, bridged from mnml's.
         controller.addUserScript(
-            WKUserScript(source: Notify.page, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: .page)
-        )
-        controller.addUserScript(
-            WKUserScript(source: Notify.bridge, injectionTime: .atDocumentStart, forMainFrameOnly: true, in: Web.world)
+            WKUserScript(source: LiveRate.script, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .page)
         )
         // Passkeys stand in the page's own world — they replace the page's
         // functions — and reach Search through a bridge in Search's, off or on:
@@ -826,16 +846,18 @@ final class Tab: ObservableObject, Identifiable {
 
     /// From the page, in CSS pixels; passed on in points. Page zoom is the
     /// only scale between the two that matters here.
-    func fieldFocused(_ rect: CGRect?) {
+    /// `passwords`: a box of a sign-in with a password, not one only for
+    /// passkeys.
+    func fieldFocused(_ rect: CGRect?, passwords: Bool = true) {
         guard let rect else {
-            onField?(self, nil)
+            onField?(self, nil, false)
             return
         }
         let zoom = built?.pageZoom ?? 1
         onField?(self, CGRect(
             x: rect.minX * zoom, y: rect.minY * zoom,
             width: rect.width * zoom, height: rect.height * zoom
-        ))
+        ), passwords)
     }
 
     /// A name and password the page has just sent — held, not yet offered.
@@ -959,6 +981,7 @@ final class Tab: ObservableObject, Identifiable {
         reader = false
         typing = false
         immersed = false
+        draft = ""
         // Sent somewhere new, a sleeping tab is simply awake again — with
         // nothing of where it was before to bring back.
         pending = nil
@@ -1345,6 +1368,7 @@ final class Tab: ObservableObject, Identifiable {
         ears.stop()
         guard let web = built else { return }
         built = nil
+        Passkeys.shared.forget(web)
         let controller = web.configuration.userContentController
         Web.release(controller)
         controller.removeAllUserScripts()
@@ -1598,15 +1622,19 @@ final class PageView: WKWebView {
 
     // MARK: - keys the page didn't use
 
-    /// The last key handed to the page. WebKit sends a key the page didn't
+    /// The keys lately handed to the page. WebKit sends a key the page didn't
     /// use back up the responder chain — the same event, a second time —
     /// where nothing takes it and macOS plays its "can't do that" sound.
     /// Editors that put the text in themselves (X's reply box, anything built
-    /// on Draft.js) leave WebKit thinking their keys unused, so typing into
-    /// them beeped. Safari keeps those quiet, and so does this view. The
-    /// app's own shortcuts never get this far: its key monitor takes them
-    /// before the page sees the key.
-    private var handed: NSEvent?
+    /// on Draft.js) leave WebKit thinking their keys unused, and so does a
+    /// game that moves on the arrows without saying so (#402). Safari keeps
+    /// those quiet, and so does this view. The app's own shortcuts never get
+    /// this far: its key monitor takes them before the page sees the key.
+    ///
+    /// Several, not the last one: WebKit answers a moment later, and keys
+    /// pressed quickly — or held, repeating — arrive before the answer for
+    /// the one before. Remembering only the last, every earlier key beeped.
+    private var handed: [NSEvent] = []
     /// How many came back unused and were kept quiet, for the bench.
     static var quieted = 0
 
@@ -1615,13 +1643,18 @@ final class PageView: WKWebView {
     static var unused: ((NSEvent) -> Bool)?
 
     override func keyDown(with event: NSEvent) {
-        if let handed, PageView.same(handed, event) {
-            self.handed = nil
+        if let index = handed.firstIndex(where: { PageView.same($0, event) }) {
+            handed.remove(at: index)
             if PageView.unused?(event) == true { return }
             PageView.quieted += 1
             return
         }
-        handed = event
+        handed.append(event)
+        // A key the page did use never comes back: only the latest few are
+        // kept, and none older than a couple of seconds.
+        let now = event.timestamp
+        handed.removeAll { now - $0.timestamp > 2 }
+        if handed.count > 32 { handed.removeFirst(handed.count - 32) }
         super.keyDown(with: event)
     }
 

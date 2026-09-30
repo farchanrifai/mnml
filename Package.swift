@@ -13,6 +13,6 @@ let package = Package(
             // here but ceremony.
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
-        .testTarget(name: "mnmlTests", dependencies: ["mnml"])
+        .testTarget(name: "mnmlTests", dependencies: ["mnml"], swiftSettings: [.swiftLanguageMode(.v5)])
     ]
 )
