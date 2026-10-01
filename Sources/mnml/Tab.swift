@@ -250,7 +250,7 @@ struct ReadingFill: View {
 
 @MainActor
 final class Tab: ObservableObject, Identifiable {
-    let id = UUID()
+    let id: UUID
 
     /// The page. Built the first time anyone asks for it, not when the tab
     /// is — a session of twenty tabs coming back is twenty objects, not
@@ -545,7 +545,7 @@ final class Tab: ObservableObject, Identifiable {
 
     /// When you last looked at it. The summon lists pages by this, because
     /// what you were just reading is what you are most likely to want back.
-    private(set) var touched = Date()
+    var touched = Date()
 
     /// What was typed into this blank tab's field and not sent, kept while
     /// another tab is in front: the field is one for every tab. Only ever in
@@ -587,7 +587,8 @@ final class Tab: ObservableObject, Identifiable {
         return "New Tab"
     }
 
-    init(shy: Bool = false, bench: Bool = false, configuration: WKWebViewConfiguration? = nil) {
+    init(shy: Bool = false, bench: Bool = false, configuration: WKWebViewConfiguration? = nil, id: UUID = UUID()) {
+        self.id = id
         self.shy = shy
         self.bench = bench
         self.configuration = configuration ?? Web.configuration(shy: shy)
@@ -1068,12 +1069,12 @@ final class Tab: ObservableObject, Identifiable {
     /// Whether the page holds something typed and not yet sent — a draft, a
     /// half-filled form. A page that can't answer is treated as holding
     /// nothing: a PDF, an image, a page whose process has already gone.
-    func unsaved(_ done: @escaping (Bool) -> Void) {
+    func unsaved(conservative: Bool = false, _ done: @escaping (Bool) -> Void) {
         guard let built else { return done(false) }
         built.evaluateInSearch(
             "!!(window.__officeForms && window.__officeForms.unsaved && window.__officeForms.unsaved())"
         ) { value in
-            MainActor.assumeIsolated { done((value as? Bool) == true) }
+            MainActor.assumeIsolated { done((value as? Bool) ?? conservative) }
         }
     }
 
@@ -1526,6 +1527,27 @@ final class PageView: WKWebView {
         // as a new tab (Browser's createWebViewWith), so it says so.
         if let item = menu.items.first(where: { $0.identifier?.rawValue == "WKMenuItemIdentifierOpenLinkInNewWindow" }) {
             item.title = "Open Link in New Tab"
+            if browser?.peekTab == nil {
+                let peek = NSMenuItem(title: "Open in Peek", action: #selector(openLinkInPeek(_:)), keyEquivalent: "")
+                peek.target = self
+                peek.isEnabled = false
+                menu.insertItem(peek, at: min(1, menu.items.count))
+                let point = convert(event.locationInWindow, from: nil)
+                evaluateInSearch("""
+                (function link(doc, x, y) {
+                    const el = doc.elementFromPoint(x, y);
+                    if (!el) return null;
+                    if (/^(IFRAME|FRAME)$/.test(el.tagName)) {
+                        try { const r = el.getBoundingClientRect(); return link(el.contentDocument, x-r.left, y-r.top); } catch (_) { return null; }
+                    }
+                    const a = el.closest('a[href]'); return a ? a.href : null;
+                })(document, \(point.x), \(point.y))
+                """) { result in
+                    guard let text = result as? String, let url = URL(string: text), ["http", "https"].contains(url.scheme ?? "") else { return }
+                    peek.representedObject = url
+                    peek.isEnabled = true
+                }
+            }
         }
         if let item = menu.items.first(where: { $0.identifier?.rawValue == "WKMenuItemIdentifierSearchWeb" }),
            let name = searchName?() {
@@ -1538,6 +1560,11 @@ final class PageView: WKWebView {
             item.target = self
             item.action = #selector(searchSelection(_:))
         }
+    }
+
+    @objc private func openLinkInPeek(_ item: NSMenuItem) {
+        guard let url = item.representedObject as? URL, let tab else { return }
+        browser?.peek(url, from: tab)
     }
 
     var searchName: (() -> String?)?

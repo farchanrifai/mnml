@@ -86,16 +86,21 @@ extension Browser {
         if tab.bench { return "a bench tab" }
         if tab.isBlank { return "blank" }
         if tab.asleep { return "already asleep" }
-        guard let web = tab.built else { return "no page" }
+        guard tab.built != nil else { return "no page" }
+        return activityKeeping(tab)
+    }
+
+    func activityKeeping(_ tab: Tab) -> String? {
         if tab.loading { return "still loading" }
         if tab.noisy { return "playing sound" }
         if SiteNotifications.keepsAwake(tab) { return "sends notifications" }
         if tab.floating || floating == tab.id || systemPiP == tab.id { return "its video is out" }
+        if heldDialogs[tab.id]?.isEmpty == false { return "a question waiting" }
+        if window?.attachedSheet != nil { return "a dialog is open" }
+        if active?.opener == tab.id { return "the page on screen came from it" }
+        guard let web = tab.built else { return nil }
         if web.cameraCaptureState != .none || web.microphoneCaptureState != .none { return "on a call" }
         if downloading.contains(where: { $0.webView === web }) { return "downloading" }
-        if heldDialogs[tab.id]?.isEmpty == false { return "a question waiting" }
-        // A sign-in window hands its answer back to the page that opened it.
-        if active?.opener == tab.id { return "the page on screen came from it" }
         return nil
     }
 

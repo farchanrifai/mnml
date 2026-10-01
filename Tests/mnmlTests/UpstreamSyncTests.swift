@@ -4,6 +4,50 @@ import AppKit
 
 @MainActor
 final class UpstreamSyncTests: XCTestCase {
+    func testClearReopensNonadjacentSplitWithRetainedPin() throws {
+        _ = NSApplication.shared
+        let browser = Browser(record: WindowRecord())
+        defer { browser.closeAll() }
+        let pin = try XCTUnwrap(browser.active)
+        pin.restore(url: URL(string: "http://127.0.0.1:9/pin")!, title: "Pin")
+        browser.pin(pin)
+        browser.newTab(bar: false)
+        let other = try XCTUnwrap(browser.active)
+        other.restore(url: URL(string: "http://127.0.0.1:9/other")!, title: "Other")
+        browser.newTab(bar: false)
+        let companion = try XCTUnwrap(browser.active)
+        companion.restore(url: URL(string: "http://127.0.0.1:9/companion")!, title: "Companion")
+        companion.partner = pin.id
+        browser.activeID = companion.id
+        browser.clearTabs()
+        XCTAssertTrue(browser.tabs.contains { $0 === pin })
+        XCTAssertEqual(browser.ghosts.count, 2)
+        browser.reopen()
+        let restored = try XCTUnwrap(browser.tabs.first { $0.address == companion.address })
+        XCTAssertEqual(browser.split(of: pin.id), Split(left: pin.id, right: restored.id))
+        XCTAssertEqual(browser.activeID, restored.id)
+        XCTAssertTrue(browser.ghosts.isEmpty)
+    }
+
+    func testCloseCommandDismissesArchiveAbovePeekAndSettingsBeforeTab() throws {
+        _ = NSApplication.shared
+        let browser = Browser(record: WindowRecord())
+        defer { browser.closeAll() }
+        let origin = try XCTUnwrap(browser.active)
+        let preview = Tab()
+        browser.presentPeek(preview, from: origin)
+        browser.archiveShowing = true
+        browser.run("file.closeTab")
+        XCTAssertFalse(browser.archiveShowing)
+        XCTAssertTrue(browser.peekTab === preview)
+        XCTAssertFalse(browser.peekClosing)
+        browser.tuning = true
+        browser.run("file.closeTab")
+        XCTAssertFalse(browser.tuning)
+        XCTAssertTrue(browser.peekTab === preview)
+        XCTAssertTrue(browser.active === origin)
+    }
+
     @available(macOS 15.4, *)
     func testOnlyExtensionsDeclaringNativeMessagingCanReachHosts() {
         XCTAssertFalse(Extensions.nativeDeclared(required: true, optional: false, added: ["nativeMessaging"]))

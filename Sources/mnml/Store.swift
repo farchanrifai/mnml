@@ -207,6 +207,16 @@ enum Disk {
         if now { put() } else { queue.async(execute: put) }
     }
 
+    /// A checked synchronous commit that supersedes queued writes of this file.
+    static func commit(_ file: URL, data: Data) throws {
+        lock.lock()
+        defer { lock.unlock() }
+        count += 1
+        newest[file] = count
+        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: file, options: .atomic)
+    }
+
     /// Everything asked for so far, written — for the way out.
     static func drain() {
         queue.sync {}

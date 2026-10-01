@@ -1,10 +1,7 @@
 import SwiftUI
 import AppKit
 
-/// One field, in the middle, and the few places it thinks you mean. It takes
-/// addresses and only addresses: type something that isn't a place and it
-/// shivers and says so, rather than quietly handing your keystrokes to a
-/// search engine.
+/// One field for browser actions, current tabs, addresses, and web search.
 struct Omnibox: View {
     @ObservedObject var browser: Browser
     /// Raised over a page by ⌘L, rather than standing on an empty tab.
@@ -123,7 +120,7 @@ struct Omnibox: View {
                     .onTapGesture { _ = browser.lockSiteOffer() }
             }
             ForEach(Array(browser.offers.enumerated()), id: \.element.id) { index, offer in
-                Row(offer: offer, picked: browser.picked == index)
+                Row(offer: offer, picked: browser.picked == index, browser: browser)
                     .contentShape(Rectangle())
                     .onTapGesture { browser.take(offer) }
             }
@@ -143,6 +140,7 @@ struct Omnibox: View {
         /// Where the arrow keys have walked to. The pointer gets its own,
         /// quieter mark, and changes nothing but the look of the row.
         let picked: Bool
+        @ObservedObject var browser: Browser
 
         @State private var hovering = false
 
@@ -173,8 +171,8 @@ struct Omnibox: View {
                         .fill(Palette.ink.opacity(0.55))
                         .frame(width: 5, height: 5)
                         .padding(.horizontal, 2)
-                case .command:
-                    Image(systemName: "command")
+                case .command(let action):
+                    Image(systemName: action.symbol)
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(Palette.muted)
                 default:
@@ -195,6 +193,9 @@ struct Omnibox: View {
                         .truncationMode(.tail)
                 }
                 Spacer(minLength: 0)
+                if case .command(let action) = offer.kind, let id = action.shortcutID, let key = browser.shortcuts.key(for: id) {
+                    Text(key.display).font(.system(size: 11.5)).foregroundStyle(Palette.muted).fixedSize()
+                }
                 if offer.kind == .open {
                     // Named, it is gone back to, not opened a second time.
                     HStack(spacing: 4) {

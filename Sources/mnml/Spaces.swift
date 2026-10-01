@@ -181,6 +181,10 @@ extension Browser {
     /// ⌃1–⌃9, and the menu on the space's dot.
     func switchSpace(to id: UUID, animated: Bool = true) {
         guard prefs.usesSpaces, spaces.contains(where: { $0.id == id }) else { return }
+        if peekTab != nil, id != spaceID {
+            closePeek { [weak self] in self?.switchSpace(to: id, animated: animated) }
+            return
+        }
         guard id != spaceID else {
             if animated { clearSpaceTransition(); spaceSwipe = 0; nameSwipe = 0 }
             return
@@ -204,6 +208,7 @@ extension Browser {
         cancelTabEdit()
         closeFind()
         leaving()
+        touchShownTabs(activeID)
         writeSession(now: true)
 
         // The row on screen is parked as it is, sound and all: music or a
@@ -324,6 +329,7 @@ extension Browser {
         let shared = spaces[at].sharesSignIns == true
         spaces.remove(at: at)
         Spaces.write(spaces)
+        LinkRoutes.shared.remove(space: id)
         Session.erase(space: id)
         // Gone from the other windows too: their rows there, and the space
         // itself if one was showing it (the list's change moves it).
@@ -558,13 +564,13 @@ enum Ask {
         }
     }
 
-    static func sure(_ title: String, detail: String, confirm: String, then: @escaping () -> Void) {
+    static func sure(_ title: String, detail: String, confirm: String, cancelled: (() -> Void)? = nil, then: @escaping () -> Void) {
         let alert = NSAlert()
         alert.messageText = title
         alert.informativeText = detail
         alert.addButton(withTitle: confirm).hasDestructiveAction = true
         alert.addButton(withTitle: "Cancel")
-        show(alert) { ok in if ok { then() } }
+        show(alert) { ok in if ok { then() } else { cancelled?() } }
     }
 
     static func folder(then: @escaping (URL?) -> Void) {

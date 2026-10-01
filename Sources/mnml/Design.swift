@@ -162,6 +162,10 @@ enum Motion {
         reduced ? nil : .spring(response: 0.30, dampingFraction: 0.86)
     }
 
+    static var peek: Animation? {
+        reduced ? nil : .easeOut(duration: 0.18)
+    }
+
     static var quick: Animation? {
         reduced ? nil : .easeOut(duration: 0.14)
     }
