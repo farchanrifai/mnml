@@ -312,7 +312,14 @@ final class Bench {
         case "tabs":
             // A private tab is nobody's business but yours: a test run has none
             // of yours, so there every tab is listed.
-            answer(["tabs": browser.tabs.filter { Store.testing || !$0.shy }.map(describe)])
+            answer(["tabs": browser.tabs.filter { Store.testing || !$0.shy }.map(describe),
+                    "ghosts": browser.ghosts.count, "reopenTitle": browser.reopenTitle])
+
+        case "clear":
+            guard Store.testing else { answer(["error": "clear only works on a --test run"]); return }
+            browser.clearTabs()
+            answer(["tabs": browser.tabs.map(describe), "ghosts": browser.ghosts.count,
+                    "reopenTitle": browser.reopenTitle])
 
         case "open":
             guard let url = (request["url"] as? String).flatMap(Address.url(from:)) else {

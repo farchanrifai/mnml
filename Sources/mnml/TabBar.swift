@@ -1343,7 +1343,7 @@ struct TabMenu: View {
         .disabled(tab.pin != nil || !browser.tabs.dropFirst(here + 1).contains { $0.pin == nil })
         // ⌘⇧T, and the History menu's Recently Closed, where few think to
         // look for it: here too, where tabs are closed.
-        Button("Reopen Closed Tab") { browser.reopen() }
+        Button(browser.reopenTitle) { browser.reopen() }
             .disabled(browser.ghosts.isEmpty)
     }
 }

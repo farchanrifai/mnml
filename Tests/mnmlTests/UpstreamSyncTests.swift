@@ -4,6 +4,24 @@ import AppKit
 
 @MainActor
 final class UpstreamSyncTests: XCTestCase {
+    @available(macOS 15.4, *)
+    func testOnlyExtensionsDeclaringNativeMessagingCanReachHosts() {
+        XCTAssertFalse(Extensions.nativeDeclared(required: true, optional: false, added: ["nativeMessaging"]))
+        XCTAssertTrue(Extensions.nativeDeclared(required: true, optional: false, added: []))
+        XCTAssertTrue(Extensions.nativeDeclared(required: true, optional: true, added: ["nativeMessaging"]))
+        XCTAssertFalse(Extensions.nativeDeclared(required: false, optional: false, added: []))
+    }
+
+    func testGroundedSiteChoiceCanBeSetAndCleared() {
+        let host = "sync9-video.example"
+        Grounded.set(false, for: host)
+        XCTAssertFalse(Grounded.holds(host))
+        Grounded.set(true, for: host)
+        XCTAssertTrue(Grounded.holds(host))
+        Grounded.set(false, for: host)
+        XCTAssertFalse(Grounded.holds(host))
+    }
+
     func testPinnedRowsKeepTheirTierAndSavedState() throws {
         _ = NSApplication.shared
         let browser = Browser(record: WindowRecord())

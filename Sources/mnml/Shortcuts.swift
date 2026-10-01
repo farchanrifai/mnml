@@ -179,9 +179,7 @@ struct Command: Identifiable {
                 browser.keepPeek()
                 return true
             },
-            Command("file.closeTab", "Close Tab", .file, KeyCombo("w"), "Closes the tab you're on.") { browser in
-                if let tab = browser.active { browser.close(tab) }
-            },
+            Command("file.closeTab", "Close Tab", .file, KeyCombo("w"), "Closes the front panel or tab.") { $0.closeFront() },
             Command("file.print", "Print…", .file, KeyCombo("p"), "Prints the page.") { $0.printPage() },
             Command("file.import", "Bring Things Over…", .file, nil, "Imports bookmarks and browsing data.") { $0.bringingIn = "" },
 

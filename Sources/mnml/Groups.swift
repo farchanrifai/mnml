@@ -344,7 +344,17 @@ extension Browser {
     }
 
     func closeGroup(_ id: TabGroup.ID) {
-        for tab in members(of: id) { close(tab) }
+        guard let at = groups.firstIndex(where: { $0.id == id }) else { return }
+        closedGroups[id] = (groups[at], at)
+        let going = members(of: id)
+        closingGroup = id
+        defer { closingGroup = nil }
+        let visible = Set(shownSplit.map { [$0.left, $0.right] } ?? activeID.map { [$0] } ?? [])
+        for tab in going where !visible.contains(tab.id) { close(tab) }
+        for tab in going where visible.contains(tab.id) { close(tab) }
+        groups.removeAll { $0.id == id }
+        if !ghosts.contains(where: { $0.group == id }) { closedGroups.removeValue(forKey: id) }
+        rememberSession()
     }
 
     /// The same pages again, as a group of their own right after this one.

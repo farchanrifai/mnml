@@ -855,6 +855,20 @@ enum Players {
     }
 }
 
+/// Sites where leaving the tab or app must not float video automatically.
+enum Grounded {
+    static let prefix = "nofloat."
+
+    static func holds(_ host: String) -> Bool {
+        Store.settings.bool(forKey: prefix + host)
+    }
+
+    static func set(_ on: Bool, for host: String) {
+        if on { Store.settings.set(true, forKey: prefix + host) }
+        else { Store.settings.removeObject(forKey: prefix + host) }
+    }
+}
+
 /// A panel that takes key status without bringing the whole app forward.
 ///
 /// Borderless windows refuse to become key by default, and a window that never

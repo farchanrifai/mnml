@@ -906,11 +906,17 @@ final class Extensions: NSObject, ObservableObject {
     }
 
     /// Its manifest asks to talk to apps on this Mac ("nativeMessaging"),
-    /// required or optional, which WebKit's own grant — given to all, see
-    /// `load` — doesn't say.
+    /// required or optional. WebKit's grant includes nativeMessaging for
+    /// mnml's own shim; .search-added records when mnml put it there.
     static func asksForNative(_ context: WKWebExtensionContext) -> Bool {
-        context.webExtension.requestedPermissions.contains(.nativeMessaging)
-            || context.webExtension.optionalPermissions.contains(.nativeMessaging)
+        let folder = Extensions.folder(for: context.uniqueIdentifier)
+        let added = Set((try? JSONSerialization.jsonObject(with: Data(contentsOf: folder.appendingPathComponent(".search-added")))) as? [String] ?? [])
+        return nativeDeclared(required: context.webExtension.requestedPermissions.contains(.nativeMessaging),
+                              optional: context.webExtension.optionalPermissions.contains(.nativeMessaging), added: added)
+    }
+
+    static func nativeDeclared(required: Bool, optional: Bool, added: Set<String>) -> Bool {
+        (required && !added.contains("nativeMessaging")) || optional
     }
 
     /// Whether this address is a page of an extension other than the one
@@ -1132,13 +1138,6 @@ final class Extensions: NSObject, ObservableObject {
             return context.performCommand(for: event)
         }
         return false
-    }
-
-    /// Right-click items an extension added, for the page's menu.
-    func menuItems(for tab: Tab) -> [NSMenuItem] {
-        guard seen(tab) else { return [] }
-        let adapter = adapter(for: tab)
-        return contexts.values.flatMap { $0.menuItems(for: adapter) }
     }
 }
 

@@ -1146,11 +1146,11 @@ final class Browser: NSObject, ObservableObject {
     /// change your mind.
     func forgetCaptureChoices() {
         for key in Store.settings.dictionaryRepresentation().keys
-        where key.hasPrefix("capture.") {
+        where key.hasPrefix("capture.") || key.hasPrefix(Grounded.prefix) {
             Store.settings.removeObject(forKey: key)
         }
         SiteNotifications.shared.objectWillChange.send()
-        announce("Camera, microphone, location and notification choices forgotten")
+        announce("Site choices forgotten")
     }
 
     /// What was last answered to a page asking where you are, in a test run
@@ -1258,12 +1258,22 @@ final class Browser: NSObject, ObservableObject {
     func clearTabs() {
         let visibleTabIDs = Set(shownSplit.map { [$0.left, $0.right] } ?? activeID.map { [$0] } ?? [])
         let going = tabs.filter { $0.pin == nil && !$0.bench && $0.group == nil }
+        guard !going.isEmpty else { return }
+        let batch = UUID(), was = activeID
+        clearing = batch
+        defer {
+            clearing = nil
+            if let at = ghosts.lastIndex(where: { $0.batch == batch && $0.was == was }) { ghosts[at].front = true }
+        }
+        lastClear = (batch, nil)
         for tab in going where !visibleTabIDs.contains(tab.id) { close(tab) }
         let onScreen = going.filter { visibleTabIDs.contains($0.id) }
         // Already an empty tab in front: that is where Clear leaves you.
         guard !onScreen.isEmpty, !(onScreen.count == 1 && onScreen[0].isBlank) else { return }
         // After the others went, so it can't reuse an empty one among them.
-        newTab()
+        let had = Set(tabs.map(\.id))
+        newTab(bar: false)
+        lastClear = (batch, activeID.flatMap { had.contains($0) ? nil : $0 })
         for tab in onScreen where tab.id != activeID { close(tab) }
     }
 
@@ -1515,6 +1525,10 @@ final class Browser: NSObject, ObservableObject {
     /// Tabs you closed, newest last, so ⌘⇧T can put them back where they were
     /// and the History menu can offer them by name.
     @Published private(set) var ghosts: [Ghost] = []
+    var closedGroups: [UUID: (group: TabGroup, at: Int)] = [:]
+    var closingGroup: UUID?
+    private var clearing: UUID?
+    private var lastClear: (batch: UUID, blank: Tab.ID?)?
 
     struct Ghost: Identifiable, Equatable {
         let id = UUID()
@@ -1524,6 +1538,11 @@ final class Browser: NSObject, ObservableObject {
         /// The group it was in, to go back into if it is still there.
         var group: UUID?
         var at = Date()
+        var was: Tab.ID?
+        var partner: Tab.ID?
+        var onLeft = false
+        var batch: UUID?
+        var front = false
 
         var label: String { title.isEmpty ? Address.pretty(url) : title }
     }
@@ -2392,6 +2411,28 @@ final class Browser: NSObject, ObservableObject {
         typed = tab.isBlank ? tab.draft : ""
     }
 
+    /// ⌘W closes what is in front before the page behind it.
+    func closeFront() {
+        if peekTab != nil { closePeek() }
+        else if closePanel() { return }
+        else if let tab = active { close(tab) }
+    }
+
+    @discardableResult
+    func closePanel() -> Bool {
+        if notesShowing { notesShowing = false }
+        else if newsShowing { newsShowing = false }
+        else if tuning { tuning = false }
+        else if bookmarking { bookmarking = false }
+        else if managing { managing = false }
+        else if bringingIn != nil { bringingIn = nil }
+        else if recalling { recalling = false }
+        else if hoarding { hoarding = false }
+        else if welcoming { welcoming = false }
+        else { return false }
+        return true
+    }
+
     /// ⌘W, or the cross on the tab. Closing the last one leaves a blank tab
     /// behind; closing that blank tab closes the window.
     func close(_ tab: Tab) {
@@ -2509,17 +2550,65 @@ final class Browser: NSObject, ObservableObject {
         // in Safari and Chrome (see Windows.swift).
         if let window = Browsers.lastClosedAt, window > (ghosts.last?.at ?? .distantPast), Browsers.reopenWindow() { return }
         guard let ghost = ghosts.last else { return }
-        reopen(ghost)
+        if let batch = ghost.batch { reopen(batch: batch) } else { reopen(ghost) }
+    }
+
+    var reopenTitle: String {
+        guard let last = ghosts.last, let batch = last.batch,
+              (Browsers.lastClosedAt ?? .distantPast) <= last.at else { return "Reopen Closed Tab" }
+        let count = ghosts.filter { $0.batch == batch }.count
+        return count == 1 ? "Reopen Cleared Tab" : "Reopen \(count) Cleared Tabs"
+    }
+
+    private func reopen(batch: UUID) {
+        let members = ghosts.filter { $0.batch == batch }
+        ghosts.removeAll { $0.batch == batch }
+        var back: [Tab.ID: Tab] = [:]
+        var front: Tab?
+        for ghost in members.reversed() {
+            let tab = Tab(configuration: Web.configuration(space: spaceID))
+            prepare(tab)
+            tab.restore(url: ghost.url, title: ghost.title)
+            tabs.insert(tab, at: min(ghost.index, tabs.count))
+            if let was = ghost.was { back[was] = tab }
+            if ghost.front { front = tab }
+        }
+        for ghost in members {
+            guard let id = ghost.was, let other = ghost.partner,
+                  let left = ghost.onLeft ? back[id] : back[other],
+                  let right = ghost.onLeft ? back[other] : back[id],
+                  let index = tabs.firstIndex(where: { $0.id == left.id }),
+                  index + 1 < tabs.count, tabs[index + 1].id == right.id else { continue }
+            right.partner = left.id
+        }
+        if let front { select(front) }
+        if let clear = lastClear, clear.batch == batch, let id = clear.blank,
+           let blank = tab(id), blank.isBlank, blank.draft.isEmpty, activeID != id { close(blank) }
+        lastClear = nil
+        rememberSession()
     }
 
     /// One of them by name, from the History menu.
     func reopen(_ ghost: Ghost) {
+        if let batch = ghost.batch { reopen(batch: batch); return }
         ghosts.removeAll { $0.id == ghost.id }
         let tab = Tab(configuration: Web.configuration(space: spaceID))
         prepare(tab)
-        if let id = ghost.group, group(id) != nil { tab.group = id }
+        if let id = ghost.group, group(id) == nil, let closed = closedGroups.removeValue(forKey: id) {
+            settling = true
+            var restored = closed.group
+            restored.open = true
+            restored.size = 0
+            groups.insert(restored, at: min(closed.at, groups.count))
+            tab.group = id
+            tabs.insert(tab, at: min(ghost.index, tabs.count))
+            settling = false
+            settleGroups()
+        } else {
+            if let id = ghost.group, group(id) != nil { tab.group = id }
+            tabs.insert(tab, at: min(ghost.index, tabs.count))
+        }
         leaving()
-        tabs.insert(tab, at: min(ghost.index, tabs.count))
         activeID = tab.id
         editing = false
         typed = ""
@@ -2528,8 +2617,19 @@ final class Browser: NSObject, ObservableObject {
 
     private func remember(_ tab: Tab, at index: Int) {
         guard !tab.shy, let url = tab.address else { return }
-        ghosts.append(Ghost(url: url, title: tab.title, index: index, group: tab.group))
-        if ghosts.count > 12 { ghosts.removeFirst() }
+        let pair = split(of: tab.id)
+        ghosts.append(Ghost(url: url, title: tab.title, index: index, group: closingGroup ?? tab.group,
+                            was: tab.id, partner: pair?.other(tab.id), onLeft: pair?.left == tab.id, batch: clearing))
+        var steps = Set<UUID>()
+        let count = ghosts.reduce(0) { total, ghost in
+            guard let batch = ghost.batch else { return total + 1 }
+            return steps.insert(batch).inserted ? total + 1 : total
+        }
+        if count > 12, let oldest = ghosts.first {
+            if let batch = oldest.batch { ghosts.removeAll { $0.batch == batch } }
+            else { ghosts.removeFirst() }
+        }
+        closedGroups = closedGroups.filter { id, _ in ghosts.contains { $0.group == id } }
     }
 
     /// Dragged from one place in the row to another.
@@ -3143,7 +3243,7 @@ final class Browser: NSObject, ObservableObject {
         // On its own, only from a site whose video is the point of the site.
         // A hero background on a studio's home page is a video too, and it
         // followed people around the desktop. ⌘⇧P still lifts from anywhere.
-        if quietly, !Players.knows(tab.address) { return }
+        if quietly, !Players.knows(tab.address) || tab.pageAddress?.host().map(Grounded.holds) == true { return }
         // macOS's own picture-in-picture first, as Safari does (SystemPiP.swift);
         // mnml's floating window where WebKit can't. Only while it plays:
         // WebKit counts a paused video as one it could float, and leaving a

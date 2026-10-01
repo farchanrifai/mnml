@@ -292,6 +292,7 @@ struct SiteCard: View {
             }
             zoom
             sound
+            grounded
             if let host = tab.address?.host(), !host.isEmpty {
                 Separator()
                 if !tab.shy, tab.store.isPersistent, let url = tab.address, let origin = SiteNotifications.origin(url) {
@@ -383,6 +384,14 @@ struct SiteCard: View {
         }
     }
 
+    @ViewBuilder private var grounded: some View {
+        if !tab.shy, browser.prefs.floatsOnLeave || browser.prefs.floatsAway,
+           let url = tab.pageAddress, ["http", "https"].contains(url.scheme?.lowercased()),
+           Players.knows(url), let host = url.host() {
+            Ground(host: host)
+        }
+    }
+
     /// The page's size, remembered for the site (see Tab.rememberZoom), as a
     /// menu puts a control on one of its lines: the name, and the steps at
     /// its end. The number puts it back to the size every site starts at.
@@ -443,6 +452,31 @@ struct SiteCard: View {
             .padding(.trailing, MenuMetrics.trailing)
             .frame(height: MenuMetrics.row)
             .onChange(of: on) { _, value in Autoplay.set(value, for: host) }
+        }
+    }
+
+    private struct Ground: View {
+        let host: String
+        @State private var on: Bool
+
+        init(host: String) {
+            self.host = host
+            _on = State(initialValue: Grounded.holds(host))
+        }
+
+        var body: some View {
+            HStack(spacing: 0) {
+                Text("Don't Float Videos Here")
+                    .font(MenuMetrics.font)
+                    .foregroundStyle(Color(nsColor: .labelColor))
+                    .fixedSize()
+                Spacer(minLength: 24)
+                Switch(on: $on)
+            }
+            .padding(.leading, MenuMetrics.text)
+            .padding(.trailing, MenuMetrics.trailing)
+            .frame(height: MenuMetrics.row)
+            .onChange(of: on) { _, value in Grounded.set(value, for: host) }
         }
     }
 

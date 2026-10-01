@@ -111,18 +111,15 @@ struct Fold: View {
                 // tabs, and the shadow fell from every title and icon rather
                 // than from the row's edge.
                 TabBar(browser: browser)
-                    .background {
-                        Palette.ground
-                            .shadow(color: .black.opacity(0.14), radius: 20, y: 4)
-                    }
-                    .transition(.move(edge: .top))
+                    .transition(.move(edge: .top)
+                        .combined(with: .casting(FoldShadow(y: 4, behind: true))))
             }
             ZStack(alignment: onRight ? .trailing : .leading) {
                 Color.clear.frame(width: 0)
                 if folding, prefs.sidebar, browser.peeking {
                     SideBar(browser: browser, prefs: prefs)
-                        .shadow(color: .black.opacity(0.14), radius: 20, x: onRight ? -4 : 4)
-                        .transition(.move(edge: onRight ? .trailing : .leading))
+                        .transition(.move(edge: onRight ? .trailing : .leading)
+                            .combined(with: .casting(FoldShadow(x: onRight ? -4 : 4))))
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity,
@@ -436,6 +433,30 @@ struct Fold: View {
         }
         layer.add(spring, forKey: "fold")
         CATransaction.commit()
+    }
+}
+
+private struct FoldShadow: ViewModifier {
+    var x: CGFloat = 0
+    var y: CGFloat = 0
+    var behind = false
+    var strength: Double = 1
+
+    func body(content: Content) -> some View {
+        let color = Color.black.opacity(0.14 * strength)
+        if behind {
+            content.background { Palette.ground.shadow(color: color, radius: 20, x: x, y: y) }
+        } else {
+            content.shadow(color: color, radius: 20, x: x, y: y)
+        }
+    }
+}
+
+private extension AnyTransition {
+    static func casting(_ shadow: FoldShadow) -> AnyTransition {
+        var gone = shadow
+        gone.strength = 0
+        return .modifier(active: gone, identity: shadow)
     }
 }
 
