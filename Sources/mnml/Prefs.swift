@@ -144,6 +144,12 @@ final class Preferences: ObservableObject {
     @Published var sleepsTabs: Bool {
         didSet { store.set(sleepsTabs, forKey: "tabs.sleep") }
     }
+    @Published var archivesTabs: Bool {
+        didSet { store.set(archivesTabs, forKey: "tabs.archive") }
+    }
+    @Published var archivePeriod: ArchivePeriod {
+        didSet { store.set(archivePeriod.rawValue, forKey: "tabs.archiveHours") }
+    }
     @Published var tabMemoryProfile: TabMemoryProfile {
         didSet { store.set(tabMemoryProfile.rawValue, forKey: "tabs.memory") }
     }
@@ -419,9 +425,11 @@ final class Preferences: ObservableObject {
     @Published var usesSpaces: Bool {
         didSet { store.set(usesSpaces, forKey: "spaces") }
     }
-    /// "settings", "new tab" and the like, typed alone in the address field,
-    /// reach that part of the app instead of asking a search engine for the
-    /// word (see AddressCommands.swift). Off unless asked for.
+    /// Mixed suggestions in the floating command bar, enabled initially.
+    @Published var commandActions: Bool {
+        didSet { store.set(commandActions, forKey: "command.actions") }
+    }
+    /// Exact commands in the inline address field, off unless asked for.
     @Published var addressCommands: Bool {
         didSet { store.set(addressCommands, forKey: "address.commands") }
     }
@@ -460,6 +468,8 @@ final class Preferences: ObservableObject {
         keywords = store.data(forKey: "search.keywords")
             .flatMap { try? JSONDecoder().decode([Keyword].self, from: $0) } ?? []
         sleepsTabs = store.object(forKey: "tabs.sleep") as? Bool ?? true
+        archivesTabs = store.bool(forKey: "tabs.archive")
+        archivePeriod = ArchivePeriod.read(from: store)
         tabMemoryProfile = store.string(forKey: "tabs.memory").flatMap(TabMemoryProfile.init) ?? .balanced
         mruSwitcher = store.object(forKey: "tabs.mru") as? Bool ?? true
         commandBar = store.object(forKey: "tabs.commandBar") as? Bool ?? true
@@ -517,6 +527,7 @@ final class Preferences: ObservableObject {
         usesSpaces = store.bool(forKey: "spaces")
         // mnml: on unless turned off (upstream: off unless turned on, and on
         // since 27 Sep 2026 for anyone who never touched them).
+        commandActions = store.object(forKey: "command.actions") as? Bool ?? true
         addressCommands = store.bool(forKey: "address.commands")
         let history = store.bool(forKey: "swipe.history")
         holdsHistory = history

@@ -30,7 +30,8 @@ struct Suggestion: Identifiable, Equatable {
 
     /// Distinguish commands and tabs that share a title or URL.
     var id: String {
-        if kind.isCommand { return "command " + key }
+        if case .command(let action) = kind { return "command " + action.identity }
+        if case .search = kind { return "search " + url.absoluteString }
         if let tab { return tab.uuidString }
         if case .visited = kind { return History.identity(for: url) }
         return key

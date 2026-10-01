@@ -18,12 +18,13 @@ struct SettingsPanel: View {
     @State private var hovered: Page?
 
     enum Page: String, CaseIterable, Identifiable {
-        case general, tabs, ai, shortcuts, extensions, passwords, downloads, privacy, about
+        case general, tabs, links, ai, shortcuts, extensions, passwords, downloads, privacy, about
         var id: String { rawValue }
         var title: String {
             switch self {
             case .general: return "General"
             case .tabs: return "Tabs"
+            case .links: return "Links"
             case .ai: return "AI"
             case .shortcuts: return "Shortcuts"
             case .extensions: return "Extensions"
@@ -37,6 +38,7 @@ struct SettingsPanel: View {
             switch self {
             case .general: return "macwindow"
             case .tabs: return "rectangle.split.3x1"
+            case .links: return "arrow.triangle.branch"
             case .ai: return "sparkles"
             case .shortcuts: return "keyboard"
             case .extensions: return "puzzlepiece.extension"
@@ -70,7 +72,8 @@ struct SettingsPanel: View {
         .shadow(color: .black.opacity(0.16), radius: 34, y: 12)
         .onChange(of: page) { _, page in Store.settings.set(page.rawValue, forKey: "settings.page") }
         .onAppear { if browser.appearanceSpace != nil { page = .tabs } }
-        .onChange(of: browser.appearanceSpace) { _, _ in page = .tabs }
+        .onChange(of: browser.appearanceSpace) { _, id in if id != nil { page = .tabs } }
+        .onChange(of: browser.settingsPage) { _, value in page = value }
         .onChange(of: browser.spaces) { _, spaces in
             if let id = browser.appearanceSpace, !spaces.contains(where: { $0.id == id }) { browser.appearanceSpace = nil }
         }
@@ -156,6 +159,7 @@ struct SettingsPanel: View {
                 VStack(alignment: .leading, spacing: 18) {
                     switch page {
                     case .general: general
+                    case .links: LinkRoutesPage(browser: browser)
                     case .tabs:
                         tabs
                     case .shortcuts: ShortcutsPage(browser: browser, store: browser.shortcuts)
@@ -318,6 +322,10 @@ struct SettingsPanel: View {
             Rule()
             Line("Open links from other apps in a small window", "To read and close, or keep with Open in mnml (⌘O)") {
                 Switch(on: $prefs.littleLinks)
+            }
+            Rule()
+            Line("Command bar actions", "Show matching browser actions alongside tabs, history, and search") {
+                Switch(on: $prefs.commandActions)
             }
             Rule()
             Line("Address bar commands", "A word like \"settings\" or \"new tab\", typed alone in the address field, goes there instead of searching for it") {
@@ -519,6 +527,22 @@ struct SettingsPanel: View {
                 }
                 Rule()
             }
+            Line("Auto Archive", "Keep unused loose tabs in Archive. Pins, groups, splits, private pages and active work stay open.") {
+                Switch(on: $prefs.archivesTabs)
+            }
+            if prefs.archivesTabs {
+                Rule()
+                Line("Archive after") {
+                    Picker("Archive after", selection: $prefs.archivePeriod) {
+                        ForEach(ArchivePeriod.allCases) { period in Text(period.title).tag(period) }
+                    }.labelsHidden().pickerStyle(.menu).fixedSize()
+                }
+            }
+            Rule()
+            Line("Archived tabs", "Search and restore pages kept until you delete them.") {
+                Pill("Open Archive") { browser.tuning = false; browser.archiveShowing = true }
+            }
+            Rule()
             Line("Sleep tabs you aren't using", "Automatically releases inactive pages. Open them again to reload. Sound, calls and unsent text stay awake. macOS may still reclaim pages under pressure.") {
                 Switch(on: $prefs.sleepsTabs)
             }

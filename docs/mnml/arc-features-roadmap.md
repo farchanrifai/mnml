@@ -1,12 +1,12 @@
 # mnml: Peek, Commands, Routing, and Auto Archive
 
-Agreed roadmap — 30 September 2026. Status: milestone 1 approved by the user on 1 October 2026 in mnml Test build `202610010049`. Milestone 2 is next; milestones 3–4 have not started.
+Agreed roadmap — 30 September 2026. Status: milestone 1 approved by the user on 1 October 2026 in mnml Test build `202610010049`. Milestone 2 approved by the user on 1 October 2026 in mnml Test build `202610010112`. Milestone 3 approved by the user on 1 October 2026 after reviewing routing and the compact editor in build `202610011425`. All four milestones are implemented; the user authorized bringing them to main on 2 October 2026. Final Archive hands-on review is deferred at the user’s request; all 99 automated checks pass. Handoff is saved and final signed mnml Test bundle `202610011628` is ready for later installation.
 
 ## Summary
 
 Deliver four milestones in order: **integrated Peek and pinned splits → command-bar actions → Air Traffic Control → Auto Archive**.
 
-Each milestone gets a release build in **mnml Test**, automated checks, and hands-on review before promotion. Peek’s acceptance depends on its visible behavior, not compilation alone. Keep implementation isolated from `main`; preserve unrelated work and do not commit, merge, or replace the normal app without authorization.
+Each milestone gets a release build in **mnml Test**, automated checks, and hands-on review before promotion. Peek’s acceptance depends on its visible behavior, not compilation alone. The user authorized source promotion to `main` on 2 October 2026 with Archive hands-on review deferred. Preserve unrelated work; replacing the normal app and pushing require separate authorization.
 
 ## 1. Integrated Peek and Peek → Split
 
@@ -77,7 +77,7 @@ Each milestone gets a release build in **mnml Test**, automated checks, and hand
 
 ### Policy
 
-- Disabled initially. One global setting offers **24 hours, 7 days, or 30 days**; seven days is the initial enabled choice.
+- Disabled initially. One global setting offers **1 hour, 12 hours, 24 hours, 3 days, 7 days, 14 days, or 30 days**; seven days is the initial enabled choice.
 - Archive only loose unpinned HTTP/HTTPS tabs. Exclude grouped tabs, split members, private tabs, test tabs, extension pages, and temporary Peek/Little pages.
 - Protect visible pages in every window, unsent edits, active calls/media, loading pages, ongoing downloads, and pages awaiting a dialog.
 - Reuse existing sleep-protection checks where applicable, but keep archiving distinct from sleeping.
@@ -92,7 +92,7 @@ Each milestone gets a release build in **mnml Test**, automated checks, and hand
 - Restore into the original Space and activate the restored tab. If that Space no longer exists, restore into the current Space with a brief explanation. Routing does not override restoration.
 - Remove an archive entry only after restoration is durably recorded.
 - Persist the archive entry successfully before removing an open tab. Failed writes leave the tab open; recover interrupted operations without losing tabs or duplicating archive records.
-- Manual Archive Tab uses the same eligibility rules. Keep recently closed tabs and Command-Shift-T separate from Archive.
+- Manual Archive Tab uses the same eligibility rules, except an explicit manual action may archive the current visible tab. Keep recently closed tabs and Command-Shift-T separate from Archive.
 
 **Milestone gate:** prove safe restart, interrupted-write recovery, and restoration before enabling it in the normal app.
 

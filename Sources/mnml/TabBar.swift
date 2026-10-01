@@ -1329,6 +1329,8 @@ struct TabMenu: View {
         }
         .disabled(browser.awake(because: tab) != nil)
         Divider()
+        Button("Archive Tab") { browser.archive(tab, manual: true) }
+            .disabled(browser.archiveReason(tab, manual: true) != nil)
         Button("Close Tab", action: close)
         Button("Close Other Tabs") { browser.closeOthers(but: tab) }
             .disabled(browser.tabs.count < 2)

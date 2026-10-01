@@ -104,6 +104,7 @@ enum Browsers {
     static func register(_ browser: Browser) {
         guard !all.contains(where: { $0 === browser }) else { return }
         all.append(browser)
+        ArchiveStore.shared.watch()
         if Front.shared.browser == nil { Front.shared.set(browser) }
         // Extensions see every window (windows.getAll, a tab's windowId).
         if #available(macOS 15.4, *) { Extensions.shared.attach(browser) }
@@ -310,6 +311,14 @@ enum Browsers {
         // Frozen before it goes to the Disk queue.
         let snapshot = records
         Disk.write(file, now: now) { try? JSONEncoder().encode(snapshot) }
+    }
+
+    static func commit() throws {
+        guard let primary else { throw CocoaError(.fileWriteUnknown) }
+        var records = [record(of: primary, rows: false)]
+        records[0].rows = [:]
+        records += saved.dropFirst().map { record(of: $0, rows: true) }
+        try Disk.commit(file, data: JSONEncoder().encode(records))
     }
 
     /// Soon, not now: a window being dragged moves many times a second.

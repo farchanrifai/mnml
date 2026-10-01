@@ -191,6 +191,8 @@ struct MnmlApp: App {
                 Divider()
                 item("history.show")
                 item("history.downloads")
+                item("history.archive")
+                item("history.restoreArchive")
                 Divider()
                 item("history.clearData")
                 item("history.clear")
@@ -593,6 +595,9 @@ struct ContentView: View {
         if browser.recalling {
             sheet { HistoryPanel(browser: browser) } close: { browser.recalling = false }
         }
+        if browser.archiveShowing {
+            sheet { ArchivePanel(browser: browser) } close: { browser.archiveShowing = false }
+        }
         if browser.hoarding {
             sheet { DownloadsPanel(browser: browser, loot: browser.loot) }
                 close: { browser.hoarding = false }
@@ -769,7 +774,7 @@ struct ContentView: View {
     private func handBack() {
         guard !browser.fieldShowing, browser.editingTab == nil else { return }
         DispatchQueue.main.async {
-            guard let web = browser.active?.web, let window = web.window else { return }
+            guard let web = browser.pageTarget?.web, let window = web.window else { return }
             window.makeFirstResponder(web)
         }
     }
@@ -1163,12 +1168,17 @@ struct ContentView: View {
         // Escape puts the page back. On a blank tab there is no page to put
         // back, so it belongs to whatever else wants it.
         if event.keyCode == 53 {
+            if browser.archiveShowing { browser.archiveShowing = false; return true }
             if browser.editingTab != nil {
                 browser.cancelTabEdit()
                 return true
             }
             if !browser.chosen.isEmpty {
                 browser.chosen = []
+                return true
+            }
+            if browser.peekTab != nil, browser.editing {
+                browser.dismiss()
                 return true
             }
             if let peek = browser.peekTab {
@@ -1261,7 +1271,7 @@ struct ContentView: View {
         // the caret being in something editable, in any frame.
         if event.keyCode == 36 || event.keyCode == 76,
            flags.intersection([.command, .shift, .option, .control]) == .command,
-           let peek = browser.peekTab, !peek.typing, peek.built?.inputContext == nil {
+           let peek = browser.peekTab, !browser.fieldShowing, !peek.typing, peek.built?.inputContext == nil {
             browser.keepPeek()
             return true
         }
@@ -1366,7 +1376,7 @@ struct ContentView: View {
 
     private var overReasons: String {
         let flags: [(Bool, String)] = [
-            (browser.tuning, "tuning"), (browser.recalling, "recalling"), (browser.hoarding, "hoarding"),
+            (browser.archiveShowing, "archive"), (browser.tuning, "tuning"), (browser.recalling, "recalling"), (browser.hoarding, "hoarding"),
             (browser.bookmarking, "bookmarking"), (browser.welcoming, "welcoming"), (browser.managing, "managing"),
             (browser.reviewing, "reviewing"), (browser.finding, "finding"), (browser.bookmarksOpen, "bookmarksOpen"),
             (browser.veiling, "veiling"), (browser.summoning, "summoning"), (browser.editingTab != nil, "editingTab"),
@@ -1377,7 +1387,7 @@ struct ContentView: View {
 
     /// No panel, field, bar or mode is up over the page.
     private var nothingOver: Bool {
-        !browser.tuning && !browser.recalling && !browser.hoarding &&
+        !browser.archiveShowing && !browser.tuning && !browser.recalling && !browser.hoarding &&
             !browser.bookmarking && !browser.welcoming && !browser.managing &&
             !browser.reviewing && !browser.finding && !browser.bookmarksOpen &&
             !browser.veiling && !browser.summoning && browser.editingTab == nil &&

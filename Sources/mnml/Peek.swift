@@ -19,19 +19,21 @@ extension Browser {
     }
 
     /// All dismissal paths share the same draft protection, including switching Spaces.
-    func closePeek(then: (() -> Void)? = nil) {
+    func closePeek(then: (() -> Void)? = nil) { closePeek(cancelled: nil, then: then) }
+
+    func closePeek(cancelled: (() -> Void)?, then: (() -> Void)?) {
         guard let page = peekTab else { then?(); return }
         guard !checkingPeek, !peekClosing else { return }
         checkingPeek = true
         page.unsaved(conservative: true) { [weak self, weak page] unsaved in
-            guard let self, let page, self.peekTab === page else { return }
-            self.checkingPeek = false
+            guard let self, let page, self.peekTab === page else { cancelled?(); return }
             let dismiss = {
                 guard self.peekTab === page else { return }
+                self.checkingPeek = false
                 self.closeFind()
                 // The native container closes the panel and backdrop together.
                 self.peekDismissal = { [weak self, weak page] in
-                    guard let self, let page, self.peekTab === page else { return }
+                    guard let self, let page, self.peekTab === page else { cancelled?(); return }
                     var transaction = Transaction()
                     transaction.disablesAnimations = true
                     withTransaction(transaction) {
@@ -46,7 +48,7 @@ extension Browser {
                 self.peekClosing = true
             }
             if unsaved {
-                Ask.sure("Close Preview?", detail: "This preview contains unsent form entries.", confirm: "Close Preview", then: dismiss)
+                Ask.sure("Close Preview?", detail: "This preview contains unsent form entries.", confirm: "Close Preview", cancelled: { self.checkingPeek = false; cancelled?() }, then: dismiss)
             } else { dismiss() }
         }
     }

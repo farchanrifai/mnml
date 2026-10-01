@@ -165,6 +165,10 @@ struct Command: Identifiable {
 
     static let all: [Command] = {
         var list: [Command] = [
+            Command("history.archive", "Open Archive", .history, nil, "Searches archived tabs.") { $0.archiveShowing = true },
+            Command("tabs.archive", "Archive Tab", .tabs, nil, "Archives this tab if no protected activity is running.") { if let tab = $0.active { $0.archive(tab, manual: true) } },
+            Command("history.restoreArchive", "Restore Last Archived Tab", .history, nil, "Restores the most recently archived tab.") { AddressCommand.restoreArchived.run(on: $0) },
+            Command("app.linkRouting", "Link Routing…", .app, nil, "Opens link routing settings.") { AddressCommand.routingSettings.run(on: $0) },
             Command("app.settings", "Settings…", .app, KeyCombo(","), "Opens Settings, or closes it.") { $0.tuning.toggle() },
             Command("app.passwords", "Passwords…", .app, KeyCombo("l", option: true), "Your saved passwords, shown with Touch ID.") { $0.managing = true },
             Command("app.welcome", "Welcome…", .app, nil, "The first-launch walk-through again.") { $0.welcoming = true },
@@ -234,6 +238,21 @@ struct Command: Identifiable {
             .when("tabs.unpin", "Unpin Tab", .tabs, nil, "Puts a pinned tab back in the row.") { browser in
                 guard let tab = browser.active, tab.pin != nil else { return false }
                 browser.unpin(tab)
+                return true
+            },
+            .when("tabs.split", "Split Page", .tabs, nil, "Choose a tab to open beside the current page.") { browser in
+                guard AddressCommand.splitTab.available(in: browser) else { return false }
+                AddressCommand.splitTab.run(on: browser)
+                return true
+            },
+            .when("tabs.unsplit", "Separate Split", .tabs, nil, "Keep both pages as separate tabs.") { browser in
+                guard AddressCommand.separateSplit.available(in: browser) else { return false }
+                AddressCommand.separateSplit.run(on: browser)
+                return true
+            },
+            .when("file.splitPeek", "Split Peek", .file, nil, "Keep the preview beside its source page.") { browser in
+                guard AddressCommand.splitPeek.available(in: browser) else { return false }
+                browser.splitPeek()
                 return true
             },
             .when("tabs.letter", "Change Letter", .tabs, nil, "The letter a pinned tab shows.") { browser in

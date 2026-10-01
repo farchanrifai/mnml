@@ -58,6 +58,10 @@ enum Session {
         }
     }
 
+    static func commit(space: UUID, _ shape: Shape) throws {
+        try Disk.commit(file(space), data: JSONEncoder().encode(shape))
+    }
+
     static func erase(space: UUID) {
         guard space != Space.firstID else { return }
         try? FileManager.default.removeItem(at: file(space))

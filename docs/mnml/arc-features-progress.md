@@ -3,8 +3,11 @@
 ## Location and boundaries
 
 - Worktree: `/Users/farchan/.codex/worktrees/arc-features/search-browser`.
-- Main checkout and the normal `/Applications/mnml.app` remain unchanged.
-- Work is uncommitted. The approved roadmap is `arc-features-roadmap.md`.
+- Promotion to the main checkout was authorized by the user on 2 October 2026. The normal `/Applications/mnml.app` remains unchanged.
+- Branch: `codex/arc-features`. Approved Peek checkpoint: `10103dc`.
+- Command-bar actions, routing, Archive and final refinements are complete and included in the main promotion. The approved roadmap is `arc-features-roadmap.md`.
+- Final automated suite: 99 tests passed, zero failures. Final Archive hands-on review is deferred at the user's request.
+- Latest installed test build: `202610011615`. Final signed bundle: `build/mnml Test.app`, build `202610011628`, with last-use and keyboard fixes. Compilation and signature verification passed; it is ready for later installation.
 
 ## Milestone 1: Peek and pinned splits
 
@@ -29,7 +32,7 @@ Validation:
 
 ## Next action
 
-Incorporate the user's concrete Peek feedback. Retest changed behavior and update mnml Test. Then follow the remaining roadmap in order: commands, routing, archive.
+Implementation is complete and the user authorized promotion to main on 2 October 2026. Install the final test bundle and perform the deferred Archive review when ready; that review remains outstanding. No push or normal-app replacement is included.
 
 ## October 1 animation correction
 
@@ -76,3 +79,58 @@ Incorporate the user's concrete Peek feedback. Retest changed behavior and updat
 ## October 1 milestone 1 acceptance
 
 - User approved Peek: “ok cool. all good. commit and procedd to next step”. Milestone 1 is accepted in mnml Test build `202610010049`. Commit the isolated worktree changes, then implement command-bar actions as milestone 2. Main and the normal app remain unchanged.
+
+## October 1 milestone 2: command-bar actions
+
+- Approved Peek milestone committed as `10103dc` on the isolated `codex/arc-features` branch. Milestone 2 changes remain uncommitted pending review.
+- Extended existing `AddressCommand`, `Suggestion`, Omnibox, and shortcut registry. Actions, current-window/current-Space tabs, history, explicit URL, and web search share a ranked list. URL intent stays first; exact matches beat prefixes and word matches; exact actions win ties. Return takes the selected or first result; search remains available. Empty input and Cmd-K retain recent-tab behavior.
+- Added applicable pin/unpin, split picker/separate, Open Peek as Tab/Split Peek, and named Space move/switch actions. Operations revalidate availability. Move reuses existing sign-in/form protection and leaves the current Space selected. Action icons, Space names, and configured shortcuts appear in rows; split actions are configurable in Shortcuts.
+- Added default-on Command bar actions setting. Existing inline exact commands remain independently opt-in. Search/tab row identities are distinct and Space actions use stable destination IDs, including same-named Spaces.
+- Escape puts away a command bar over Peek first; Command-Return in its field does not prematurely promote Peek. Focus returns to the preview after command-bar dismissal.
+- Routing settings and Archive commands will be wired when their real panels ship in milestones 3 and 4; no placeholders are shown.
+- Full suite passed (85 tests); final focused command-bar checks passed (10), including ranking, URL/search choice, first-tab switching without duplication, pin/private applicability, split picker/separation, live Peek promotion, Space move/switch, disabled preferences, and empty/recent-tab lists. `git diff --check` passed.
+- Build `202610010112` installed and opened in mnml Test; installed signature verified. Keyboard and visual review in the running mnml Test app remain pending because screen capture is unavailable. Do not proceed to routing before milestone 2 review.
+
+## October 1 milestone 2 acceptance and routing
+
+- User approved command-bar actions: “ok i think its working good”. Milestone 2 accepted in mnml Test build `202610010112`; proceed to external-link routing.
+- Added local domain rules in Settings → Links, with enabled state, subdomain scope, stable destination Space IDs, editing and deletion. Spaces off suspends routing.
+- Incoming web URLs match whole normalized domains before choosing the destination or Little window. Matching arrivals always create new tabs after a synchronous Space switch, using the destination website data store. Typed/restored/internal URLs bypass routing. Deleted Spaces remove their rules.
+- Launch-time and live arrivals share a queued path; Peek draft checks and closing complete before delivery. Cancelling its form prompt cancels that arrival and permits later queued links. Installed test copies accept real external events; hidden probes remain isolated.
+- Routing settings is now a command-bar action with a configurable shortcut. Final full suite passed: 90 tests, zero failures in a fresh probe namespace. Existing UpstreamSync pin checks fail when reusing an old probe namespace because they retain saved pins; they pass in a clean namespace. `git diff --check` passed. Release build `202610011025` compiled and its bundle signature verified. After the user quit mnml Test, build `202610011025` was installed and opened; installed version and bundle signature verified. Live routing review remains pending. Review Settings → Links, external app delivery to a Space with separate accounts, unmatched Little-window fallback, and launch-time/burst arrivals before proceeding to Auto Archive.
+
+## October 1 routing UI refinement
+
+- User confirmed routing works and requested editor polish before continuing. Existing-rule editing now replaces its own card, headed “Edit Rule” with the saved domain; new rules use “New Rule”.
+- Reused settings rows and dividers for aligned domain, destination, scope and enabled controls. Save Changes and Add Rule distinguish the two operations; validation errors appear inside the editor. Cancel restores the saved row without writing the draft.
+- Routing behavior is unchanged. Release build `202610011407` compiled and its bundle signature verified; `git diff --check` passed. After the user quit mnml Test, build `202610011407` was installed and opened; installed version and signature verified. Test-app visual review remains pending; Auto Archive remains gated on this refinement.
+
+## October 1 compact routing editor
+
+- User requested less space and simpler spacing after reviewing the editor screenshot. Replaced full-width settings rows and separators with one compact form: labelled domain and destination fields share a row, labelled checkboxes share the next, and Cancel/Save sit together at the bottom right. Helper explanations remain as tooltips. Existing rules still edit in place with an Edit Rule heading.
+- Routing logic unchanged. Build `202610011425` compiled and its bundle signature verified; `git diff --check` passed. After the user confirmed quitting, build `202610011425` was installed and opened; installed version and signature verified. User visual review remains pending.
+
+## October 1 routing acceptance and Auto Archive
+
+- User approved routing and its compact editor: “Ok cool, lets proceed to next step”. Milestone 3 accepted in build `202610011425`.
+- Auto Archive is off initially, with 24 hours, 7 days (initial enabled choice), and 30 days. Checks run shortly after launch, on wake and every five minutes. Manual archiving explicitly permits the current tab; automatic archiving protects every window’s visible tabs. Both protect pins, groups, split members, private/temporary pages, calls/media, downloads, forms and dialogs.
+- Local atomic archive metadata is committed before removing a tab. Durable retired tab IDs filter stale sessions following an interrupted archive, even after an entry is deleted or the Archive cleared. Archive restoration records its new tab ID before opening, commits the destination window session before deleting the archive entry, reuses pending restored IDs on retry, and reconciles durable restorations at launch. Unreadable archive files are preserved and block writes.
+- Searchable Archive panel includes original Space, date, restore, delete and confirmed Clear. Restoring with an unavailable or suspended original Space uses the current Space with an explanation. No routing, snapshots or cookies are copied. Archive actions are available in command suggestions and configurable shortcuts; context menus offer manual Archive Tab. Recently Closed remains separate.
+- Full regression suite passed: 97 tests, zero failures. Seven focused Archive checks cover failed storage, cutoff boundaries, exclusions, Recently Closed separation, stale-session filtering, interrupted restore recovery, stable retry identity, deleted-Space fallback, corrupt-file preservation and failed deletion. A live WebKit integration check injects protected, unavailable and clean form-monitor outcomes and verifies each result through actual asynchronous page checks. Legacy source IDs are checkpointed before archival. `git diff --check` passed. Release build `202610011550` compiled and its bundle signature verified; after the user confirmed quitting, it was installed and opened in mnml Test; installed version and signature verified. User review remains pending. Live review should cover manual archive/restore, original and missing Spaces, protected form/media pages, panel search and Clear confirmation, and restart persistence. Screen capture remains unavailable; no live visual claim or normal-app promotion.
+
+## October 1 additional inactivity periods
+
+- User clarified frequency means inactivity periods. Added 1 hour, 12 hours, 3 days and 14 days alongside 24 hours, 7 days and 30 days. The Settings picker and cutoff use one shared list; seven days remains the initial choice. Existing day-based selections migrate without changing the selected period. The periodic check remains every five minutes.
+- All eight Archive checks passed, including migration, hourly cutoff values, invalid-value fallback, and the existing safety/recovery checks. `git diff --check` passed. Release build `202610011615` compiled and its bundle signature verified. Build `202610011615` installed and opened in mnml Test; installed version and signature verified. Final Archive review is the remaining roadmap gate.
+
+## October 1 final implementation pass
+
+- User deferred hands-on testing and asked to finish remaining items. All four milestones are implemented; Archive review is deferred, not marked as accepted.
+- Closed a last-use bookkeeping gap: leaving a Space, leaving a visible split, separating it, and saving on quit now refresh both visible members before persistence. This avoids treating a just-viewed tab as old enough to archive. Tabs being renamed are protected. Escape dismisses Archive before any underlying Peek.
+- Final regression checks passed: 99 tests, zero failures; `git diff --check` passed. Final test bundle `202610011628` compiled and its signature verified, without closing the running app because the user deferred hands-on testing. It is ready for later installation. Remaining review later: Archive search/restore/delete/Clear; restart persistence; protected media/forms/downloads across windows; original/deleted Space restoration; inactivity menu. No normal-app promotion, merge or push.
+
+## October 2 main promotion
+
+- User explicitly requested bringing the Arc features to main. Commit the remaining implementation and fast-forward main from the shared base, preserving the original saved roadmap outside the checkout.
+- Peek, command actions and routing were accepted in mnml Test. Archive hands-on review remains deferred; auto archive stays disabled initially.
+- Final feature sources passed 99 automated checks and release/signature validation. Promotion includes source and documentation only; no push or replacement of the normal installed app.

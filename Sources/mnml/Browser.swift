@@ -104,7 +104,7 @@ final class Browser: NSObject, ObservableObject {
             }
             linkStatus.dismiss()
             if let old = oldValue, let tab = tabs.first(where: { $0.id == old }) {
-                tab.touch()
+                touchShownTabs(old)
                 // Kept for ⌃Tab and the column's hover preview alike.
                 tabSwitcher.rememberPreview(of: tab)
             }
@@ -1065,6 +1065,7 @@ final class Browser: NSObject, ObservableObject {
         get { recallMode != nil }
         set { recallMode = newValue ? .history : nil }
     }
+    @Published var archiveShowing = false
     @Published var hoarding = false
     @Published var recallHunt = ""
 
@@ -1430,6 +1431,11 @@ final class Browser: NSObject, ObservableObject {
             writeSession(now: true)
             return
         }
+        if prefs.addressCommands, let command = AddressCommand.matching(tabDraft, in: self) {
+            cancelTabEdit()
+            command.run(on: self)
+            return
+        }
         guard let url = destination(for: tabDraft) else {
             // Stay put and say so, rather than quietly throwing the edit away.
             refusals += 1
@@ -1786,7 +1792,7 @@ final class Browser: NSObject, ObservableObject {
     /// The pins are every window's (see Pins.swift): a window new to this
     /// space has them too, before an empty tab.
     func restoreSession() {
-        let saved = readRow(spaceID)
+        let saved = ArchiveStore.shared.filtered(readRow(spaceID))
         // Restore mnml's chat, split and group state before reconciling the
         // pins shared with other windows.
         settling = true
@@ -2229,10 +2235,14 @@ final class Browser: NSObject, ObservableObject {
     /// Its window closed for good, with others open: every page let go.
     func closeAll() {
         if floating != nil || systemPiP != nil { land() }
+        let pendingPeek = peekDismissal
         peekTab?.close()
         peekTab = nil
+        checkingPeek = false
         peekClosing = false
         peekDismissal = nil
+        // Release an external arrival waiting on a window that just closed.
+        pendingPeek?()
         peekOrigin = nil
         for tab in tabs + parkedTabs { tab.close() }
         parked = [:]
@@ -2288,7 +2298,14 @@ final class Browser: NSObject, ObservableObject {
     /// The app is quitting. Whatever the debounce above was waiting out, it
     /// stops waiting: this writes straight to disk, on the thread asking to
     /// quit, before there is a process left to finish the wait on its behalf.
+    func touchShownTabs(_ id: Tab.ID?) {
+        guard let id else { return }
+        tab(id)?.touch()
+        if let other = split(of: id)?.other(id) { tab(other)?.touch() }
+    }
+
     func flushSession() {
+        touchShownTabs(activeID)
         writeSession(now: true)
     }
 
@@ -3022,7 +3039,7 @@ final class Browser: NSObject, ObservableObject {
     /// on screen: tabs with an address and no page yet, which cost next to
     /// nothing until one is looked at (see Spaces.swift).
     func loadRow(_ space: UUID) -> Parked {
-        let saved = readRow(space)
+        let saved = ArchiveStore.shared.filtered(readRow(space))
         let savedGroups = saved.groups ?? []
         var row: [Tab] = []
         for entry in saved.tabs {
@@ -3081,6 +3098,16 @@ final class Browser: NSObject, ObservableObject {
     func placeForNew() -> Int {
         guard let here = tabs.firstIndex(where: { $0.id == activeID }) else { return tabs.count }
         return max(here + 1, pinnedCount)
+    }
+
+    /// Archive bypasses the recently-closed stack; its entry is already durable.
+    func removeArchivedTab(_ tab: Tab, space: UUID) {
+        if space == spaceID {
+            tabs.removeAll { $0 === tab }
+            if activeID == tab.id {
+                if let next = tabs.last { select(next) } else { activeID = nil; newTab(bar: false) }
+            }
+        } else { parked[space]?.tabs.removeAll { $0 === tab } }
     }
 
     /// A tab made outside the row — a peek being kept — put in it at `index`.
@@ -3399,7 +3426,7 @@ final class Browser: NSObject, ObservableObject {
         }
         // ⌘T's bar: the pages already open first, so naming one goes back
         // to it; on an empty field, only those.
-        let open = opening ? openPages(matching: typed) : []
+        let open = (opening || prefs.commandActions) ? openPages(matching: typed) : []
 
         guard !typed.trimmingCharacters(in: .whitespaces).isEmpty else {
             offers = open
@@ -3412,14 +3439,12 @@ final class Browser: NSObject, ObservableObject {
         let site = prefs.searchesSites && !summoning ? SiteSearch.match(typed) : nil
         if siteOffer != site { siteOffer = site }
 
-        // Three places and, if it can't be a place, a search. No open pages:
-        // ⌘K exists for those, and mixing them in here made the list long
-        // enough that reading it cost more than typing the address would have.
+        // Mix current tabs, history and actions, retaining a search alternative.
         var list = open
         let places = Set(open.map(\.url))
         list += history.suggestions(for: typed, limit: 3).filter { !places.contains($0.url) }
-        // Last in the list, and only when what was typed cannot be a place.
-        if !typed.isEmpty, Address.url(from: typed) == nil {
+        // Search remains an explicit choice even when the input is a URL.
+        if !typed.isEmpty, prefs.commandActions || Address.url(from: typed) == nil {
             if let (keyword, rest) = Keyword.match(typed, in: prefs.keywords),
                let asked = Engine.url(for: rest, template: keyword.template) {
                 list.append(Suggestion(key: typed, title: keyword.name, url: asked, kind: .search))
@@ -3432,13 +3457,21 @@ final class Browser: NSObject, ObservableObject {
         // First, not last: typing "settings" to reach Settings is the whole
         // point, and it would otherwise sit under a search for the word.
         let command = prefs.addressCommands ? AddressCommand.matching(typed, in: self) : nil
-        if let command { list.insert(.command(command), at: 0) }
+        if prefs.commandActions {
+            list += AddressCommand.suggestions(for: typed, in: self)
+            if let url = Address.url(from: typed) {
+                list.insert(Suggestion(key: typed, title: "Open Address", url: url, kind: .known), at: 0)
+            }
+            var seen = Set<String>()
+            let ranked = CommandRank.sorted(list, for: typed).filter { seen.insert($0.id).inserted }
+            list = Array(ranked.filter { $0.kind != .search }.prefix(7)) + ranked.filter { $0.kind == .search }
+        } else if let command { list.insert(.command(command), at: 0) }
         offers = list
         // Neither a page already open nor a command has an address to
         // complete towards. And with a command on top, Return runs it: a
         // grey ending in the field ("history" finishing as history.com)
         // would promise a place Return doesn't go to.
-        ending = command != nil ? nil
+        ending = prefs.commandActions || command != nil ? nil
             : history.completion(for: typed, among: offers.filter { $0.kind != .open && !$0.kind.isCommand })
         // A row that was picked stops being the right row the moment the
         // question changes.
@@ -3455,7 +3488,10 @@ final class Browser: NSObject, ObservableObject {
             .filter { tab in
                 guard !needle.isEmpty else { return true }
                 let address = tab.address.map { Address.pretty($0) } ?? ""
-                return tab.label.lowercased().contains(needle) || address.contains(needle)
+                if prefs.commandActions {
+                    return CommandRank.match(needle, text: tab.label) != nil || CommandRank.match(needle, text: address) != nil
+                }
+                return tab.label.lowercased().contains(needle) || address.lowercased().contains(needle)
             }
             .sorted { $0.touched > $1.touched }
             .prefix(needle.isEmpty ? 6 : 3)
@@ -3476,9 +3512,12 @@ final class Browser: NSObject, ObservableObject {
     /// same question but must not share an answer: a list that appears under a
     /// resting cursor would otherwise rewrite the field before you had moved.
     func take(_ offer: Suggestion) {
-        summoning = false
         let fresh = opening
+        summoning = false
         opening = false
+        editing = false
+        typed = ""
+        picked = nil
         if case .command(let command) = offer.kind {
             command.run(on: self)
         } else if let id = offer.tab, let tab = tabs.first(where: { $0.id == id }) {
@@ -3486,11 +3525,8 @@ final class Browser: NSObject, ObservableObject {
         } else if fresh {
             _ = open(offer.url, foreground: true)
         } else {
-            (active ?? tabs.first)?.go(to: offer.url)
+            (pageTarget ?? tabs.first)?.go(to: offer.url)
         }
-        editing = false
-        typed = ""
-        picked = nil
     }
 
     /// A backspace means the ending was not wanted. Recomputing it on the very
@@ -3595,6 +3631,10 @@ final class Browser: NSObject, ObservableObject {
             opening = false
             editing = false
             newTab(bar: false)
+            return
+        }
+        if !aside, prefs.commandActions, let chosen = picked.flatMap({ offers.indices.contains($0) ? offers[$0] : nil }) ?? offers.first {
+            take(chosen)
             return
         }
         // The row the arrow keys chose, or else the top one: a command is

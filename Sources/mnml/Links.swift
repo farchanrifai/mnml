@@ -10,7 +10,9 @@ import MediaPlayer
 
 final class Links: NSObject, NSApplicationDelegate {
     /// Where an address goes once there is somewhere for it to go.
-    private static var deliver: ((URL) -> Void)?
+    private static var deliver: ((URL, @escaping () -> Void) -> Void)?
+    private static var delivering = false
+    private static var deliveryReady = false
     /// Addresses that arrived first.
     private static var waiting: [URL] = []
     /// The window in front's, or the first one's, once there is one.
@@ -125,11 +127,11 @@ final class Links: NSObject, NSApplicationDelegate {
     }
 
     @objc private func handle(getURL event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
-        // A test run takes nothing from outside it: an address from another
-        // app would bring a window forward. The bench hands links in itself.
-        guard !Store.testing else { return }
+        // Hidden probes ignore external events; the installed test copy accepts
+        // them so real delivery can be reviewed without changing the main app.
+        guard !Store.testing || Store.testCopy else { return }
         guard let text = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
-              let url = URL(string: text), url.scheme?.lowercased().hasPrefix("http") == true
+              let url = URL(string: text), ["http", "https"].contains(url.scheme?.lowercased() ?? "")
         else { return }
         Links.take(url)
     }
@@ -139,8 +141,8 @@ final class Links: NSObject, NSApplicationDelegate {
     /// once Search is the Mac's browser (it says it can open them, see
     /// build.sh), which this used to drop without a word.
     func application(_ application: NSApplication, open urls: [URL]) {
-        guard !Store.testing else { return }
-        for url in urls where url.isFileURL || url.scheme?.lowercased().hasPrefix("http") == true {
+        guard !Store.testing || Store.testCopy else { return }
+        for url in urls where url.isFileURL || ["http", "https"].contains(url.scheme?.lowercased() ?? "") {
             Links.take(url)
         }
     }
@@ -152,7 +154,7 @@ final class Links: NSObject, NSApplicationDelegate {
         // A test run started hidden stays so: another launch of the same app
         // (`open -n` of a second probe) can reach it as a reopen, and nothing
         // is brought back, made or brought forward for it.
-        guard !Store.testing else { return false }
+        guard !Store.testing || Store.testCopy else { return false }
         if !flag { Browsers.ensureWindow() }
         return true
     }
@@ -178,43 +180,48 @@ final class Links: NSObject, NSApplicationDelegate {
     /// The browser, once it has a window. Anything that came earlier is
     /// handed over now — but none of it before the window is on screen.
     ///
-    /// Five addresses at launch used to mean five web views built before the
-    /// first frame, and a window that took a second to appear instead of a
-    /// third of one. Now the window comes first; the first page goes into
-    /// the blank tab that is already there, and the others fill in behind
-    /// it, a few frames apart, in the order they came.
+    /// The window appears before delivery starts. A burst is delivered in
+    /// order, a few frames apart, using the same routing as a live arrival.
     @MainActor
     static func hand(to browser: Browser) {
         // Only the first window's arrival starts the delivery; the others
         // find it running.
         guard deliver == nil else { return }
-        deliver = { url in
-            // The window in front's browser, or a window brought back for it:
-            // the link lands where you are, not in the first window.
-            let browser = Browsers.ensureWindow()
-            // In a small window of its own, for whoever chose that.
-            if browser.prefs.littleLinks {
-                LittleWindow.show(url, for: browser)
-                return
-            }
-            browser.arrive(url)
-            // Put away in the Dock, it stayed there: bringing a window to the
-            // front doesn't take it out (#95).
-            if let window = browser.window, window.isMiniaturized { window.deminiaturize(nil) }
-            browser.window?.makeKeyAndOrderFront(nil)
-            comeForward()
+        deliver = { url, done in
+            receive(url, in: Browsers.ensureWindow(), done: done)
         }
-        let early = waiting
-        waiting = []
-        guard let first = early.first else { return }
-        onceShown { [weak browser] in
-            browser?.arrive(first)
-            comeForward()
-            for (n, url) in early.dropFirst().enumerated() {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.15 * Double(n + 1)) { [weak browser] in
-                    browser?.open(url, foreground: false, atEnd: true, mayWait: true)
-                }
-            }
+        // Launch-time and live arrivals share the same routing and Little fallback.
+        onceShown { deliveryReady = true; drain() }
+    }
+
+    @MainActor private static func receive(_ url: URL, in browser: Browser, done: @escaping () -> Void) {
+        // A previous dismissal owns the animation or draft sheet; wait for it.
+        if browser.checkingPeek || browser.peekClosing {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { receive(url, in: browser, done: done) }
+            return
+        }
+        if LinkRoutes.shared.destination(for: url, spaces: browser.spaces, enabled: browser.prefs.usesSpaces) != nil,
+           browser.peekTab != nil {
+            browser.closePeek(cancelled: done) { receive(url, in: browser, done: done) }
+            return
+        }
+        if !browser.routeExternal(url) {
+            if browser.prefs.littleLinks { LittleWindow.show(url, for: browser); done(); return }
+            browser.arrive(url)
+        }
+        if let window = browser.window, window.isMiniaturized { window.deminiaturize(nil) }
+        browser.window?.makeKeyAndOrderFront(nil)
+        comeForward()
+        done()
+    }
+
+    @MainActor private static func drain() {
+        guard deliveryReady, !delivering, let deliver, !waiting.isEmpty else { return }
+        delivering = true
+        let url = waiting.removeFirst()
+        deliver(url) {
+            // Give the window a frame between a burst's arrivals.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { delivering = false; drain() }
         }
     }
 
@@ -242,7 +249,7 @@ final class Links: NSObject, NSApplicationDelegate {
     @MainActor
     private static func comeForward() {
         // Never a test run's: a probe started hidden stays off every screen.
-        guard !Store.testing else { return }
+        guard !Store.testing || Store.testCopy else { return }
         guard #available(macOS 14, *) else {
             NSApp.activate(ignoringOtherApps: true)
             return
@@ -258,11 +265,9 @@ final class Links: NSObject, NSApplicationDelegate {
     static func arrived(_ url: URL) { take(url) }
 
     private static func take(_ url: URL) {
-        if let deliver {
-            deliver(url)
-        } else {
-            waiting.append(url)
-            DispatchQueue.main.async { summon() }
+        waiting.append(url)
+        DispatchQueue.main.async {
+            if deliver != nil { drain() } else { summon() }
         }
     }
 

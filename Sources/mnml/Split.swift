@@ -146,6 +146,7 @@ extension Browser {
     /// The two halves go back to being two tabs, next to each other.
     func unsplit(_ id: Tab.ID) {
         guard let split = split(of: id) else { tab(id)?.partner = nil; return }
+        if split.has(activeID) { touchShownTabs(activeID) }
         tab(split.right)?.partner = nil
         objectWillChange.send()
         rememberSession()
