@@ -1762,6 +1762,11 @@ final class Browser: NSObject, ObservableObject {
         if prefs.usesSpaces { preloadSpaces() }
     }
 
+    deinit {
+        dozing?.invalidate()
+        pressure?.cancel()
+    }
+
     /// The floating video's buttons answer the window whose video it is:
     /// set as it comes out of one (see lift).
     private func ownFloater() {
@@ -1816,6 +1821,7 @@ final class Browser: NSObject, ObservableObject {
         // pins shared with other windows.
         settling = true
         groups = saved.groups ?? []
+        var restored: [Tab] = []
         for entry in saved.tabs {
             guard let url = URL(string: entry.url) else { continue }
             let tab = Tab(configuration: Web.configuration(space: spaceID), id: entry.id ?? UUID())
@@ -1831,11 +1837,11 @@ final class Browser: NSObject, ObservableObject {
                 chats[tab.id] = chat
                 if entry.asking == true { chatting.insert(tab.id) }
             }
-            tab.partner = entry.partner ?? (entry.split == true ? tabs.last?.id : nil)
-            tabs.append(tab)
+            tab.partner = entry.partner ?? (entry.split == true ? restored.last?.id : nil)
+            restored.append(tab)
         }
-        let savedFront = tabs.indices.contains(saved.active) ? tabs[saved.active].id : nil
-        tabs = reconcilePins(tabs, space: spaceID)
+        let savedFront = restored.indices.contains(saved.active) ? restored[saved.active].id : nil
+        tabs = reconcilePins(restored, space: spaceID)
         settling = false
         settleGroups()
         if tabs.isEmpty || saved.active < 0 {
@@ -1950,13 +1956,6 @@ final class Browser: NSObject, ObservableObject {
                     guard let self else { return }
                     for tab in self.tabs + self.parkedTabs where tab.built != nil { tab.applyRememberedZoom() }
                 }
-            }
-            .store(in: &bag)
-
-        prefs.$mruSwitcher
-            .dropFirst()
-            .sink { [weak self] on in
-                if !on { self?.tabSwitcher.clearPreviews() }
             }
             .store(in: &bag)
 
@@ -3376,6 +3375,7 @@ final class Browser: NSObject, ObservableObject {
 
 
     func prepare(_ tab: Tab) {
+        tab.ownerWatch.removeAll()
         tab.delegate = self
         tab.onLink = { [weak self] tab, address in
             guard let self, prefs.showsLinks, tab.id == activeID else { return }
@@ -3462,7 +3462,7 @@ final class Browser: NSObject, ObservableObject {
         tab.$address
             .dropFirst()
             .sink { [weak self] _ in self?.rememberSession() }
-            .store(in: &bag)
+            .store(in: &tab.ownerWatch)
 
         tab.$title
             .dropFirst()
@@ -3470,7 +3470,7 @@ final class Browser: NSObject, ObservableObject {
                 guard let tab, !tab.shy, let url = tab.address else { return }
                 self?.history.retitle(url, title)
             }
-            .store(in: &bag)
+            .store(in: &tab.ownerWatch)
     }
 
     /// Put the cursor back in the field, from wherever asked.

@@ -1,4 +1,5 @@
 import ImageIO
+import Combine
 import SwiftUI
 import WebKit
 
@@ -282,6 +283,8 @@ final class Tab: ObservableObject, Identifiable {
             built?.uiDelegate = delegate
         }
     }
+    /// A move replaces the previous window's subscriptions; closing cancels them.
+    var ownerWatch = Set<AnyCancellable>()
     /// The stylesheet a page not yet built is to be armed with.
     private var veils = ""
 
@@ -1350,6 +1353,7 @@ final class Tab: ObservableObject, Identifiable {
     /// Called when the tab is thrown away. Without it the view keeps running
     /// whatever the page left behind — timers, video, sockets.
     func close() {
+        ownerWatch.removeAll()
         onZoom = nil
         onLink = nil
         onPick = nil

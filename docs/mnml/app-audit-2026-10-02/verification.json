@@ -1,0 +1,52 @@
+{
+  "date": "2026-10-02",
+  "timezone": "Asia/Jakarta",
+  "baseline": "c6032a6cd1fd34ab111afb8e8e5ba0efcf25a6ad",
+  "tests": {
+    "configuration": "debug",
+    "profile": "app-audit-controls-20261002b",
+    "executed": 128,
+    "failures": 0,
+    "test_seconds": 14.806
+  },
+  "release": {
+    "configuration": "release",
+    "signature_verification_context": "normal keychain access",
+    "apps": [
+      {
+        "path": "/Users/farchan/.codex/worktrees/5e09/search-browser/build/mnml.app",
+        "bundle_id": "com.farchan.mnml",
+        "version": "1.0.4",
+        "build": "202610021230",
+        "signature_verified": true,
+        "sdk": "27.0",
+        "minimum_macos": "14.0",
+        "binary_sha256": "9a72a6c4862fcb8a0a6a40fa219a0d538853ff0b8c9e870a4b74563c2ef7a17a",
+        "audit_environment": null
+      },
+      {
+        "path": "/Users/farchan/.codex/worktrees/5e09/search-browser/build/mnml Audit.app",
+        "bundle_id": "com.farchan.mnml.audit",
+        "version": "1.0.4",
+        "build": "202610021230",
+        "signature_verified": true,
+        "sdk": "27.0",
+        "minimum_macos": "14.0",
+        "binary_sha256": "bfe3e8d3fe94d60279231469c741d0f9c7011ad4558399f855df850c63da1ce1",
+        "audit_environment": {
+          "MNML_MEASURE": "1",
+          "MNML_PROBE": "app-audit-ui"
+        }
+      }
+    ]
+  },
+  "diff_check": "passed",
+  "visual_validation": {
+    "status": "pending",
+    "native_capture_error": "ScreenCaptureKit -3811",
+    "bench_smoke": "aborted by activation safety guard"
+  },
+  "process_cleanup": "verified no audit/test process remains",
+  "delivery": "Validation snapshot before commit/push; source, tests and audit docs authorized for codex/app-performance-ui-audit on 2026-10-03; no installation or merge",
+  "custom_controls": "Original appearance restored with plain Button keyboard activation and Toggle/Picker accessibility representations; existing Reduce Motion policy retained."
+}

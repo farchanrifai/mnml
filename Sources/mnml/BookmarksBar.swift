@@ -59,31 +59,35 @@ struct BookmarksBar: View {
         @State private var hovering = false
 
         var body: some View {
-            HStack(spacing: 6) {
-                if node.isFolder {
-                    Image(systemName: "folder")
-                        .font(.system(size: 10.5))
-                        .foregroundStyle(Palette.muted)
-                } else {
-                    Mark(icon: Favicons.shared.cached(node.site ?? ""), letter: String((node.host ?? "•").prefix(1)).uppercased(), size: 13)
+            Button(action: act) {
+                HStack(spacing: 6) {
+                    if node.isFolder {
+                        Image(systemName: "folder")
+                            .font(.system(size: 10.5))
+                            .foregroundStyle(Palette.muted)
+                    } else {
+                        Mark(icon: Favicons.shared.cached(node.site ?? ""), letter: String((node.host ?? "•").prefix(1)).uppercased(), size: 13)
+                    }
+                    Text(node.title)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Palette.ink)
+                        .lineLimit(1)
+                        .frame(maxWidth: 150, alignment: .leading)
+                        .fixedSize(horizontal: true, vertical: false)
+                    if node.isFolder {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 7.5, weight: .semibold))
+                            .foregroundStyle(Palette.faint)
+                    }
                 }
-                Text(node.title)
-                    .font(.system(size: 12))
-                    .foregroundStyle(Palette.ink)
-                    .lineLimit(1)
-                    .frame(maxWidth: 150, alignment: .leading)
-                    .fixedSize(horizontal: true, vertical: false)
-                if node.isFolder {
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 7.5, weight: .semibold))
-                        .foregroundStyle(Palette.faint)
-                }
+                .padding(.horizontal, 8)
+                .frame(height: 22)
+                .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(hovering ? Palette.hover : .clear))
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 8)
-            .frame(height: 22)
-            .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(hovering ? Palette.hover : .clear))
-            .contentShape(Rectangle())
-            .onTapGesture(perform: act)
+            .buttonStyle(.plain)
+            .accessibilityLabel(node.title)
+            .accessibilityHint(node.isFolder ? "Show bookmarks in this folder" : "Open bookmark")
             .onHover { hovering = $0 }
             .help(node.url ?? node.title)
         }

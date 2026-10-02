@@ -90,34 +90,38 @@ struct PasswordsPanel: View {
 
         var body: some View {
             VStack(spacing: 0) {
-                HStack(spacing: 10) {
-                    Mark(icon: Favicons.shared.cached(host), letter: host.first.map { String($0).uppercased() } ?? "•", size: 16)
-                    Text(host)
-                        .font(.system(size: 13))
-                        .foregroundStyle(Palette.ink)
-                        .lineLimit(1)
-                    if logins.count > 1 {
-                        Text("\(logins.count) accounts")
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(Palette.muted)
-                    } else if let only = logins.first, !only.user.isEmpty, !open {
-                        Text(only.user)
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(Palette.muted)
+                Button(action: toggle) {
+                    HStack(spacing: 10) {
+                        Mark(icon: Favicons.shared.cached(host), letter: host.first.map { String($0).uppercased() } ?? "•", size: 16)
+                        Text(host)
+                            .font(.system(size: 13))
+                            .foregroundStyle(Palette.ink)
                             .lineLimit(1)
-                            .truncationMode(.middle)
+                        if logins.count > 1 {
+                            Text("\(logins.count) accounts")
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(Palette.muted)
+                        } else if let only = logins.first, !only.user.isEmpty, !open {
+                            Text(only.user)
+                                .font(.system(size: 11.5))
+                                .foregroundStyle(Palette.muted)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                        }
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(Palette.muted)
+                            .rotationEffect(.degrees(open ? 90 : 0))
                     }
-                    Spacer(minLength: 8)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Palette.muted)
-                        .rotationEffect(.degrees(open ? 90 : 0))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(open ? Palette.wash.opacity(0.6) : (hovering ? Palette.hover : .clear))
+                    .contentShape(Rectangle())
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .background(open ? Palette.wash.opacity(0.6) : (hovering ? Palette.hover : .clear))
-                .contentShape(Rectangle())
-                .onTapGesture(perform: toggle)
+                .buttonStyle(.plain)
+                .accessibilityLabel(host)
+                .accessibilityValue(open ? "Expanded" : "Collapsed")
                 .onHover { hovering = $0 }
                 .animation(Motion.quick, value: hovering)
 
@@ -170,11 +174,9 @@ struct PasswordsPanel: View {
 
                 Spacer(minLength: 8)
 
-                if hovering || shown {
-                    Quick(shown ? "Hide" : "Show") { shown ? conceal() : reveal() }
-                    Quick("Copy", act: copy)
-                    Quick("Remove", tint: .red.opacity(0.75), act: forget)
-                }
+                Quick(shown ? "Hide" : "Show") { shown ? conceal() : reveal() }
+                Quick("Copy", act: copy)
+                Quick("Remove", tint: .red.opacity(0.75), act: forget)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
@@ -237,6 +239,7 @@ struct PasswordsPanel: View {
                             .font(.system(size: 12.5, design: .monospaced))
                             .foregroundStyle(Palette.ink)
                             .focused($focus, equals: 2)
+                            .accessibilityLabel("Password")
                             .onSubmit(keep)
                             .padding(.horizontal, 10)
                             .padding(.vertical, 7)
@@ -259,6 +262,7 @@ struct PasswordsPanel: View {
                     .textFieldStyle(.plain)
                     .foregroundStyle(Palette.ink)
                     .focused($focus, equals: tag)
+                    .accessibilityLabel(name)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 7)
             }

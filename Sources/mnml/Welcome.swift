@@ -96,6 +96,7 @@ struct WelcomePanel: View {
                             options: sources.map { ($0, $0.name) },
                             selection: Binding(get: { source ?? sources[0] }, set: { source = $0 })
                         )
+                        .accessibilityLabel("Import from")
                     } else {
                         Text("From \(sources[0].name)")
                             .font(.system(size: 13))
@@ -142,6 +143,7 @@ struct WelcomePanel: View {
                     .font(.system(size: 13))
                     .foregroundStyle(Palette.muted)
                 Segmented(options: Glyph.allCases.map { ($0, $0.title) }, selection: $prefs.glyph)
+                    .accessibilityLabel("Tabs show")
             }
         }
     }
@@ -346,6 +348,7 @@ struct WelcomePanel: View {
                 }
                 Spacer()
                 Switch(on: $on)
+                    .accessibilityLabel(title)
             }
         }
     }

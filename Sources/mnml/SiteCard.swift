@@ -447,6 +447,7 @@ struct SiteCard: View {
                         .padding(.trailing, 8)
                 }
                 Switch(on: $on)
+                    .accessibilityLabel("Play sound by itself on \(host)")
             }
             .padding(.leading, MenuMetrics.text)
             .padding(.trailing, MenuMetrics.trailing)
@@ -472,6 +473,7 @@ struct SiteCard: View {
                     .fixedSize()
                 Spacer(minLength: 24)
                 Switch(on: $on)
+                    .accessibilityLabel("Don't float videos on \(host)")
             }
             .padding(.leading, MenuMetrics.text)
             .padding(.trailing, MenuMetrics.trailing)

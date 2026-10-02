@@ -213,7 +213,7 @@ struct SplitDropLayer: View {
         .animation(Motion.settle, value: browser.splitDrag?.side)
         // In on a spring; out quickly, the moment the tab is let go, as the
         // two pages are already there underneath.
-        .animation(browser.splitDrag == nil ? .easeOut(duration: 0.12) : Motion.settle, value: browser.splitDrag == nil)
+        .animation(Motion.reduced ? nil : (browser.splitDrag == nil ? .easeOut(duration: 0.12) : Motion.settle), value: browser.splitDrag == nil)
     }
 
     private static let corner: CGFloat = 14
@@ -419,34 +419,37 @@ struct SplitPicker: View {
 
         var body: some View {
             let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
-            VStack(alignment: .leading, spacing: 7) {
-                // Every card the same shape, whatever the picture's.
-                Color.clear
-                    .aspectRatio(16 / 10, contentMode: .fit)
-                    .overlay {
-                        ZStack {
-                            Palette.wash
-                            if let image {
-                                PagePicture(image: image)
-                            } else {
-                                Mark(icon: tab.icon, letter: tab.monogram, size: 22)
+            Button(action: act) {
+                VStack(alignment: .leading, spacing: 7) {
+                    // Every card the same shape, whatever the picture's.
+                    Color.clear
+                        .aspectRatio(16 / 10, contentMode: .fit)
+                        .overlay {
+                            ZStack {
+                                Palette.wash
+                                if let image {
+                                    PagePicture(image: image)
+                                } else {
+                                    Mark(icon: tab.icon, letter: tab.monogram, size: 22)
+                                }
                             }
                         }
+                    .clipShape(shape)
+                    .overlay(shape.strokeBorder(hovering ? Palette.ink.opacity(0.35) : Palette.hairline, lineWidth: hovering ? 1.5 : 1))
+                    HStack(spacing: 6) {
+                        Mark(icon: tab.icon, letter: tab.monogram, size: 13)
+                        Text(tab.label)
+                            .font(.system(size: 12))
+                            .foregroundStyle(hovering ? Palette.ink : Palette.ink.opacity(0.8))
+                            .lineLimit(1)
                     }
-                .clipShape(shape)
-                .overlay(shape.strokeBorder(hovering ? Palette.ink.opacity(0.35) : Palette.hairline, lineWidth: hovering ? 1.5 : 1))
-                HStack(spacing: 6) {
-                    Mark(icon: tab.icon, letter: tab.monogram, size: 13)
-                    Text(tab.label)
-                        .font(.system(size: 12))
-                        .foregroundStyle(hovering ? Palette.ink : Palette.ink.opacity(0.8))
-                        .lineLimit(1)
+                    .padding(.horizontal, 2)
                 }
-                .padding(.horizontal, 2)
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open \(tab.label) in split view")
             .scaleEffect(hovering ? 1.02 : 1)
             .contentShape(Rectangle())
-            .onTapGesture(perform: act)
             .onHover { hovering = $0 }
             .animation(Motion.quick, value: hovering)
             .onAppear(perform: picture)

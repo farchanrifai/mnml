@@ -440,6 +440,7 @@ struct AskPanel: View {
                 }
                 .buttonStyle(.plain)
                 .help(chat.working ? "Stop" : "Send   ↩")
+                .accessibilityLabel(chat.working ? "Stop response" : "Send question")
                 .disabled(!chat.working && (question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
                     !supports(prefs.askProvider.model(prefs.askModel))))
             }
@@ -585,9 +586,11 @@ struct AskPanel: View {
                         if case .tab = row, n == 0 || { if case .group = rows[n - 1] { return true }; return false }() {
                             heading("Tabs")
                         }
-                        menuRow(row, lit: n == min(lit, rows.count - 1))
-                            .id(n)
-                            .onTapGesture { pick(row) }
+                        Button { pick(row) } label: {
+                            menuRow(row, lit: n == min(lit, rows.count - 1))
+                        }
+                        .buttonStyle(.plain)
+                        .id(n)
                     }
                 }
                 .padding(5)
@@ -751,6 +754,8 @@ private struct Chip<Icon: View>: View {
         .padding(.top, 5)
         .padding(.trailing, 5)
         .onHover { hovering = $0 }
+        .accessibilityElement(children: .combine)
+        .accessibilityAction(named: "Leave out \(title)") { leave?() }
     }
 }
 
@@ -916,6 +921,7 @@ struct Markdown: View {
 private struct Streaming: View {
     let text: String
     let live: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shown: Int
     /// The text's length, kept where the pacing loop can see it change —
     /// the loop's own copy of the view keeps the text it started with.
@@ -934,9 +940,10 @@ private struct Streaming: View {
         // Once it's all come, all of it: the pacing below only lasts while
         // words are arriving. Kept to the loop, an answer stopped part way
         // when SwiftUI cancelled it.
-        Markdown(text: !live || shown >= count ? text : String(text.prefix(shown)), fade: live ? 24 : 0)
+        Markdown(text: reduceMotion || !live || shown >= count ? text : String(text.prefix(shown)), fade: live && !reduceMotion ? 24 : 0)
             .onChange(of: count) { _, new in target = new }
-            .task(id: live) {
+            .task(id: live && !reduceMotion) {
+                guard live, !reduceMotion else { return }
                 while !Task.isCancelled {
                     let backlog = target - shown
                     if backlog <= 0 {
@@ -954,20 +961,24 @@ private struct Streaming: View {
 
 /// Three dots breathing in turn, while an answer is on its way.
 private struct Thinking: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
-        TimelineView(.animation) { time in
+        TimelineView(.animation(paused: reduceMotion)) { time in
             let t = time.date.timeIntervalSinceReferenceDate
             HStack(spacing: 4) {
                 ForEach(0..<3) { n in
                     Circle()
                         .fill(Palette.muted)
                         .frame(width: 5, height: 5)
-                        .opacity(0.3 + 0.7 * max(0, sin((t * 4) - Double(n) * 0.7)))
+                        .opacity(reduceMotion ? 0.7 : 0.3 + 0.7 * max(0, sin((t * 4) - Double(n) * 0.7)))
                 }
             }
         }
         .padding(.vertical, 4)
         .transition(.opacity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Waiting for response")
     }
 }
 
@@ -1151,7 +1162,7 @@ struct AskFloat: View {
         }
         let corner = (toRight ? 0 : 1) + (toTop ? 2 : 0)
         guard corner != prefs.askCorner else { return }
-        withAnimation(.spring(response: 0.38, dampingFraction: 0.78)) { prefs.askCorner = corner }
+        withAnimation(Motion.reduced ? nil : .spring(response: 0.38, dampingFraction: 0.78)) { prefs.askCorner = corner }
     }
 
     var body: some View {
@@ -1161,7 +1172,7 @@ struct AskFloat: View {
             guard done else { return moving = drag.translation }
             let end = CGPoint(x: home.x + drag.predictedEndTranslation.width, y: home.y + drag.predictedEndTranslation.height)
             let corner = (end.x < room.width / 2 ? 1 : 0) + (end.y < room.height / 2 ? 2 : 0)
-            withAnimation(.spring(response: 0.38, dampingFraction: 0.78)) {
+            withAnimation(Motion.reduced ? nil : .spring(response: 0.38, dampingFraction: 0.78)) {
                 prefs.askCorner = corner
                 moving = .zero
             }

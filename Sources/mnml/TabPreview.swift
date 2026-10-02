@@ -14,6 +14,7 @@ final class TabPreview {
     private var shown: Tab.ID?
     /// The row the pointer is on, as last told.
     private var target: Tab.ID?
+    private(set) var generation = UUID()
     private var hiddenAt = Date.distantPast
 
     static let width: CGFloat = 260
@@ -27,6 +28,9 @@ final class TabPreview {
         }
         pending?.cancel()
         pending = nil
+        generation = UUID()
+        let request = generation
+        let address = tab.address
         target = tab.id
         guard tab.id != browser.activeID, !tab.isBlank, browser.editingTab == nil else {
             if shown != nil, let id = shown { panel.hide(id); shown = nil; hiddenAt = Date() }
@@ -34,10 +38,11 @@ final class TabPreview {
         }
         let warm = shown != nil || Date().timeIntervalSince(hiddenAt) < 0.4
         let work = DispatchWorkItem { [weak self, weak tab, weak browser] in
-            guard let self, let tab, let browser else { return }
-            let address = tab.address
+            guard let self, let tab, let browser,
+                  self.accepts(request, tab: tab, address: address, browser: browser) else { return }
             let show = { (image: NSImage?) in
-                guard let image else { return }
+                guard let image,
+                      self.accepts(request, tab: tab, address: address, browser: browser) else { return }
                 self.panel.show(Card(tab: tab, image: image), for: tab.id, beside: spot)
                 self.shown = tab.id
             }
@@ -48,18 +53,22 @@ final class TabPreview {
                 // (see TabSwitcher.capturePreviews). No picture, no card.
                 return
             } else {
-                tab.preview(width: TabPreview.width) { image in
-                    // Still wanted: the pointer hasn't moved on meanwhile.
-                    guard self.pending?.isCancelled == false else { return }
-                    show(image)
-                }
+                tab.preview(width: TabPreview.width, show)
             }
         }
         pending = work
         DispatchQueue.main.asyncAfter(deadline: .now() + (warm ? 0.05 : 0.25), execute: work)
     }
 
+    /// Check both before decoding and when it returns; A → B → A is a new request.
+    func accepts(_ request: UUID, tab: Tab, address: URL?, browser: Browser) -> Bool {
+        generation == request && target == tab.id && tab.address == address && !tab.isBlank
+            && tab.id != browser.activeID && browser.editingTab == nil && !browser.shut
+            && browser.tabs.contains { $0 === tab }
+    }
+
     func hide() {
+        generation = UUID()
         pending?.cancel()
         pending = nil
         target = nil

@@ -391,6 +391,7 @@ struct NewSpaceCard: View {
                     field
                         .frame(width: 170)
                     Segmented(options: [(true, "Signed in"), (false, "Signed out")], selection: $shared)
+                        .accessibilityLabel("Space sign-ins")
                         .fixedSize()
                         .help(saying)
                     Pill("Cancel") { cancel() }
@@ -414,6 +415,7 @@ struct NewSpaceCard: View {
                     // some want a clean slate.
                     VStack(spacing: 6) {
                         Segmented(options: [(true, "Signed in"), (false, "Signed out")], selection: $shared, wide: true)
+                            .accessibilityLabel("Space sign-ins")
                         Text(saying)
                             .font(.system(size: 11))
                             .foregroundStyle(Palette.muted)

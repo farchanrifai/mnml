@@ -62,7 +62,7 @@ struct SettingsPanel: View {
             Rectangle().fill(Palette.hairline).frame(width: 1)
             content
         }
-        .frame(width: SettingsPanel.width, height: SettingsPanel.height)
+        .frame(maxWidth: SettingsPanel.width, maxHeight: SettingsPanel.height)
         .background(Palette.ground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -70,6 +70,7 @@ struct SettingsPanel: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .shadow(color: .black.opacity(0.16), radius: 34, y: 12)
+        .padding(16)
         .onChange(of: page) { _, page in Store.settings.set(page.rawValue, forKey: "settings.page") }
         .onAppear { if browser.appearanceSpace != nil { page = .tabs } }
         .onChange(of: browser.appearanceSpace) { _, id in if id != nil { page = .tabs } }
@@ -133,6 +134,7 @@ struct SettingsPanel: View {
                 .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
             .buttonStyle(.plain)
+            .accessibilityAddTraits(on ? .isSelected : [])
             // No fade: sweeping down the rail left the row behind still
             // fading as the next lit, two or three lit at once.
         }
@@ -293,6 +295,7 @@ struct SettingsPanel: View {
                             .foregroundStyle(Palette.faint)
                     }
                     .buttonStyle(.plain)
+                    .accessibilityLabel("Remove shortcut \(entry.keyword)")
                 }
                 .font(.system(size: 12.5))
                 .foregroundStyle(Palette.ink)
@@ -453,9 +456,6 @@ struct SettingsPanel: View {
             Rule()
             Line("Recently used tab switcher", "Control-Tab previews up to ten recent tabs. Use Tab or arrow keys while holding Control; release it to switch.") {
                 Switch(on: $prefs.mruSwitcher)
-                    .accessibilityRepresentation {
-                        Toggle("Recently used tab switcher", isOn: $prefs.mruSwitcher)
-                    }
             }
             Rule()
             Line("Group links you ⌘-click", "A link opened with ⌘-click goes in the background, in a new group with the page it came from — or into that page's group, if it has one. Groups show with tabs in a sidebar.") {
@@ -840,8 +840,7 @@ struct SettingsPanel: View {
 
 }
 
-/// A row of choices in a grey track, one of them lifted out in white. The
-/// white slides to the one you pick rather than appearing there.
+/// A row of choices in a grey track, with the selected one sliding between them.
 struct Segmented<Option: Hashable>: View {
     let options: [(Option, String)]
     @Binding var selection: Option
@@ -854,31 +853,41 @@ struct Segmented<Option: Hashable>: View {
     var body: some View {
         HStack(spacing: 2) {
             ForEach(options, id: \.0) { option, title in
-                Text(title)
-                    .font(.system(size: 11.5, weight: option == selection ? .medium : .regular))
-                    .foregroundStyle(option == selection ? Palette.ink : Palette.muted)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: !wide, vertical: false)
-                    .frame(maxWidth: wide ? .infinity : nil)
-                    .padding(.horizontal, wide ? 4 : 10)
-                    .padding(.vertical, 5)
-                    .background {
-                        if option == selection {
-                            RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill(Palette.ground)
-                                .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
-                                .matchedGeometryEffect(id: "chosen", in: slide)
+                Button {
+                    withAnimation(Motion.settle) { selection = option }
+                } label: {
+                    Text(title)
+                        .font(.system(size: 11.5, weight: option == selection ? .medium : .regular))
+                        .foregroundStyle(option == selection ? Palette.ink : Palette.muted)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: !wide, vertical: false)
+                        .frame(maxWidth: wide ? .infinity : nil)
+                        .padding(.horizontal, wide ? 4 : 10)
+                        .padding(.vertical, 5)
+                        .background {
+                            if option == selection {
+                                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                    .fill(Palette.ground)
+                                    .shadow(color: .black.opacity(0.08), radius: 3, y: 1)
+                                    .matchedGeometryEffect(id: "chosen", in: slide)
+                            }
                         }
-                    }
-                    .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-                    .onTapGesture {
-                        withAnimation(Motion.settle) { selection = option }
-                    }
+                        .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                }
+                .buttonStyle(.plain)
             }
         }
         .padding(2)
         .background(Palette.wash, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
         .animation(Motion.settle, value: selection)
+        .accessibilityRepresentation {
+            Picker("Selection", selection: $selection) {
+                ForEach(options, id: \.0) { option, title in
+                    Text(title).tag(option)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
     }
 }
 
@@ -887,18 +896,23 @@ struct Switch: View {
     @Binding var on: Bool
 
     var body: some View {
-        Capsule()
-            .fill(on ? Palette.ink : Palette.faint)
-            .frame(width: 30, height: 18)
-            .overlay(alignment: on ? .trailing : .leading) {
-                Circle()
-                    .fill(Palette.ground)
-                    .shadow(color: .black.opacity(0.18), radius: 1.5, y: 1)
-                    .padding(2)
-            }
-            .contentShape(Capsule())
-            .onTapGesture { withAnimation(Motion.settle) { on.toggle() } }
-            .animation(Motion.settle, value: on)
+        Button { withAnimation(Motion.settle) { on.toggle() } } label: {
+            Capsule()
+                .fill(on ? Palette.ink : Palette.faint)
+                .frame(width: 30, height: 18)
+                .overlay(alignment: on ? .trailing : .leading) {
+                    Circle()
+                        .fill(Palette.ground)
+                        .shadow(color: .black.opacity(0.18), radius: 1.5, y: 1)
+                        .padding(2)
+                }
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .animation(Motion.settle, value: on)
+        .accessibilityRepresentation {
+            Toggle("Enabled", isOn: $on)
+        }
     }
 }
 
@@ -928,6 +942,7 @@ struct Steps: View {
             }
             .buttonStyle(.plain)
             .help("Back to \(label(home))")
+            .accessibilityLabel("Reset to \(label(home))")
             Step(icon: "plus", to: above) { value = $0 }
         }
         .padding(.horizontal, 2)
@@ -953,6 +968,7 @@ struct Steps: View {
             }
             .buttonStyle(.plain)
             .disabled(to == nil)
+            .accessibilityLabel(icon == "minus" ? "Decrease" : "Increase")
             .onHover { hovering = $0 }
             .animation(Motion.quick, value: hovering)
         }

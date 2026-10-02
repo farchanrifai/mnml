@@ -55,7 +55,7 @@ struct Plate<Content: View, Foot: View>: View {
                 Color.clear.frame(height: 20)
             }
         }
-        .frame(width: width, alignment: .leading)
+        .frame(maxWidth: width, alignment: .leading)
         .background(Palette.ground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
@@ -63,6 +63,7 @@ struct Plate<Content: View, Foot: View>: View {
                 .strokeBorder(Palette.hairline, lineWidth: 1)
         )
         .shadow(color: .black.opacity(0.16), radius: 34, y: 12)
+        .padding(16)
     }
 }
 
@@ -128,6 +129,7 @@ struct Line<Control: View>: View {
             }
             Spacer(minLength: 8)
             control()
+                .accessibilityLabel(title)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
@@ -157,14 +159,16 @@ struct Hunt: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Palette.muted)
+                .accessibilityHidden(true)
             ZStack(alignment: .leading) {
                 if text.isEmpty {
-                    Text(prompt).foregroundStyle(Palette.muted.opacity(0.7))
+                    Text(prompt).foregroundStyle(Palette.muted.opacity(0.7)).accessibilityHidden(true)
                 }
                 TextField("", text: $text)
                     .textFieldStyle(.plain)
                     .foregroundStyle(Palette.ink)
                     .focused(focus)
+                    .accessibilityLabel(prompt)
             }
             .font(.system(size: 13))
             if !text.isEmpty {
@@ -174,6 +178,7 @@ struct Hunt: View {
                         .foregroundStyle(Palette.faint)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
             }
         }
         .padding(.horizontal, 12)

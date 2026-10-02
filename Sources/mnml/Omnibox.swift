@@ -4,6 +4,7 @@ import AppKit
 /// One field for browser actions, current tabs, addresses, and web search.
 struct Omnibox: View {
     @ObservedObject var browser: Browser
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Raised over a page by ⌘L, rather than standing on an empty tab.
     let over: Bool
 
@@ -98,7 +99,7 @@ struct Omnibox: View {
             .onChange(of: browser.refusals) { _, _ in
                 shake = 0
                 refused = true
-                withAnimation(.easeOut(duration: 0.5)) { shake = 1 }
+                withAnimation(reduceMotion ? nil : .easeOut(duration: 0.5)) { shake = 1 }
             }
             .onChange(of: browser.typed) { _, _ in
                 withAnimation(Motion.quick) { refused = false }
@@ -115,14 +116,17 @@ struct Omnibox: View {
     private var list: some View {
         VStack(spacing: 0) {
             if let site = browser.siteOffer {
-                SiteOfferRow(site: site)
-                    .contentShape(Rectangle())
-                    .onTapGesture { _ = browser.lockSiteOffer() }
+                Button { _ = browser.lockSiteOffer() } label: {
+                    SiteOfferRow(site: site)
+                }
+                .buttonStyle(.plain)
             }
             ForEach(Array(browser.offers.enumerated()), id: \.element.id) { index, offer in
-                Row(offer: offer, picked: browser.picked == index, browser: browser)
-                    .contentShape(Rectangle())
-                    .onTapGesture { browser.take(offer) }
+                Button { browser.take(offer) } label: {
+                    Row(offer: offer, picked: browser.picked == index, browser: browser)
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(browser.picked == index ? .isSelected : [])
             }
         }
         .padding(6)
@@ -304,17 +308,21 @@ private struct SiteOfferRow: View {
 /// nothing; and it is a layer, not a second SwiftUI view to build before
 /// the first frame.
 private struct Breath: NSViewRepresentable {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// As dark as the shape it replaces, 5% ink blurred by 26: a shadow of
     /// the same radius comes out at 0.7 of the darkness at equal strength,
     /// measured on pictures of both (24 Sep 2026), so 7%.
     static let strength: Swift.Float = 0.07
 
     func makeNSView(context: Context) -> NSView { Lung() }
-    func updateNSView(_ view: NSView, context: Context) {}
+    func updateNSView(_ view: NSView, context: Context) { (view as? Lung)?.reduced = reduceMotion }
 
     private final class Lung: NSView {
         private let glow = CALayer()
         private var breathed: CGSize = .zero
+        var reduced = false {
+            didSet { if reduced != oldValue { breathe() } }
+        }
 
         override init(frame: NSRect) {
             super.init(frame: frame)
@@ -347,6 +355,12 @@ private struct Breath: NSViewRepresentable {
             glow.shadowPath = CGPath(roundedRect: bounds, cornerWidth: 26, cornerHeight: 26, transform: nil)
             effectiveAppearance.performAsCurrentDrawingAppearance { glow.shadowColor = Palette.NS.ink.cgColor }
             CATransaction.commit()
+            breathe()
+        }
+
+        private func breathe() {
+            glow.removeAnimation(forKey: "breath")
+            guard !reduced, breathed.width > 0 else { return }
             // From 0.97 to 1.03, from 0.65 to full, 2.6 s each way, for as
             // long as the field is there.
             let size = CABasicAnimation(keyPath: "transform.scale")
@@ -388,10 +402,11 @@ struct AddressField: NSViewRepresentable {
         field.lineBreakMode = .byTruncatingTail
         field.cell?.usesSingleLineMode = true
         field.cell?.wraps = false
+        field.setAccessibilityLabel("Search or enter an address")
         // SwiftUI picks its own colour for a placeholder, and on a pale ground
         // that colour was near-white.
         field.placeholderAttributedString = NSAttributedString(
-            string: "Enter a web address",
+            string: "Search or enter an address",
             attributes: [
                 .font: NSFont.systemFont(ofSize: 15.5),
                 .foregroundColor: NSColor(Palette.ink.opacity(0.3)),
@@ -404,7 +419,7 @@ struct AddressField: NSViewRepresentable {
         let coordinator = context.coordinator
         coordinator.browser = browser
         // ⌘T's bar says where Return will go.
-        let prompt = browser.opening ? "Search or enter an address, in a new tab" : "Enter a web address"
+        let prompt = browser.opening ? "Search or enter an address, in a new tab" : "Search or enter an address"
         if field.placeholderAttributedString?.string != prompt {
             field.placeholderAttributedString = NSAttributedString(
                 string: prompt,
@@ -427,12 +442,14 @@ struct AddressField: NSViewRepresentable {
         if want != coordinator.synced {
             coordinator.synced = want
             field.stringValue = want
-            coordinator.select(from: browser.typed.count, in: field)
+            coordinator.select(after: browser.typed, in: field)
         }
 
         if coordinator.answered != browser.focusRequest {
             coordinator.answered = browser.focusRequest
+            let request = browser.focusRequest
             DispatchQueue.main.async {
+                guard browser.focusRequest == request, browser.fieldShowing, field.window != nil else { return }
                 field.window?.makeFirstResponder(field)
                 guard let editor = field.currentEditor() as? NSTextView else { return }
                 // The command bar supplies its own address completion. Keep
@@ -450,7 +467,7 @@ struct AddressField: NSViewRepresentable {
                 // A draft come back to its blank tab is carried on, not typed
                 // over: the caret after it. An address ⌘L raises is selected whole.
                 if browser.active?.isBlank == true, !browser.typed.isEmpty {
-                    coordinator.select(from: browser.typed.count, in: field)
+                    coordinator.select(after: browser.typed, in: field)
                 } else {
                     editor.selectAll(nil)
                 }
@@ -489,18 +506,19 @@ struct AddressField: NSViewRepresentable {
 
             field.stringValue = text + ending
             synced = field.stringValue
-            select(from: text.count, in: field)
+            select(after: text, in: field)
         }
 
         /// The part after the caret, shown as selected, so the next keystroke
         /// replaces it and Return takes it.
-        func select(from start: Int, in field: NSTextField) {
+        func select(after typed: String, in field: NSTextField) {
             guard let editor = field.currentEditor() as? NSTextView else { return }
             editor.selectedTextAttributes = [
                 .backgroundColor: NSColor(Palette.ink.opacity(0.12)),
                 .foregroundColor: Palette.NS.ink,
             ]
-            let length = field.stringValue.count
+            let start = typed.utf16.count
+            let length = field.stringValue.utf16.count
             guard start <= length else { return }
             editor.selectedRange = NSRange(location: start, length: length - start)
         }

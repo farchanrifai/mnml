@@ -160,6 +160,7 @@ struct ExtensionsPage: View {
                     Quick("Remove", tint: .red.opacity(0.75)) { extensions.remove(item.id) }
                 }
                 Switch(on: Binding(get: { item.enabled }, set: { extensions.setEnabled(item.id, $0) }))
+                    .accessibilityLabel("Enable \(item.name)")
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 10)

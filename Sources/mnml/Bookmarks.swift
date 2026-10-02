@@ -842,48 +842,52 @@ struct BookmarkOutline: View {
         @State private var hovering = false
 
         var body: some View {
-            HStack(spacing: 8) {
-                if node.isFolder {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(Palette.faint)
-                        .rotationEffect(.degrees(isOpen ? 90 : 0))
-                        .frame(width: 10)
-                    Mark(icon: nil, letter: "", size: 15)
-                        .overlay(
-                            Image(systemName: "folder.fill")
-                                .font(.system(size: 9))
-                                .foregroundStyle(Palette.muted)
-                        )
-                } else {
-                    if arrows { Spacer().frame(width: 10) }
-                    Mark(icon: Favicons.shared.cached(node.site ?? ""), letter: String((node.host ?? "•").prefix(1)).uppercased(), size: 15)
+            Button { open?() ?? toggle?() } label: {
+                HStack(spacing: 8) {
+                    if node.isFolder {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(Palette.faint)
+                            .rotationEffect(.degrees(isOpen ? 90 : 0))
+                            .frame(width: 10)
+                        Mark(icon: nil, letter: "", size: 15)
+                            .overlay(
+                                Image(systemName: "folder.fill")
+                                    .font(.system(size: 9))
+                                    .foregroundStyle(Palette.muted)
+                            )
+                    } else {
+                        if arrows { Spacer().frame(width: 10) }
+                        Mark(icon: Favicons.shared.cached(node.site ?? ""), letter: String((node.host ?? "•").prefix(1)).uppercased(), size: 15)
+                    }
+                    Text(node.title)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Palette.ink)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    if node.isFolder, let kids = node.children, !kids.isEmpty {
+                        Text("\(Bookmarks.count(kids))")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Palette.faint)
+                    }
                 }
-                Text(node.title)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(Palette.ink)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                if node.isFolder, let kids = node.children, !kids.isEmpty {
-                    Text("\(Bookmarks.count(kids))")
-                        .font(.system(size: 11))
-                        .foregroundStyle(Palette.faint)
+                .padding(.leading, CGFloat(depth) * 18 + 10)
+                .padding(.trailing, 10)
+                .padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(wash))
+                .overlay(alignment: aim == .before ? .top : .bottom) {
+                    if aim == .before || aim == .after {
+                        // Below an open folder is its first child's place.
+                        Line(depth: aim == .after && isOpen ? depth + 1 : depth)
+                            .offset(y: aim == .before ? -1.5 : 1.5)
+                    }
                 }
+                .contentShape(Rectangle())
+                .opacity(dragging ? 0.35 : 1)
             }
-            .padding(.leading, CGFloat(depth) * 18 + 10)
-            .padding(.trailing, 10)
-            .padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(wash))
-            .overlay(alignment: aim == .before ? .top : .bottom) {
-                if aim == .before || aim == .after {
-                    // Below an open folder is its first child's place.
-                    Line(depth: aim == .after && isOpen ? depth + 1 : depth)
-                        .offset(y: aim == .before ? -1.5 : 1.5)
-                }
-            }
-            .contentShape(Rectangle())
-            .opacity(dragging ? 0.35 : 1)
-            .onTapGesture { open?() ?? toggle?() }
+            .buttonStyle(.plain)
+            .accessibilityLabel(node.title)
+            .accessibilityValue(node.isFolder ? (isOpen ? "Expanded" : "Collapsed") : "")
             .onHover { hovering = $0 }
             .contextMenu {
                 if let open {
@@ -1178,20 +1182,22 @@ struct BookmarksDropdown: View {
         }
 
         var body: some View {
-            HStack(spacing: 8) {
-                if let symbol {
-                    Image(systemName: symbol).font(.system(size: 11)).foregroundStyle(Palette.muted).frame(width: 14)
-                } else {
-                    Spacer().frame(width: 14)
+            Button(action: act) {
+                HStack(spacing: 8) {
+                    if let symbol {
+                        Image(systemName: symbol).font(.system(size: 11)).foregroundStyle(Palette.muted).frame(width: 14)
+                    } else {
+                        Spacer().frame(width: 14)
+                    }
+                    Text(title).font(.system(size: 12.5)).foregroundStyle(Palette.ink)
+                    Spacer(minLength: 0)
                 }
-                Text(title).font(.system(size: 12.5)).foregroundStyle(Palette.ink)
-                Spacer(minLength: 0)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(hovering ? Palette.wash : .clear))
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(hovering ? Palette.wash : .clear))
-            .contentShape(Rectangle())
-            .onTapGesture(perform: act)
+            .buttonStyle(.plain)
             .onHover { hovering = $0 }
         }
     }

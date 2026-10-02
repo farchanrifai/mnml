@@ -307,10 +307,11 @@ struct ArchivePanel: View {
                     Ask.sure("Clear Archive?", detail: "Permanently deletes all archived tab entries. Open tabs and recently closed tabs are kept.", confirm: "Clear Archive") { store.clear() }
                 }.disabled(store.entries.isEmpty)
             }
-        }.padding(20).frame(width: 650, height: 480)
+        }.padding(20).frame(maxWidth: 650, maxHeight: 480)
             .background(Palette.ground, in: RoundedRectangle(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Palette.hairline, lineWidth: 1))
             .shadow(color: .black.opacity(0.16), radius: 34, y: 12)
+            .padding(16)
             .onAppear { hunting = true }
     }
 }

@@ -63,7 +63,7 @@ struct Page: View {
                     .onChange(of: bleeds) { _, on in
                         guard on else { return }
                         fading = true
-                        DispatchQueue.main.async { withAnimation(.easeOut(duration: 0.3)) { fading = false } }
+                        DispatchQueue.main.async { withAnimation(Motion.reduced ? nil : .easeOut(duration: 0.3)) { fading = false } }
                     }
             }
 
@@ -129,8 +129,8 @@ struct Page: View {
         }
         .animation(Motion.quick, value: tab.failure)
         .animation(Motion.quick, value: tab.floating)
-        .animation(.easeOut(duration: 0.2), value: tab.cover == nil)
-        .animation(.easeOut(duration: 0.16), value: tab.pull == nil)
+        .animation(Motion.reduced ? nil : .easeOut(duration: 0.2), value: tab.cover == nil)
+        .animation(Motion.reduced ? nil : .easeOut(duration: 0.16), value: tab.pull == nil)
     }
 }
 
@@ -178,7 +178,7 @@ private struct Disc: View {
         .offset(x: (pull.back ? 1 : -1) * (10 + reach * 0.2 + (pull.going ? 12 : 0)))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: pull.back ? .leading : .trailing)
         .allowsHitTesting(false)
-        .animation(.easeOut(duration: 0.22), value: pull.going)
+        .animation(Motion.reduced ? nil : .easeOut(duration: 0.22), value: pull.going)
     }
 }
 
@@ -227,8 +227,8 @@ private struct HistoryList: View {
         .offset(x: (pull.back ? 1 : -1) * (10 + reach * 0.2), y: slide)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: pull.back ? .leading : .trailing)
         .allowsHitTesting(false)
-        .animation(.spring(response: 0.22, dampingFraction: 0.9), value: pull.picked)
-        .animation(.easeOut(duration: 0.26), value: pull.going)
+        .animation(Motion.reduced ? nil : .spring(response: 0.22, dampingFraction: 0.9), value: pull.picked)
+        .animation(Motion.reduced ? nil : .easeOut(duration: 0.26), value: pull.going)
     }
 
     @ViewBuilder
@@ -306,7 +306,7 @@ final class StageView: NSView {
     /// Now there is one fact and one rule: show `wanted`, and put that right on
     /// every layout. Nothing to fall out of step with.
     private weak var wanted: NSView?
-    private var fullscreenWatch: NSKeyValueObservation?
+    private(set) var fullscreenWatch: NSKeyValueObservation?
 
     /// How much of the page the chrome covers (Under.swift), told to the
     /// page on show. A page left for another tab keeps what it was told:
@@ -397,13 +397,15 @@ final class StageView: NSView {
             Self.docks.setObject(dock, forKey: leaving)
             dock.removeFromSuperview()
         }
-        // Another page: it has its own note to be told, wherever it lands.
-        if wanted !== page { told = nil }
-        wanted = page
-        // Out of full screen: looked at again, since nothing else may lay
-        // this stage out to notice the page is free to come back.
-        fullscreenWatch = (page as? WKWebView)?.observe(\.fullscreenState) { [weak self] _, _ in
-            DispatchQueue.main.async { self?.needsLayout = true }
+        if page == nil || wanted !== page {
+            // Another page: it has its own position and full-screen watch.
+            told = nil
+            wanted = page
+            // Out of full screen: looked at again, since nothing else may lay
+            // this stage out to notice the page is free to come back.
+            fullscreenWatch = (page as? WKWebView)?.observe(\.fullscreenState) { [weak self] _, _ in
+                DispatchQueue.main.async { self?.needsLayout = true }
+            }
         }
         settle()
     }
@@ -661,5 +663,4 @@ final class RestingLights: NSView {
     /// come back the moment the app does.
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
-
 

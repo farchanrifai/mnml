@@ -86,11 +86,14 @@ final class FetchEntry: ObservableObject, Identifiable {
     }
 
     func record(_ progress: Progress, trackFile: Bool = true) {
-        completedBytes = max(0, progress.completedUnitCount)
-        totalBytes = max(0, progress.totalUnitCount)
-        fraction = totalBytes > 0
-            ? min(1, max(0, Double(completedBytes) / Double(totalBytes)))
+        let completed = max(0, progress.completedUnitCount)
+        let total = max(0, progress.totalUnitCount)
+        let part = total > 0
+            ? min(1, max(0, Double(completed) / Double(total)))
             : nil
+        if completedBytes != completed { completedBytes = completed }
+        if totalBytes != total { totalBytes = total }
+        if fraction != part { fraction = part }
         if trackFile { trackPartialFile() }
     }
 

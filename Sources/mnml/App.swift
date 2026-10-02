@@ -433,9 +433,9 @@ struct ContentView: View {
         }
         .ignoresSafeArea()
         .animation(Motion.glide, value: browser.prefs.sidebar)
-        .animation(.spring(response: 0.34, dampingFraction: 1), value: browser.askShowing)
-        .animation(.spring(response: 0.34, dampingFraction: 1), value: browser.active.flatMap { browser.docked[$0.id] })
-        .animation(.easeOut(duration: 0.12), value: fullscreenTab?.id)
+        .animation(Motion.reduced ? nil : .spring(response: 0.34, dampingFraction: 1), value: browser.askShowing)
+        .animation(Motion.reduced ? nil : .spring(response: 0.34, dampingFraction: 1), value: browser.active.flatMap { browser.docked[$0.id] })
+        .animation(Motion.reduced ? nil : .easeOut(duration: 0.12), value: fullscreenTab?.id)
         .onAppear { if room == nil { room = chrome } }
         .onChange(of: chrome) { old, new in make(room: new, after: old) }
     }
@@ -754,6 +754,7 @@ struct ContentView: View {
     private func slide() {
         guard browser.pageUnder else { return }
         slideTicket += 1
+        guard !Motion.reduced else { sliding = false; return }
         let ticket = slideTicket
         // On the slide's own spring: switching the copy off lays the page out
         // again, and done without one, the strip under the column jumped to
@@ -771,9 +772,10 @@ struct ContentView: View {
     /// until you clicked the page. It also mattered more than it looked —
     /// WebAuthn refuses to run on a document that isn't focused, and so do a
     /// number of paste and shortcut handlers pages install for themselves.
-    private func handBack() {
-        guard !browser.fieldShowing, browser.editingTab == nil else { return }
+    func handBack() {
         DispatchQueue.main.async {
+            // A field or panel can open before this queued handoff runs.
+            guard !browser.fieldShowing, nothingOver else { return }
             guard let web = browser.pageTarget?.web, let window = web.window else { return }
             window.makeFirstResponder(web)
         }
@@ -1347,9 +1349,11 @@ struct ContentView: View {
         let flags: [(Bool, String)] = [
             (browser.archiveShowing, "archive"), (browser.tuning, "tuning"), (browser.recalling, "recalling"), (browser.hoarding, "hoarding"),
             (browser.bookmarking, "bookmarking"), (browser.welcoming, "welcoming"), (browser.managing, "managing"),
+            (browser.newsShowing, "newsShowing"), (browser.notesShowing, "notesShowing"), (browser.bringingIn != nil, "bringingIn"),
             (browser.reviewing, "reviewing"), (browser.finding, "finding"), (browser.bookmarksOpen, "bookmarksOpen"),
             (browser.veiling, "veiling"), (browser.summoning, "summoning"), (browser.editingTab != nil, "editingTab"),
             (browser.asking != nil, "asking"), (browser.offering != nil, "offering"), (browser.suggesting != nil, "suggesting"),
+            (browser.shortcutAsk != nil, "shortcutAsk"),
         ]
         return flags.filter(\.0).map(\.1).joined(separator: ", ")
     }
@@ -1358,9 +1362,10 @@ struct ContentView: View {
     private var nothingOver: Bool {
         !browser.archiveShowing && !browser.tuning && !browser.recalling && !browser.hoarding &&
             !browser.bookmarking && !browser.welcoming && !browser.managing &&
+            !browser.newsShowing && !browser.notesShowing && browser.bringingIn == nil &&
             !browser.reviewing && !browser.finding && !browser.bookmarksOpen &&
             !browser.veiling && !browser.summoning && browser.editingTab == nil &&
-            browser.asking == nil && browser.offering == nil && browser.suggesting == nil
+            browser.asking == nil && browser.offering == nil && browser.suggesting == nil && browser.shortcutAsk == nil
     }
 }
 

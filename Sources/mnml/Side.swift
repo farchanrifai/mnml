@@ -1161,7 +1161,7 @@ struct SideRow: View {
         .animation(Motion.quick, value: hovering)
         .animation(Motion.glide, value: editing)
         .onChange(of: browser.refusals) { _, _ in
-            guard editing else { return }
+            guard editing, !Motion.reduced else { return }
             shake = 0
             withAnimation(.easeOut(duration: 0.5)) { shake = 1 }
         }
@@ -1324,6 +1324,8 @@ struct Door: View {
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
         .help(help)
+        .accessibilityLabel(help)
+        .accessibilityHidden(help.isEmpty)
         .animation(Motion.quick, value: hovering)
         .animation(Motion.quick, value: on)
     }

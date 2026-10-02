@@ -395,6 +395,7 @@ struct SpaceDot: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("Spaces, \(browser.space.name)")
         .popover(isPresented: $browser.spaceAppearanceOpen, arrowEdge: browser.prefs.sidebar ? (browser.prefs.sidePosition == .right ? .leading : .trailing) : .bottom) {
             SpaceAppearancePanel(browser: browser, prefs: browser.prefs)
         }

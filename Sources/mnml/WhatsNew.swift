@@ -268,6 +268,7 @@ struct WhatsNewCard: View {
                     }
                     Spacer(minLength: 8)
                     Switch(on: Binding(get: { toggle.get(prefs) }, set: { toggle.set(prefs, $0) }))
+                        .accessibilityLabel(toggle.title)
                 }
                 .padding(.horizontal, 14)
                 .padding(.vertical, 10)

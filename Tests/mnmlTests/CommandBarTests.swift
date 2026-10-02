@@ -184,4 +184,23 @@ final class CommandBarTests: XCTestCase {
         browser.typed = "settings"
         XCTAssertFalse(browser.offers.contains { $0.kind.isCommand })
     }
+
+    func testUnicodeCompletionSelectsOnlyTheOfferedSuffix() {
+        let coordinator = AddressField.Coordinator(browser: browser)
+        let field = EditingField()
+        for typed in ["🧑🏽‍💻.", "e\u{301}."] {
+            let completed = typed + "example/été"
+            field.stringValue = completed
+            field.editor.string = completed
+            coordinator.select(after: typed, in: field)
+            let range = field.editor.selectedRange()
+            XCTAssertEqual(range, NSRange(location: typed.utf16.count, length: "example/été".utf16.count))
+            XCTAssertEqual((completed as NSString).substring(with: range), "example/été")
+        }
+    }
+
+    private final class EditingField: NSTextField {
+        let editor = NSTextView()
+        override func currentEditor() -> NSText? { editor }
+    }
 }
