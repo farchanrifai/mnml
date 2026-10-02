@@ -15,3 +15,5 @@ Motion verification: all 123 non-download tests passed, including the new interm
 No installed app or normal profile was replaced.
 
 Chat divider follow-up: the side-mode `AskPanel` hairline is transparent; its existing 8-point resize grip, cursor, drag gesture, and width limits are unchanged. Release build 202610030104 and both app signatures passed checks; the isolated Frame app was updated and reopened.
+
+Floating-page follow-up: a 12% black contact shadow (3-point blur, 1-point downward offset) is drawn from the rounded viewport shape and confined to the existing material rim. The native Canvas `shadowOnly` filter avoids a filled-face antialias fringe and does not shadow webpage content. Fullscreen bypasses the decoration. Focused SwiftUI renders passed in light and dark appearances, with unchanged page interiors and eight collapsed-width checks. The native motion probe sampled 120 frames across eight rapid toggles with zero interior leaks, rim losses, or page pixel deviations. All three ContentView tests and Release build 202610030158 passed; the user approved the appearance in mnml Frame.

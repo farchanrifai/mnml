@@ -507,6 +507,16 @@ struct ContentView: View {
     /// GeometryReader size, which could leave a moving edge inside the page.
     private var pageBorder: some View {
         frameGround
+            .overlay {
+                // Only the shadow is drawn; a filled face leaves a dark
+                // antialias fringe where the rim mask cuts it away.
+                Canvas { context, size in
+                    guard size.width > pageInset * 2, size.height > pageInset * 2 else { return }
+                    let rect = CGRect(origin: .zero, size: size).insetBy(dx: pageInset, dy: pageInset)
+                    context.addFilter(.shadow(color: .black.opacity(0.12), radius: 3, x: 0, y: 1, options: .shadowOnly))
+                    context.fill(RoundedRectangle(cornerRadius: pageCorner, style: .continuous).path(in: rect), with: .color(.black))
+                }
+            }
             .mask { PageFrame(inset: pageInset, corner: pageCorner).fill(style: FillStyle(eoFill: true)) }
             .allowsHitTesting(false)
             .accessibilityHidden(true)
