@@ -3808,11 +3808,7 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
     ) {
         decide(webView, action) { [weak self] policy in
             if policy == .allow, action.targetFrame?.isMainFrame ?? true, let url = action.request.url {
-                // Drive exposes file Copy/Cut only to Chrome; WebKit can run
-                // that path when this one site receives a Chrome user agent.
-                webView.customUserAgent = url.host() == "drive.google.com"
-                    ? "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/\(Crx.chromeVersion) Safari/537.36"
-                    : nil
+                webView.customUserAgent = Web.userAgent(for: url)
                 let shy = self?.tab(for: webView)?.shy == true || !webView.configuration.websiteDataStore.isPersistent
                 Autoplay.apply(to: preferences, for: url, shy: shy)
             }

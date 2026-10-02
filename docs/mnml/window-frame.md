@@ -1,0 +1,17 @@
+# Inset webpage frame — 3 October 2026
+
+The single-page viewport has a 6-point inset and 10-point continuous rounded corners. The frame uses the sidebar's `Frosted` material, blending mode, and `TintWash`, following light/dark appearance, frosted-sidebar preferences, and per-space tint transitions. Split panes keep their existing margins with the same material in the gutters; video fullscreen removes the new inset. Full-page Ask uses the same frame, while side chat and docked extensions retain their reserved width. The user approved the matching frame color; the subsequent divider requests remove the single-page outline and chat sidebar's leading hairline while preserving its resize grip.
+
+`ContentView` masks the frame material with `PageFrame`, an even-odd `Shape` outside the rounded viewport. Its `path(in:)` uses the current animated bounds. The previous `GeometryReader` captured a size independently of the native page's animated frame, leaving a moving material edge inside the webpage during rapid sidebar toggles, as shown in the user's 3 October recording. The decoration does not handle input or appear in the accessibility tree; the sidebar's transparent resize target remains. Native page corners still use the existing `WebStage` layer clipping. Previews and split-drop geometry follow the inset and reserved chat width.
+
+The visual direction follows the user's Dia/Arc inset-frame request. Product design references: [Dia design notes](https://www.diabrowser.com/release-notes/1-28-0-look-closer), [Arc appearance controls](https://resources.arc.net/hc/en-us/articles/19228064149143-Spaces-Distinct-Browsing-Areas).
+
+Initial frame verification: all 129 tests passed in the isolated `app-frame-20261003-full` profile. The new native offscreen layout test covers sidebar/top tabs, page-under mode, side chat, split margins, and video fullscreen.
+
+Matching-material verification: the native frame layout test and all 122 non-download tests passed. The seven download tests passed when run separately; three combined-suite runs each timed out in a different download lifecycle case, so the combined suite remains intermittently failing. Release build 202610030043 succeeded.
+
+Motion verification: all 123 non-download tests passed, including the new intermediate-width mask regression. A controlled native rendering probe replayed eight rapid hide/show toggles and sampled 120 frames per implementation. The old mask leaked material into the page at 20 sampled pixels and lost the outer rim in 92 frames; the new shape had zero interior leaks and zero rim losses. Both implementations exercised more than 40 intermediate native positions. This reproduced the frame artifact without WebKit; a separate bridge probe found no extra native geometry animations. Release build 202610030057 succeeded; the separate `build/mnml Frame.app` signature and SDK 27.0/macOS 14.0 metadata passed checks. ScreenCaptureKit capture previously failed with `-3811`; final live transition feel remains to be reviewed in the updated app.
+
+No installed app or normal profile was replaced.
+
+Chat divider follow-up: the side-mode `AskPanel` hairline is transparent; its existing 8-point resize grip, cursor, drag gesture, and width limits are unchanged. Release build 202610030104 and both app signatures passed checks; the isolated Frame app was updated and reopened.

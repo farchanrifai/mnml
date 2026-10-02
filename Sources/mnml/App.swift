@@ -278,6 +278,23 @@ private final class CursorGroundView: NSView {
     }
 }
 
+/// A material rim whose hole follows the current animated viewport bounds.
+struct PageFrame: Shape {
+    var inset: CGFloat
+    var corner: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let thickness = min(inset, max(0, min(rect.width, rect.height) / 2))
+        let hole = rect.insetBy(dx: thickness, dy: thickness)
+        return Path { path in
+            path.addRect(rect)
+            if hole.width > 0, hole.height > 0 {
+                path.addPath(RoundedRectangle(cornerRadius: corner, style: .continuous).path(in: hole))
+            }
+        }
+    }
+}
+
 struct ContentView: View {
     @ObservedObject var browser: Browser
 
@@ -355,6 +372,10 @@ struct ContentView: View {
                         .allowsHitTesting(false)
                     }
                 }
+                .padding(pageInset)
+                .overlay {
+                    if pageInset > 0 { pageBorder.padding(covered) }
+                }
                 .padding(.leading, under ? 0 : chrome.width)
                 // This tab's chat, beside the page (AskPanel.swift), followed
                 // frame by frame like the column.
@@ -408,6 +429,8 @@ struct ContentView: View {
                 case .full:
                     // Over the page's room: the column and the strip stay.
                     panel
+                        .padding(pageInset)
+                        .overlay { if pageInset > 0 { pageBorder } }
                         .padding(.leading, chrome.width)
                         .padding(.top, chrome.height)
                         .transition(.opacity)
@@ -444,19 +467,49 @@ struct ContentView: View {
     private var stage: some View {
         if let pick = browser.splitPicking, let tab = browser.tab(pick.tab) {
             SplitPickStage(browser: browser, pick: pick) { pane(tab, corner: SplitStage<EmptyView>.corner, under: EdgeInsets()) }
+                .background { frameGround }
         } else if let split = browser.shownSplit {
             SplitStage(browser: browser, split: split) { pane($0, corner: SplitStage<EmptyView>.corner, under: EdgeInsets()) }
+                .background { if fullscreenTab == nil { frameGround } }
                 .overlay {
                     if browser.prefs.showsLinks { LinkBubble(status: browser.linkStatus) }
                 }
         } else if let tab = browser.active {
-            pane(tab, under: covered)
+            pane(tab, corner: pageCorner, under: covered)
                 .overlay {
                     if browser.prefs.showsLinks { LinkBubble(status: browser.linkStatus).padding(covered) }
                 }
         } else {
             Palette.ground
         }
+    }
+
+    /// Splits already have this margin; a video taking the screen has none.
+    private var pageInset: CGFloat {
+        fullscreenTab == nil && browser.shownSplit == nil && browser.splitPicking == nil ? 6 : 0
+    }
+
+    private var pageCorner: CGFloat { pageInset > 0 ? SplitStage<EmptyView>.corner : 0 }
+
+    /// The same material and space tint as the sidebar, around every pane.
+    private var frameGround: some View {
+        Group {
+            if browser.prefs.frostedSidebar {
+                Frosted(blending: browser.pageUnder ? Under.blending : .behindWindow)
+            } else {
+                Palette.ground
+            }
+        }
+        .overlay { TintWash(browser: browser, prefs: browser.prefs) }
+    }
+
+    /// Shape geometry follows the animated bounds rather than a captured
+    /// GeometryReader size, which could leave a moving edge inside the page.
+    private var pageBorder: some View {
+        frameGround
+            .mask { PageFrame(inset: pageInset, corner: pageCorner).fill(style: FillStyle(eoFill: true)) }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 
     /// One page, with what floats over it: find, and the accounts a field
@@ -659,7 +712,9 @@ struct ContentView: View {
                 // Over the page only: the column, the strip and the bookmarks
                 // bar stay as they are, uncovered and in reach.
                 PeekLayer(browser: browser)
+                    .padding(pageInset)
                     .padding(.leading, chrome.width)
+                    .padding(.trailing, browser.askRoom)
                     .padding(.top, chrome.height)
                     // From the window's own top edge, as the page is:
                     // the title bar's band is page too.
@@ -668,7 +723,9 @@ struct ContentView: View {
             .overlay {
                 // A tab held out of the column over the page (Split.swift).
                 SplitDropLayer(browser: browser)
+                    .padding(pageInset)
                     .padding(.leading, chrome.width)
+                    .padding(.trailing, browser.askRoom)
                     .padding(.top, chrome.height)
                     .ignoresSafeArea()
             }

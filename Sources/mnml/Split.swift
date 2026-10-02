@@ -327,7 +327,6 @@ struct SplitStage<Pane: View>: View {
             }
         }
         .padding(6)
-        .background(Palette.ground)
         .animation(Motion.quick, value: browser.activeID)
     }
 }
@@ -349,7 +348,6 @@ struct SplitPickStage<Pane: View>: View {
             if pick.side == .left { picker(shape) }
         }
         .padding(6)
-        .background(Palette.ground)
     }
 
     private func picker(_ shape: RoundedRectangle) -> some View {

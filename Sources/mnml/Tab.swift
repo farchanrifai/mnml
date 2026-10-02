@@ -45,6 +45,13 @@ enum Web {
     /// engine can't run.
     static let userAgentName = "Version/\(safariVersion) Safari/605.1.15"
 
+    /// These sites gate working browser paths on Chrome's identity.
+    /// Every other navigation restores the normal Safari identity.
+    static func userAgent(for url: URL) -> String? {
+        guard ["drive.google.com", "mail.superhuman.com"].contains(url.host()?.lowercased() ?? "") else { return nil }
+        return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/\(Crx.chromeVersion) Safari/537.36"
+    }
+
     private static var safariVersion: String {
         for path in ["/System/Cryptexes/App/System/Applications/Safari.app", "/Applications/Safari.app"] {
             if let version = Bundle(path: path)?.infoDictionary?["CFBundleShortVersionString"] as? String {

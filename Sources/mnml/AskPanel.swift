@@ -84,7 +84,7 @@ struct AskPanel: View {
         }
         .overlay(alignment: .leading) {
             if mode == .side {
-                Rectangle().fill(Palette.hairline).frame(width: 1)
+                Rectangle().fill(.clear).frame(width: 1)
                     .overlay { WidthGrip { prefs.askWidth = min(640, max(280, prefs.askWidth - $0)) } }
             }
         }

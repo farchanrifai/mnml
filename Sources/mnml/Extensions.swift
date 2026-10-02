@@ -409,7 +409,7 @@ final class Extensions: NSObject, ObservableObject {
         // first launch after an update reads and rewrites every script and
         // page each extension ships (Grammarly: 450 ms).
         let folder = Extensions.folder(for: item.id)
-        try? await Task.detached(priority: .userInitiated) { try ExtensionShims.prepare(folder) }.value
+        try? await Task.detached(priority: .userInitiated) { try ExtensionShims.prepare(folder, id: item.id) }.value
         do {
             let found = try await WKWebExtension(resourceBaseURL: Extensions.folder(for: item.id))
             let context = WKWebExtensionContext(for: found)
@@ -512,7 +512,7 @@ final class Extensions: NSObject, ObservableObject {
             let zip = try Crx.verifiedZip(crx, id: id)
             let target = Extensions.folder(for: id)
             try Crx.unpack(zip, into: staged)
-            try ExtensionShims.prepare(staged, fresh: true)
+            try ExtensionShims.prepare(staged, id: id, fresh: true)
             try await admit(staged, as: id, fromStore: true, finalFolder: target, confirm: confirm || !Store.testing)
         } catch {
             browser?.announce(error.localizedDescription)
@@ -543,7 +543,7 @@ final class Extensions: NSObject, ObservableObject {
             do {
                 try FileManager.default.createDirectory(at: Extensions.folder, withIntermediateDirectories: true)
                 try FileManager.default.copyItem(at: source, to: staged)
-                try ExtensionShims.prepare(staged, fresh: true)
+                try ExtensionShims.prepare(staged, id: id, fresh: true)
                 try await admit(staged, as: id, fromStore: false, finalFolder: Extensions.folder(for: id), confirm: confirm || !Store.testing, source: source)
             } catch {
                 browser?.announce("Couldn't install the extension: \(error.localizedDescription)")
@@ -573,7 +573,7 @@ final class Extensions: NSObject, ObservableObject {
                 }
                 do {
                     try FileManager.default.copyItem(at: source, to: staged)
-                    try ExtensionShims.prepare(staged, fresh: true)
+                    try ExtensionShims.prepare(staged, id: id, fresh: true)
                 } catch {
                     browser?.announce("Couldn't copy \(original.name) again: \(error.localizedDescription)")
                     return
@@ -828,7 +828,7 @@ final class Extensions: NSObject, ObservableObject {
             let staged = Extensions.stagingFolder(for: item.id)
             defer { try? FileManager.default.removeItem(at: staged) }
             try Crx.unpack(zip, into: staged)
-            try ExtensionShims.prepare(staged, fresh: true)
+            try ExtensionShims.prepare(staged, id: item.id, fresh: true)
             let found = try await WKWebExtension(resourceBaseURL: staged)
             guard let current = installed.first(where: { $0.id == item.id }), current.fromStore,
                   current.version == item.version else { return }
