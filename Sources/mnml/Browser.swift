@@ -1348,6 +1348,33 @@ final class Browser: NSObject, ObservableObject {
         writeSession(now: true)
     }
 
+    /// Dropped into the grid, before this pin or at its end.
+    func placePins(_ moving: [Tab], before: Tab.ID?) {
+        let moving = tabs.filter { tab in !tab.shy && moving.contains { $0 === tab } }
+        guard !moving.isEmpty else { return }
+        var row = tabs.filter { tab in !moving.contains { $0 === tab } }
+        let pins = row.filter { $0.pin != nil }
+        let anchor = pins.first { $0.id == before && !($0.listed && prefs.showsPinRows) }
+        // Hidden rows share the grid: crossing its tier boundary changes only
+        // the dragged pins' tier. With rows showing, grid drops are squares.
+        let listed = !prefs.showsPinRows && (anchor ?? pins.last)?.listed == true
+        objectWillChange.send()
+        for tab in moving {
+            if tab.pin == nil {
+                tab.pin = tab.monogram
+                tab.home = tab.pending ?? tab.address
+            }
+            if tab.listed != listed, editingPin == tab.id { editingPin = nil }
+            tab.listed = listed
+            tab.group = nil
+        }
+        let at = anchor.flatMap { target in row.firstIndex { $0 === target } }
+            ?? row.firstIndex { $0.pin == nil || (!listed && $0.listed) } ?? row.count
+        row.insert(contentsOf: moving, at: at)
+        arrange(Self.tiered(row.filter { $0.pin != nil }) + row.filter { $0.pin == nil })
+        writeSession(now: true)
+    }
+
     /// The same page, give or take a trailing slash.
     static func samePage(_ one: URL, _ other: URL?) -> Bool {
         guard let other else { return false }
