@@ -22,8 +22,8 @@ final class SidePanels: NSObject, WKUIDelegate {
     func open(_ url: URL, context: WKWebExtensionContext, for tab: Tab, in browser: Browser) {
         let id = context.uniqueIdentifier
         if browser.docked[tab.id] != id || pages[tab.id]?.url?.path != url.path {
-            pages[tab.id]?.removeFromSuperview()
             guard let configuration = context.webViewConfiguration else { return }
+            discard(tab.id)
             let web = WKWebView(frame: .zero, configuration: configuration)
             web.uiDelegate = self
             web.load(URLRequest(url: url))
@@ -37,7 +37,21 @@ final class SidePanels: NSObject, WKUIDelegate {
 
     func close(_ tab: Tab.ID, in browser: Browser) {
         browser.docked[tab] = nil
-        pages.removeValue(forKey: tab)?.removeFromSuperview()
+        discard(tab)
+    }
+
+    func close(extension id: String) {
+        for browser in Browsers.all {
+            for (tab, owner) in browser.docked where owner == id { close(tab, in: browser) }
+        }
+    }
+
+    private func discard(_ tab: Tab.ID) {
+        guard let web = pages.removeValue(forKey: tab) else { return }
+        web.stopLoading()
+        web.uiDelegate = nil
+        web.navigationDelegate = nil
+        web.removeFromSuperview()
     }
 
     // MARK: - the page asking

@@ -657,7 +657,7 @@ final class PageFind {
             );
             const current = new win.Highlight();
             current.priority = 1;
-            highlights = { sheet, all: new win.Highlight(), current };
+            highlights = { win, sheet, all: new win.Highlight(), current };
             state.highlights.set(win, highlights);
         }
         // A page may set its own sheets, or these names, again at any time.
@@ -673,12 +673,28 @@ final class PageFind {
         return highlights;
     }
 
-    function paint() {
-        unpaint();
+    function paint(rebuild) {
+        // Rebinding a removed highlight can leave it undrawn in WebKit
+        // until its ranges change, so a page replacing the registry or
+        // sheets still gets the full repaint it did before.
+        rebuild = rebuild || state.painted.some(highlights => {
+            try {
+                const win = highlights.win;
+                return !win.document.adoptedStyleSheets.includes(highlights.sheet)
+                    || win.CSS.highlights.get("search-find-match") !== highlights.all
+                    || win.CSS.highlights.get("search-find-current") !== highlights.current;
+            } catch (_) { return true; }
+        });
+        if (rebuild) unpaint();
+        else {
+            for (const highlights of state.painted) {
+                try { highlights.current.clear(); } catch (_) {}
+            }
+        }
         // WebKit before macOS 14.2 has no highlights: the selection is all.
         if (typeof Highlight !== "function") return;
         const painted = new Map();
-        for (const match of state.matches) {
+        for (const match of rebuild ? state.matches : []) {
             if (match.kind !== "range") continue;
             try {
                 let highlights = painted.get(match.win);
@@ -692,7 +708,7 @@ final class PageFind {
         }
         const current = state.matches[state.index];
         if (current?.kind === "range") {
-            try { painted.get(current.win)?.current.add(current.range); } catch (_) {}
+            try { state.highlights.get(current.win)?.current.add(current.range); } catch (_) {}
         }
     }
 
@@ -805,6 +821,7 @@ final class PageFind {
         return answer("ok", 0, 0);
     }
 
+    const paintedTotal = state.matches.length;
     let target;
     if (changed) {
         saveSelections(currentContexts);
@@ -823,7 +840,7 @@ final class PageFind {
     const total = state.matches.length;
     state.index = ((target % total) + total) % total;
     mark(state.matches[state.index]);
-    paint();
+    paint(changed || rebuilt || total !== paintedTotal);
     return answer("ok", total, state.index + 1, !state.complete || !!state.cut);
     """#
 }

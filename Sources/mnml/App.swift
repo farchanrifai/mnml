@@ -298,7 +298,6 @@ struct PageFrame: Shape {
 struct ContentView: View {
     @ObservedObject var browser: Browser
 
-    @State private var keys: Any?
     @State private var window: NSWindow?
     @State private var resting: RestingLights?
     /// The room the page leaves for the column and the strip, set without
@@ -804,7 +803,8 @@ struct ContentView: View {
             .animation(Motion.settle, value: browser.reviewing)
         .onAppear {
             watchKeys()
-            PageView.unused = { [browser] event in
+            PageView.unused = { [weak browser] event in
+                guard let browser else { return false }
                 guard let id = browser.keyRouter.takeBack(event) else { return false }
                 browser.run(id)
                 return true
@@ -815,6 +815,7 @@ struct ContentView: View {
             BookmarkMenu.shared.start(for: browser)
             Browsers.watchFrames()
         }
+        .onDisappear { Self.unwatchKeys(for: browser) }
     }
 
     /// The mirrored edge off for the length of a slide (see `sliding`).
@@ -1118,8 +1119,9 @@ struct ContentView: View {
     /// the same commands for anyone looking for them, and never sees these
     /// keystrokes because this runs first.
     private func watchKeys() {
-        guard keys == nil else { return }
-        keys = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged, .leftMouseDown]) { event in
+        let id = ObjectIdentifier(browser)
+        guard Self.keyMonitors[id] == nil else { return }
+        Self.keyMonitors[id] = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged, .leftMouseDown]) { event in
             // A click on the tab switcher, in this window only (see
             // Browser.clickTabSwitcher), turned into the top-left coordinates
             // SwiftUI's frames are in.
@@ -1147,6 +1149,14 @@ struct ContentView: View {
         ContentView.keyHooks[ObjectIdentifier(browser)] = { event in take(event) ? nil : event }
     }
 
+    /// Each window's monitor retains its view callbacks. Remove both routes
+    /// when the window retires, so its browser and key handlers do too.
+    static func unwatchKeys(for browser: Browser) {
+        let id = ObjectIdentifier(browser)
+        if let monitor = keyMonitors.removeValue(forKey: id) { NSEvent.removeMonitor(monitor) }
+        keyHooks[id] = nil
+    }
+
     /// Whether a key is this window's to act on.
     private func mine(_ event: NSEvent) -> Bool {
         if let window = event.window, Browsers.browser(for: window) != nil { return window === self.window }
@@ -1156,6 +1166,7 @@ struct ContentView: View {
     /// The same handling the key monitor gives an event, for the bench to
     /// put a key through the app's own path — each window's own.
     static var keyHooks: [ObjectIdentifier: (NSEvent) -> NSEvent?] = [:]
+    private static var keyMonitors: [ObjectIdentifier: Any] = [:]
 
     /// The keys of the top row, by where they sit rather than what they type.
     static let digits: [UInt16: Int] = [

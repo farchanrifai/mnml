@@ -27,6 +27,7 @@ final class ExtensionPopup: NSObject, WKUIDelegate, WKNavigationDelegate, NSPopo
     /// last focused one.
     private var page: PopupPage?
     private var measuring: Timer?
+    private var measurement: UUID?
     private(set) var extensionID: String?
     /// The extension's own button, when the popup hangs from it.
     private weak var button: NSView?
@@ -168,7 +169,11 @@ final class ExtensionPopup: NSObject, WKUIDelegate, WKNavigationDelegate, NSPopo
 
     /// Tells WebKit the popup's window and tab are gone.
     private func forget() {
+        measurement = nil
         if let page { Extensions.shared.controller.didCloseTab(page, windowIsClosing: false) }
+        web?.stopLoading()
+        web?.navigationDelegate = nil
+        web?.uiDelegate = nil
         page = nil
         popover = nil
         web = nil
@@ -247,12 +252,25 @@ final class ExtensionPopup: NSObject, WKUIDelegate, WKNavigationDelegate, NSPopo
     /// Measured while still the 25-point square and unseen, then shown at
     /// the size found.
     private func firstMeasure() {
-        guard let web, !shown else { return }
-        web.evaluateJavaScript("(\(ExtensionPopup.preferred))()") { [weak self] value, _ in
+        guard !shown else { return }
+        measure("(\(ExtensionPopup.preferred))()") { popup, value, _ in
+            guard !popup.shown, let pair = value as? [Double], pair.count == 2 else { return }
+            popup.apply(NSSize(width: pair[0], height: pair[1]))
+        }
+    }
+
+    /// A slow page gets one outstanding size request. Closing or replacing
+    /// the popup invalidates it, and its reply cannot size the next popup.
+    private func measure(_ script: String, _ done: @escaping (ExtensionPopup, Any?, NSPopover) -> Void) {
+        guard let web, let popover, measurement == nil else { return }
+        let request = UUID()
+        measurement = request
+        web.evaluateJavaScript(script) { [weak self, weak web, weak popover] value, _ in
             MainActor.assumeIsolated {
-                guard let self, web === self.web, !self.shown else { return }
-                guard let pair = value as? [Double], pair.count == 2 else { return }
-                self.apply(NSSize(width: pair[0], height: pair[1]))
+                guard let self, self.measurement == request else { return }
+                self.measurement = nil
+                guard let web, let popover, self.web === web, self.popover === popover else { return }
+                done(self, value, popover)
             }
         }
     }
@@ -298,16 +316,14 @@ final class ExtensionPopup: NSObject, WKUIDelegate, WKNavigationDelegate, NSPopo
     /// it rocking.
     private var ticks = 0
     private func grow() {
-        guard shown, let web, let popover else { return }
+        guard shown, web != nil, popover != nil else { return }
         ticks += 1
         if ticks <= 8 {
-            web.evaluateJavaScript("(\(ExtensionPopup.preferred))()") { [weak self] value, _ in
-                MainActor.assumeIsolated {
-                    guard let self, let pair = value as? [Double], pair.count == 2 else { return }
-                    let wanted = NSSize(width: pair[0], height: pair[1])
-                    let now = popover.contentSize
-                    if abs(wanted.width - now.width) > 2 || abs(wanted.height - now.height) > 2 { self.apply(wanted) }
-                }
+            measure("(\(ExtensionPopup.preferred))()") { popup, value, popover in
+                guard let pair = value as? [Double], pair.count == 2 else { return }
+                let wanted = NSSize(width: pair[0], height: pair[1])
+                let now = popover.contentSize
+                if abs(wanted.width - now.width) > 2 || abs(wanted.height - now.height) > 2 { popup.apply(wanted) }
             }
             return
         }
@@ -315,14 +331,12 @@ final class ExtensionPopup: NSObject, WKUIDelegate, WKNavigationDelegate, NSPopo
         if ticks > 24, ticks % 4 != 0 { return }
         // a width the page names for itself, remembered as the first measure does, is followed both ways:
         // Bitwarden's narrow setting shrinks it.
-        web.evaluateJavaScript("[\(ExtensionPopup.reach)('width'), (() => { const d = document.documentElement; return d && d.scrollHeight > d.clientHeight ? d.scrollHeight : 0; })(), (() => { const m = window.__searchSizing || (window.__searchSizing = {}), w = document.documentElement.getBoundingClientRect().width; if (Math.abs(w - innerWidth) > 1) return m.w = w; return m.w && Math.abs(m.w - innerWidth) <= 1 ? m.w : 0; })()]") { value, _ in
-            MainActor.assumeIsolated {
-                guard let pair = value as? [Double], pair.count == 3 else { return }
-                let now = popover.contentSize
-                let width = pair[2] > 0 ? max(25, pair[2].rounded(.up)) : max(now.width, pair[0])
-                let wanted = NSSize(width: min(800, width), height: min(600, max(now.height, pair[1])))
-                if wanted != now { self.apply(wanted) }
-            }
+        measure("[\(ExtensionPopup.reach)('width'), (() => { const d = document.documentElement; return d && d.scrollHeight > d.clientHeight ? d.scrollHeight : 0; })(), (() => { const m = window.__searchSizing || (window.__searchSizing = {}), w = document.documentElement.getBoundingClientRect().width; if (Math.abs(w - innerWidth) > 1) return m.w = w; return m.w && Math.abs(m.w - innerWidth) <= 1 ? m.w : 0; })()]") { popup, value, popover in
+            guard let pair = value as? [Double], pair.count == 3 else { return }
+            let now = popover.contentSize
+            let width = pair[2] > 0 ? max(25, pair[2].rounded(.up)) : max(now.width, pair[0])
+            let wanted = NSSize(width: min(800, width), height: min(600, max(now.height, pair[1])))
+            if wanted != now { popup.apply(wanted) }
         }
     }
 
@@ -382,4 +396,3 @@ final class PopupPage: NSObject, WKWebExtensionTab {
     func isSelected(for context: WKWebExtensionContext) -> Bool { false }
     func close(for context: WKWebExtensionContext) async throws { ExtensionPopup.shared.close() }
 }
-

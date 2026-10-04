@@ -173,6 +173,7 @@ private final class PageFindHarness: NSObject, NSApplicationDelegate {
         await checkStaleRequestsAndClear()
         await checkHorizontalHitScrollsIntoView()
         await checkLongHitScrollsIntoView()
+        await checkHighlightUpdates()
     }
 
     private func checkFrameAndSelectionRestoration() async {
@@ -331,6 +332,50 @@ private final class PageFindHarness: NSObject, NSApplicationDelegate {
             "[window, document.querySelector('#frame').contentWindow].reduce((sum, win) => sum + [...win.CSS.highlights.values()].reduce((n, h) => n + h.size, 0), 0)"
         )) as? Int
         check(unpainted == 0, "Clear takes the painted matches away in either document")
+    }
+
+    private func checkHighlightUpdates() async {
+        let first = await update("orchid")
+        expect(first, count: 17, index: 1, "Highlight update fixture starts at the first match")
+        do {
+            let installed = try await evaluateIsolated("""
+            globalThis.__findClearCounts = { all: 0, current: 0 };
+            for (const [name, key] of [["search-find-match", "all"], ["search-find-current", "current"]]) {
+                const highlight = CSS.highlights.get(name);
+                const clear = highlight.clear;
+                highlight.clear = function () { __findClearCounts[key]++; return clear.call(this); };
+            }
+            return true;
+            """)
+            check(installed as? Bool == true, "Highlight clear counters installed in the find world")
+            let next = await update("orchid")
+            expect(next, count: 17, index: 2, "Next keeps the shared match collection")
+            let counts = try await evaluateIsolated("return [__findClearCounts.all, __findClearCounts.current, CSS.highlights.get('search-find-match').size, CSS.highlights.get('search-find-current').size];") as? [Int]
+            check(counts == [0, 1, 17, 1], "Next only repaints the current highlight (got \(counts ?? []))")
+            _ = try await evaluate("CSS.highlights.delete('search-find-match'); CSS.highlights.delete('search-find-current'); document.adoptedStyleSheets = []; true")
+            let rebound = await update("orchid")
+            expect(rebound, count: 17, index: 3, "Next survives a page replacing the highlight registry")
+            // Read the app's registry in its own world: WebKit can cache
+            // different CSS registry wrappers in the page world.
+            let restored = try await evaluateIsolated("return [CSS.highlights.get('search-find-match').size, CSS.highlights.get('search-find-current').size, document.adoptedStyleSheets.length];") as? [Int]
+            check(restored == [17, 1, 1], "Replaced highlights and styles are restored (got \(restored ?? []))")
+            _ = try await evaluate("document.querySelector('#seventeen').textContent = 'orchid orchid'; true")
+            let changed = await update("orchid")
+            check(changed.count == 2, "A DOM edit rebuilds the match collection")
+            let rebuilt = try await evaluateIsolated("return [__findClearCounts.all, CSS.highlights.get('search-find-match').size];") as? [Int]
+            check(rebuilt == [2, 2], "DOM edits still rebuild all match highlights (got \(rebuilt ?? []))")
+        } catch {
+            check(false, "Highlight instrumentation failed: \(error)")
+        }
+        _ = await clear()
+    }
+
+    private func evaluateIsolated(_ script: String) async throws -> Any {
+        try await withCheckedThrowingContinuation { continuation in
+            web.callAsyncJavaScript(script, arguments: [:], in: nil, in: Web.world) { (result: Swift.Result<Any, Error>) in
+                continuation.resume(with: result)
+            }
+        }
     }
 
     private func checkRapidNextRequests() async {

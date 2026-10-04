@@ -5,6 +5,31 @@ import XCTest
 
 @MainActor
 final class AppPerformanceTests: XCTestCase {
+    func testOverlappingSleepRequestsAreCoalescedAndCancelledOnViewChange() async {
+        _ = NSApplication.shared
+        let browser = Browser(record: WindowRecord())
+        let tab = Tab()
+        tab.setAddressOptimistically(URL(string: "https://sleep-audit.example/original")!)
+        _ = tab.web
+        browser.insert(tab, at: browser.tabs.count)
+        defer { browser.closeAll() }
+        XCTAssertNil(browser.awake(because: tab))
+        let completed = expectation(description: "The stale sleep request finishes")
+        browser.sleep(tab) { reason in
+            XCTAssertEqual(reason, "page changed")
+            completed.fulfill()
+        }
+        XCTAssertEqual(browser.sleepRequests.count, 1)
+        var repeated: String?
+        browser.sleep(tab) { repeated = $0 }
+        XCTAssertEqual(repeated, "already being put to sleep")
+        XCTAssertEqual(browser.sleepRequests.count, 1)
+        tab.rest()
+        await fulfillment(of: [completed], timeout: 5)
+        XCTAssertTrue(browser.sleepRequests.isEmpty)
+        XCTAssertNil(tab.built, "A stale sleep callback must not rebuild the discarded page")
+    }
+
     func testTabOwnerSubscriptionsAreReplacedAndCancelledOnClose() throws {
         _ = NSApplication.shared
         let first = Browser(record: WindowRecord())

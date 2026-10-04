@@ -448,7 +448,7 @@ final class StageView: NSView {
             Self.docks.removeObject(forKey: wanted)
             // Full size, which WebKit, with its inspector back, cuts down to
             // make room for it again at the stage's size now.
-            wanted.frame = bounds
+            if wanted.frame != bounds { wanted.frame = bounds }
             // A web view coming back into a window sometimes keeps the last
             // picture it had — which, after a while out of one, is nothing.
             // Asking it to draw again is cheap and is what brings it back.
@@ -459,7 +459,7 @@ final class StageView: NSView {
         // With the inspector docked, WebKit lays the page and it out side by
         // side as this view changes size; setting the page's frame here would
         // cover the inspector.
-        if !(docked && subviews.contains(where: Self.isInspector)) {
+        if wanted.frame != bounds, !(docked && subviews.contains(where: Self.isInspector)) {
             wanted.frame = bounds
         }
         if let web = wanted as? WKWebView { Under.cover(web, under) }
@@ -663,4 +663,3 @@ final class RestingLights: NSView {
     /// come back the moment the app does.
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
-

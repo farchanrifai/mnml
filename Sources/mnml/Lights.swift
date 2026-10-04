@@ -34,6 +34,13 @@ final class Lights: NSObject {
         kept[ObjectIdentifier(window)]?.place()
     }
 
+    /// A retired window no longer needs placement callbacks. In particular,
+    /// `moved` belongs to its SwiftUI view and must not keep that view alive.
+    static func forget(_ window: NSWindow) {
+        guard let lights = kept.removeValue(forKey: ObjectIdentifier(window)) else { return }
+        NotificationCenter.default.removeObserver(lights)
+    }
+
     private weak var window: NSWindow?
     private let moved: () -> Void
     private let centreX: () -> CGFloat
@@ -123,6 +130,12 @@ final class FullScreenLights: NSObject {
         let key = ObjectIdentifier(window)
         guard kept[key] == nil else { return }
         kept[key] = FullScreenLights(window, browser: browser)
+    }
+
+    static func forget(_ window: NSWindow) {
+        guard let lights = kept.removeValue(forKey: ObjectIdentifier(window)) else { return }
+        NotificationCenter.default.removeObserver(lights)
+        lights.hide(false)
     }
 
     private weak var window: NSWindow?

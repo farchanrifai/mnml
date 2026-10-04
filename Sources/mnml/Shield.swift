@@ -12,7 +12,8 @@ final class Shield: ObservableObject {
     static let shared = Shield()
 
     private(set) var list: WKContentRuleList?
-    private var waiting: [WKUserContentController] = []
+    private let waiting = NSHashTable<WKUserContentController>.weakObjects()
+    private var compiling = false
 
     /// Set the one time compiling the list didn't work. The toggle in
     /// Settings can say "on" all it wants; nothing is actually blocked until
@@ -99,7 +100,7 @@ final class Shield: ObservableObject {
     ]
 
     func compile() {
-        guard list == nil else { return }
+        guard list == nil, !compiling else { return }
         trouble = nil
         var rules: [[String: Any]] = Shield.unwanted.map { domain in
             let escaped = domain.replacingOccurrences(of: ".", with: "\\.")
@@ -133,20 +134,22 @@ final class Shield: ObservableObject {
             trouble = "WebKit has nowhere to compile it"
             return
         }
+        compiling = true
         store.compileContentRuleList(
             forIdentifier: "office-shield",
             encodedContentRuleList: json
         ) { [weak self] compiled, error in
             MainActor.assumeIsolated {
                 guard let self else { return }
+                self.compiling = false
                 guard let compiled else {
                     self.trouble = error?.localizedDescription ?? "Compiling the block list failed"
                     return
                 }
                 self.list = compiled
                 // Tabs that opened while this was still compiling get it now.
-                if self.enabled { self.waiting.forEach { $0.add(compiled) } }
-                self.waiting = []
+                if self.enabled { self.waiting.allObjects.forEach { $0.add(compiled) } }
+                self.waiting.removeAllObjects()
             }
         }
     }
@@ -156,7 +159,7 @@ final class Shield: ObservableObject {
         if let list {
             if enabled { controller.add(list) }
         } else {
-            waiting.append(controller)
+            waiting.add(controller)
         }
     }
 

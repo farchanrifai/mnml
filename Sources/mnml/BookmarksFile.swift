@@ -15,6 +15,22 @@ import Foundation
 // addresses are kept, as the other imports do.
 
 enum BookmarksFile {
+    // These expressions are immutable and shared by concurrent import
+    // workers. Compiling HREF and title/entity patterns for every bookmark
+    // added thousands of identical regex constructions to a large file.
+    private static let tags = try? NSRegularExpression(
+        pattern: #"<(H3|A)\b([^>]*)>(.*?)</\1\s*>|<(/?)DL\b[^>]*>"#,
+        options: [.caseInsensitive, .dotMatchesLineSeparators]
+    )
+    private static let attributes: [String: NSRegularExpression] = Dictionary(uniqueKeysWithValues:
+        ["HREF", "PERSONAL_TOOLBAR_FOLDER"].compactMap { name in
+            let pattern = name + #"\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))"#
+            return (try? NSRegularExpression(pattern: pattern, options: .caseInsensitive)).map { (name, $0) }
+        }
+    )
+    private static let markup = try? NSRegularExpression(pattern: #"<[^>]*>"#)
+    private static let numberedEntities = try? NSRegularExpression(pattern: #"&#(x?)([0-9a-fA-F]+);"#)
+
     /// The file's bookmarks, folders and all; nil for a file that isn't one.
     static func read(_ url: URL) -> [Bookmark]? {
         try? read(url, control: ImportFile.Control())
@@ -52,8 +68,7 @@ enum BookmarksFile {
         // One pass over the tags that matter. A folder's heading is kept
         // until its list opens; a list that closes hands its pages to the
         // folder that holds it.
-        let pattern = #"<(H3|A)\b([^>]*)>(.*?)</\1\s*>|<(/?)DL\b[^>]*>"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive, .dotMatchesLineSeparators]) else { return [] }
+        guard let regex = tags else { return [] }
         let ns = text as NSString
 
         var stack: [(title: String?, nodes: [Bookmark])] = []
@@ -127,8 +142,7 @@ enum BookmarksFile {
     }
 
     private static func attribute(_ name: String, in text: String) -> String? {
-        let pattern = name + #"\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))"#
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive) else { return nil }
+        guard let regex = attributes[name] else { return nil }
         let ns = text as NSString
         guard let match = regex.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)) else { return nil }
         for group in 2...4 where match.range(at: group).location != NSNotFound {
@@ -139,7 +153,7 @@ enum BookmarksFile {
 
     /// A title without any markup left in it, its entities decoded.
     private static func clean(_ text: String) -> String {
-        let bare = text.replacingOccurrences(of: #"<[^>]*>"#, with: "", options: .regularExpression)
+        let bare = markup?.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: "") ?? text
         return decode(bare).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -150,7 +164,7 @@ enum BookmarksFile {
             out = out.replacingOccurrences(of: entity, with: character, options: .caseInsensitive)
         }
         // Numbered ones, then the ampersand itself last, so "&amp;lt;" stays "&lt;".
-        if let regex = try? NSRegularExpression(pattern: #"&#(x?)([0-9a-fA-F]+);"#) {
+        if let regex = numberedEntities {
             let ns = out as NSString
             for match in regex.matches(in: out, range: NSRange(location: 0, length: ns.length)).reversed() {
                 let hex = ns.substring(with: match.range(at: 1)) == "x"

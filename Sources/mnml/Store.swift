@@ -196,6 +196,13 @@ enum Disk {
         newest[file] = turn
         lock.unlock()
         let put: @Sendable () -> Void = {
+            // A queue of bookmark edits can leave many older snapshots
+            // waiting here. Reject them before encoding the entire tree;
+            // the second check still protects a write overtaken mid-encode.
+            lock.lock()
+            let current = newest[file] == turn
+            lock.unlock()
+            guard current else { return }
             guard let data = encode() else { return }
             lock.lock()
             defer { lock.unlock() }

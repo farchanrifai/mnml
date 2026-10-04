@@ -17,6 +17,7 @@ enum AddressCommand {
     case settings
 
     var title: String { "Settings" }
+    var identity: String { "settings" }
 }
 
 enum Store {

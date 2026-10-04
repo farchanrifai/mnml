@@ -309,7 +309,10 @@ final class Tab: ObservableObject, Identifiable {
         // A new document: whatever the old one waited for under its field
         // went with it.
         if let built { Passkeys.shared.forget(built) }
-        if let url = built?.url, url.absoluteString != "about:blank" { committed = url }
+        if let url = built?.url, url.absoluteString != "about:blank" {
+            loadGeneration &+= 1
+            committed = url
+        }
         // A page arrived after all: the address is its own again.
         if held != nil, let url = built?.url, url.absoluteString != "about:blank" {
             held = nil
@@ -579,6 +582,9 @@ final class Tab: ObservableObject, Identifiable {
     @Published private(set) var cover: NSImage?
 
     private var watch: [NSKeyValueObservation] = []
+    /// A wake or crash recovery can wait for the stage and verify its load
+    /// later. A different navigation or a discarded view ends that request.
+    private var loadGeneration: UInt64 = 0
 
     /// A tab that has never been anywhere shows the address field instead of a
     /// page. It still owns a web view — built now, warm by the time it's needed.
@@ -981,6 +987,7 @@ final class Tab: ObservableObject, Identifiable {
             onCross(self, url)
             return
         }
+        loadGeneration &+= 1
         // Set straight away rather than waiting for the observer: the tab has to
         // stop being blank in the same frame the field disappears, or the empty
         // state flashes back for an instant on its way out.
@@ -1006,6 +1013,7 @@ final class Tab: ObservableObject, Identifiable {
     /// Brought back from the last session: everything the row needs to draw it,
     /// and nothing fetched.
     func restore(url: URL, title: String, name: String? = nil) {
+        loadGeneration &+= 1
         address = url
         self.title = title
         self.name = name
@@ -1208,7 +1216,15 @@ final class Tab: ObservableObject, Identifiable {
     /// take — no error, no navigation, just a view that goes on sitting on
     /// about:blank with nothing left to say so. Still there, or still
     /// answering for a process that's already gone, is asked once more.
-    private func loadAndVerify(_ url: URL, state: Any? = nil, tries: Int = 0) {
+    private func loadAndVerify(_ url: URL, state: Any? = nil, tries: Int = 0, generation: UInt64? = nil) {
+        let request: UInt64
+        if let generation {
+            request = generation
+        } else {
+            loadGeneration &+= 1
+            request = loadGeneration
+        }
+        guard request == loadGeneration else { return }
         // Wait for the stage to take the view back before loading into it. A
         // page loaded while its view is off any window boots as a hidden tab,
         // and a site that holds everything until it is shown — x.com does,
@@ -1222,7 +1238,7 @@ final class Tab: ObservableObject, Identifiable {
         let view = web
         if view.window == nil, tries < 50 {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak self] in
-                self?.loadAndVerify(url, state: state, tries: tries + 1)
+                self?.loadAndVerify(url, state: state, tries: tries + 1, generation: request)
             }
             return
         }
@@ -1235,19 +1251,20 @@ final class Tab: ObservableObject, Identifiable {
         } else {
             view.open(url)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-            guard let self else { return }
-            guard built?.url?.absoluteString != "about:blank" else {
-                web.open(url)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self, weak view] in
+            guard let self, let view, self.loadGeneration == request, self.built === view else { return }
+            guard view.url?.absoluteString != "about:blank" else {
+                view.open(url)
                 return
             }
-            web.evaluateJavaScript("document.readyState") { [weak self] _, error in
+            view.evaluateJavaScript("document.readyState") { [weak self, weak view] _, error in
                 MainActor.assumeIsolated {
-                    guard let self, let error = error as NSError? else { return }
+                    guard let self, let view, self.loadGeneration == request, self.built === view,
+                          let error = error as NSError? else { return }
                     guard error.domain == WKErrorDomain,
                           error.code == WKError.webContentProcessTerminated.rawValue
                     else { return }
-                    self.web.open(url)
+                    view.open(url)
                 }
             }
         }
@@ -1271,9 +1288,12 @@ final class Tab: ObservableObject, Identifiable {
             web.open(address)
             return
         }
-        web.evaluateJavaScript("document.readyState") { [weak self] _, error in
+        let view = web
+        let request = loadGeneration
+        view.evaluateJavaScript("document.readyState") { [weak self, weak view] _, error in
             MainActor.assumeIsolated {
-                guard let self, let error = error as NSError? else { return }
+                guard let self, let view, self.loadGeneration == request, self.built === view,
+                      let error = error as NSError? else { return }
                 guard error.domain == WKErrorDomain,
                       error.code == WKError.webContentProcessTerminated.rawValue
                 else { return }
@@ -1312,6 +1332,7 @@ final class Tab: ObservableObject, Identifiable {
     /// loading it yet. Saying so now keeps the empty state from flashing up in
     /// the frame between the tab appearing and the page committing.
     func setAddressOptimistically(_ url: URL) {
+        loadGeneration &+= 1
         address = url
         failure = nil
         adoptIcon()
@@ -1321,6 +1342,7 @@ final class Tab: ObservableObject, Identifiable {
     /// page, and an address kept for it downloads the file once more
     /// whenever the tab is opened (see Browser.dropEmpty).
     func forget() {
+        loadGeneration &+= 1
         address = nil
         icon = nil
     }
@@ -1341,6 +1363,7 @@ final class Tab: ObservableObject, Identifiable {
         // A pin put down with ⌘W has no view left to reload; waking it is
         // the reload.
         guard !wake() else { return }
+        loadGeneration &+= 1
         reader = false
         // A file is read again with the folder it may read (see open).
         if let address, hollow || address.isFileURL {
@@ -1351,11 +1374,11 @@ final class Tab: ObservableObject, Identifiable {
             web.reload()
         }
     }
-    func stop() { web.stopLoading() }
+    func stop() { loadGeneration &+= 1; built?.stopLoading() }
     /// Straight through, every time. A page that has to be fetched again is
     /// fetched again — nothing is kept behind to make that look otherwise.
-    func back() { web.goBack() }
-    func forward() { web.goForward() }
+    func back() { loadGeneration &+= 1; web.goBack() }
+    func forward() { loadGeneration &+= 1; web.goForward() }
 
     /// Called when the tab is thrown away. Without it the view keeps running
     /// whatever the page left behind — timers, video, sockets.
@@ -1376,6 +1399,7 @@ final class Tab: ObservableObject, Identifiable {
     /// back-forward cache. The tab keeps its address; `web` builds again the
     /// next time anyone asks for it.
     private func discard() {
+        loadGeneration &+= 1
         watch = []
         ears.stop()
         guard let web = built else { return }

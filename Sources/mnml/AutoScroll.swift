@@ -53,15 +53,28 @@ enum AutoScroll {
         const a = Math.abs(d) - 12;
         return a > 0 ? Math.sign(d) * Math.min(60, Math.pow(a / 10, 1.4)) : 0;
       };
-      const tick = () => {
+      const tick = (time) => {
         if (!active) return;
-        active.target.scrollBy(speed(active.dx), speed(active.dy));
+        active.frame = 0;
+        const x = speed(active.dx), y = speed(active.dy);
+        // At the mark, there is nothing to draw. The pointer starts the
+        // clock again when it leaves the dead zone.
+        if (!x && !y) { active.time = null; return; }
+        // The same speed on a 60 Hz display and a ProMotion display. Cap a
+        // delayed frame so returning to a busy page cannot jump a long way.
+        const elapsed = active.time === null ? 1 : Math.min(3, (time - active.time) / (1000 / 60));
+        active.time = time;
+        active.target.scrollBy(x * elapsed, y * elapsed);
         active.frame = requestAnimationFrame(tick);
       };
       const move = (e) => {
         if (!active) return;
         active.dx = e.clientX - active.x;
         active.dy = e.clientY - active.y;
+        if (!active.frame && (speed(active.dx) || speed(active.dy))) {
+          active.time = performance.now();
+          active.frame = requestAnimationFrame(tick);
+        }
       };
       const stop = () => {
         if (!active) return;
@@ -81,11 +94,10 @@ enum AutoScroll {
         active = {
           x: e.clientX, y: e.clientY, dx: 0, dy: 0, since: performance.now(),
           target: scroller(e.target), badge: mark(e.clientX, e.clientY),
-          cursor: document.documentElement.style.cursor,
+          cursor: document.documentElement.style.cursor, frame: 0, time: null,
         };
         document.documentElement.style.cursor = 'all-scroll';
         addEventListener('mousemove', move, true);
-        active.frame = requestAnimationFrame(tick);
       }, true);
       // Held down and dragged: let go, and it stops.
       addEventListener('mouseup', (e) => {

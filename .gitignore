@@ -1,5 +1,6 @@
 # Build output — build.sh regenerates all of this.
 .build/
+.build-audit/
 build/
 .swiftpm/
 *.xcuserstate

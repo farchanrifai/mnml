@@ -1584,6 +1584,8 @@ final class Browser: NSObject, ObservableObject {
     /// The minute-by-minute look for tabs to put to sleep, and the ear for
     /// macOS saying memory is short. See Sleep.swift.
     var dozing: Timer?
+    /// Only one unsaved-form check and snapshot per tab at a time.
+    var sleepRequests: [Tab.ID: UUID] = [:]
     /// The size each tab on screen was last warned at (Memory.swift).
     var memoryWarned: [Tab.ID: UInt64] = [:]
     var pressure: DispatchSourceMemoryPressure?
@@ -1817,13 +1819,13 @@ final class Browser: NSObject, ObservableObject {
         floater.onProgress = { [weak self] answer in
             guard let self, let id = self.floating,
                   let tab = (self.tabs + self.parkedTabs).first(where: { $0.id == id })
-            else { return }
+            else { answer(nil, nil); return }
             tab.web.evaluateInSearch(Isolate.where_) { found in
                 MainActor.assumeIsolated {
                     guard let pair = found as? [Any], pair.count == 2,
                           let through = pair[0] as? Double,
                           let playing = pair[1] as? Bool
-                    else { return }
+                    else { answer(nil, nil); return }
                     answer(through, playing)
                 }
             }
@@ -2279,6 +2281,12 @@ final class Browser: NSObject, ObservableObject {
 
     /// Its window closed for good, with others open: every page let go.
     func closeAll() {
+        ContentView.unwatchKeys(for: self)
+        if let window {
+            Lights.forget(window)
+            FullScreenLights.forget(window)
+        }
+        sleepRequests.removeAll()
         if floating != nil || systemPiP != nil { land() }
         let pendingPeek = peekDismissal
         peekTab?.close()
@@ -3610,19 +3618,30 @@ final class Browser: NSObject, ObservableObject {
     /// the tab strip, except you read it only when you ask for it.
     private func openPages(matching typed: String) -> [Suggestion] {
         let needle = typed.trimmingCharacters(in: .whitespaces).lowercased()
-        return tabs
-            .filter { $0.id != activeID && !$0.isBlank }
-            .filter { tab in
-                guard !needle.isEmpty else { return true }
-                let address = tab.address.map { Address.pretty($0) } ?? ""
-                if prefs.commandActions {
-                    return CommandRank.match(needle, text: tab.label) != nil || CommandRank.match(needle, text: address) != nil
+        let limit = needle.isEmpty ? 6 : 3
+        var best: [Tab] = []
+        for tab in tabs where tab.id != activeID && !tab.isBlank {
+            // Only a handful of recent matches are shown. An older page
+            // cannot displace them, so it needs neither formatting nor a
+            // fuzzy match; ties keep the row's existing order.
+            if best.count == limit, let last = best.last, tab.touched <= last.touched { continue }
+            if !needle.isEmpty {
+                let titleMatches = prefs.commandActions
+                    ? CommandRank.match(needle, text: tab.label) != nil
+                    : tab.label.lowercased().contains(needle)
+                if !titleMatches {
+                    let address = tab.address.map { Address.pretty($0) } ?? ""
+                    let addressMatches = prefs.commandActions
+                        ? CommandRank.match(needle, text: address) != nil
+                        : address.lowercased().contains(needle)
+                    guard addressMatches else { continue }
                 }
-                return tab.label.lowercased().contains(needle) || address.lowercased().contains(needle)
             }
-            .sorted { $0.touched > $1.touched }
-            .prefix(needle.isEmpty ? 6 : 3)
-            .compactMap { tab in
+            let index = best.firstIndex { tab.touched > $0.touched } ?? best.endIndex
+            best.insert(tab, at: index)
+            if best.count > limit { best.removeLast() }
+        }
+        return best.compactMap { tab in
                 guard let url = tab.address else { return nil }
                 return Suggestion(
                     key: tab.label,
@@ -3631,7 +3650,7 @@ final class Browser: NSObject, ObservableObject {
                     kind: .open,
                     tab: tab.id
                 )
-            }
+        }
     }
 
     /// A row clicked in the list, taken directly rather than through the
