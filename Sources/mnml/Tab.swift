@@ -1360,6 +1360,9 @@ final class Tab: ObservableObject, Identifiable {
     /// Called when the tab is thrown away. Without it the view keeps running
     /// whatever the page left behind — timers, video, sockets.
     func close() {
+        // Archives, replaced pins and private-mode swaps also discard tabs;
+        // stop their chat even when they bypass Browser.close(_:).
+        for browser in Browsers.all { browser.chats[id]?.stop() }
         ownerWatch.removeAll()
         onZoom = nil
         onLink = nil

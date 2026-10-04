@@ -243,6 +243,7 @@ enum Browsers {
         let others = all.filter { $0 !== browser && $0.isOpen && $0.extensionPopup == nil }
         guard !others.isEmpty else {
             // The last one: kept, tabs and all, and written down now.
+            browser.chats.values.forEach { $0.stop() }
             browser.shut = true
             browser.flushSession()
             save(now: true)

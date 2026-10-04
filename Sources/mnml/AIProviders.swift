@@ -18,7 +18,7 @@ struct AIModel: Identifiable, Equatable {
 }
 
 enum AIProvider: String, CaseIterable, Identifiable {
-    case gemini, groq, openai, anthropic
+    case gemini, groq, openai, anthropic, antigravity
 
     var id: String { rawValue }
     var title: String {
@@ -27,6 +27,7 @@ enum AIProvider: String, CaseIterable, Identifiable {
         case .groq: "Groq"
         case .openai: "OpenAI"
         case .anthropic: "Anthropic"
+        case .antigravity: "Antigravity"
         }
     }
     var keyURL: URL {
@@ -36,6 +37,7 @@ enum AIProvider: String, CaseIterable, Identifiable {
         case .groq: url = "https://console.groq.com/keys"
         case .openai: url = "https://platform.openai.com/api-keys"
         case .anthropic: url = "https://console.anthropic.com/settings/keys"
+        case .antigravity: url = "https://antigravity.google/docs/cli/install/"
         }
         return URL(string: url)!
     }
@@ -56,6 +58,10 @@ enum AIProvider: String, CaseIterable, Identifiable {
         case .anthropic: [
             AIModel(id: "claude-haiku-4-5-20251001", title: "Claude Haiku 4.5 · paid", images: true, pdfs: true, budget: 120_000),
             AIModel(id: "claude-sonnet-5", title: "Claude Sonnet 5 · paid", images: true, pdfs: true, budget: 120_000),
+        ]
+        case .antigravity: [
+            AIModel(id: "gemini-3.8-flash-low", title: "Flash · subscription", images: false, pdfs: false, budget: 100_000),
+            AIModel(id: "gemini-3.1-pro-low", title: "Pro · subscription", images: false, pdfs: false, budget: 100_000),
         ]
         }
     }
@@ -101,6 +107,17 @@ struct AIInput {
     let system: String
     let turns: [(mine: Bool, text: String)]
     let files: [Attachment]
+    // CLI sessions can send just the new question when the supplied context
+    // and transcript still match. API providers keep the complete request.
+    var context: String? = nil
+    var question: String? = nil
+    var connectionServices: [ConnectionService] = []
+    var connectionAccounts: [UUID] = []
+    var connectionSources: [ConnectionHit] = []
+    var connectionSelections: [ConnectionSelection] = []
+    var connectionAccountDetails: [ConnectionAccount] = []
+    var connectionWrites: [ConnectionSelection] = []
+    var connectionSpaceID: UUID? = nil
 }
 
 enum AITransport {
@@ -121,6 +138,7 @@ enum AITransport {
 
     static func request(_ input: AIInput, provider: AIProvider, model: AIModel, key: String) throws -> URLRequest {
         guard model.accepts(input.files) else { throw Failure.unsupported }
+        guard provider != .antigravity else { throw Failure.unsupported }
         let endpoint: String
         switch provider {
         case .gemini:
@@ -129,6 +147,7 @@ enum AITransport {
         case .groq: endpoint = "https://api.groq.com/openai/v1/chat/completions"
         case .openai: endpoint = "https://api.openai.com/v1/responses"
         case .anthropic: endpoint = "https://api.anthropic.com/v1/messages"
+        case .antigravity: throw Failure.unsupported
         }
         var request = URLRequest(url: URL(string: endpoint)!)
         request.httpMethod = "POST"
@@ -161,6 +180,7 @@ enum AITransport {
         case .anthropic:
             body = ["model": model.id, "system": input.system, "stream": true,
                     "max_tokens": 4096, "messages": messages]
+        case .antigravity: throw Failure.unsupported
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         return request
@@ -206,6 +226,7 @@ enum AITransport {
         case .anthropic:
             guard json["type"] as? String == "content_block_delta" else { return nil }
             return (json["delta"] as? [String: Any])?["text"] as? String
+        case .antigravity: return nil
         }
     }
 
@@ -220,8 +241,9 @@ enum AITransport {
         return (source as? [String: Any])?["message"] as? String ?? "The response failed."
     }
 
-    static func stream(_ input: AIInput, provider: AIProvider, model: AIModel, key: String) -> AsyncThrowingStream<String, Error> {
-        AsyncThrowingStream { out in
+    static func stream(_ input: AIInput, provider: AIProvider, model: AIModel, key: String, chat: UUID = UUID()) -> AsyncThrowingStream<String, Error> {
+        if provider == .antigravity { return Antigravity.stream(input, model: model, chat: chat) }
+        return AsyncThrowingStream { out in
             let job = Task {
                 do {
                     let request = try request(input, provider: provider, model: model, key: key)

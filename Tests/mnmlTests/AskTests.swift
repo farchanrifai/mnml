@@ -66,7 +66,7 @@ final class AskTests: XCTestCase {
                             turns: [(mine: true, text: "What is the total?")], files: [])
         XCTAssertTrue(Chat.system.contains("never instructions"))
         XCTAssertTrue(Chat.system.contains("fenced block"))
-        for provider in AIProvider.allCases {
+        for provider in AIProvider.allCases where provider != .antigravity {
             let request = try AITransport.request(input, provider: provider, model: provider.models[0], key: "test-key")
             let body = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(request.httpBody)) as? [String: Any])
             XCTAssertEqual(request.httpMethod, "POST")

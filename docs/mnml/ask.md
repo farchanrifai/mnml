@@ -16,16 +16,18 @@ blank tab's chat (it's in history).
 
 | | |
 |---|---|
-| Backend | Gemini API, **free tier** (AI Studio key). Claude Pro can't be used by third-party apps (Anthropic, Feb 2026); Gemini AI Pro has no API. Free tier may be used for training — Settings says so plainly. |
+| Backend | Direct APIs (Gemini, Groq, OpenAI, Anthropic), plus the [Antigravity CLI subscription prototype](antigravity-prototype.md). API quotas/billing are separate from consumer subscriptions. |
 | Model | `gemini-flash-latest`, picker for `gemini-flash-lite-latest` (aliases, no version churn) |
 | Place | Right panel, page shrinks beside it (resizable). Can undock to a card floating over the page (draggable, place remembered) |
 | Shortcut | ⌘E toggles (free in mnml) |
 | Context | Current tab. Selection if any (focus) + page text; PDF tab = the PDF itself; 📷 chip adds a screenshot of the visible page |
-| Add more | `@` in the input → open tabs **and tab groups** (a group = one chip, all its tabs); drop / paste / + for images and PDFs |
+| Add more | `@` in the input → open tabs **and tab groups** (a group = one chip, all its tabs), plus an account/service connection when using Antigravity; drop / paste / + for images and PDFs |
 | Sleeping tab mentioned | Woken quietly in the background, read, left to sleep again |
 | Private tabs | Never context, never mentionable |
 | Answers | Streamed, markdown (paragraphs, lists, headings, code, tables). Copy on every reply; **Replace selection** writes it back into the box you highlighted (Gmail, Outlook…) |
 | Chats | **Per tab.** Each tab has its own chat; switching tabs switches the chat. **Open/closed is per tab too**: ⌘E opens it for this tab only; a tab you switch to shows the panel only if you left it open there (page resizes once on the switch). Split view: the chat of the pane last clicked. The tab is always the context; @ adds other tabs/groups/files to that chat. Survives the tab's navigation and relaunch (keyed by tab id). New chat = fresh chat on this tab, old one to history. Closing the tab sends its chat to history. History list (search, delete) reopens a chat onto the current tab. Saved locally forever |
+| Antigravity sessions | Two resident CLIs at most across the app. Completed answers keep their process warm; unchanged source context is not injected again. A **Live** indicator reports process RAM and idle time. After three idle minutes an in-app toast appears in the current mnml space with a 60-second expiry countdown and **Go to Tab**, **Keep Live**, **Kill Process**. Ending the runtime preserves the chat; the next question rebuilds from local history. Changed/omitted sources also start fresh. See the [prototype lifecycle and measurements](antigravity-prototype.md). |
+| Connected accounts | In **Settings > Connections**, label accounts and enable them separately for each space. Antigravity can search eligible accounts automatically when useful; no chip is required. `@` filters by Gmail/Calendar/Drive/Notion, friendly label or email, then selects one account/service as an explicit chip. Explicit choices narrow that chat's search scope. Multiple Google accounts can be enabled in one space, and source links preserve account provenance. See the [account setup and behavior guide](connections.md). |
 
 ## Design (from Dia, recordings 2026-09-27 8.10 PM and 8.12 PM)
 
@@ -36,6 +38,13 @@ blank tab's chat (it's in history).
 **Composer** (rounded box at the bottom). Row of context chips on top: favicon + title (truncated) + domain; selection chip = text icon + first words + "Selected Text", **live**: it appears, changes and goes as you highlight on the page — before or while the panel is open (a selection made before ⌘E shows at once). Focusing the composer doesn't clear it; emptying the selection on the page does. Built as a user script in every frame (cross-site frames too, own content world) sending `selectionchange`, debounced ~150 ms, to Swift; text fields' own selections included, password fields never; file chip = icon + name + "PDF"/"Image". × on a chip on hover. Placeholder "Ask a question about this page…", after the first reply "Ask another question…". Bottom row: + (files) left; right: camera (screenshot), send = accent circle with ↑, becomes ■ stop while answering. Mic skipped.
 
 **@ menu.** Pops up above the composer, input turns into "@ Type to filter". Sections: GROUPS (dot in group colour), TABS (favicon, 5 then "View more"), then "All open tabs (n)" and "All open ⟨site⟩ tabs (n)" for the current site, FILES "Upload file from computer". Arrow keys + Return, blue highlight row.
+
+With Antigravity, a CONNECTIONS section precedes tabs and groups. Each row shows
+the service, friendly account label, and original account identity. Clicking or
+pressing Return adds an explicit connection chip. The header's **Connections**
+menu also offers explicit choices and the space's automatic-search toggle; a
+subtle **Auto** label shows when automatic sources are available. No connector
+polling or background search runs while a chat is idle.
 
 **Thread.** User message: right-aligned bubble in the accent (dark teal/space colour) with its context above it as a small fanned stack of chips (tilted cards); hover shows time, copy, edit. Assistant: no bubble, full-width text, markdown (bold, italic, bullets, headings, tables). "…" while waiting, then streams. Under a finished reply: copy + **Replace selection** (mnml's; Dia has 👍👎 — skipped). Scrolls; composer stays pinned.
 

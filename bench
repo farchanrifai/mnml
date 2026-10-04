@@ -27,6 +27,11 @@
     ./bench shot ID [PATH] [WIDTH]     a PNG of the page → its path
     ./bench close ID | all             only tabs the bench opened
     ./bench probe                      the window's own state: panels, modal, windows
+    ./bench ask ID state|stop|send [QUESTION] [MODEL]
+                                      test run: Antigravity chat, including its queue state
+    ./bench ai-sessions [state|age SESSION SECONDS|keep SESSION|kill SESSION|go SESSION]
+                                      test run: app-wide warm CLIs and the toast's lifecycle actions;
+                                      SESSION is the UUID from ask's chat or ai-sessions' chat field
     ./bench extensions                 installed extensions, loaded or not, with their warnings
     ./bench little URL|keep|close      a small window for a link (made unseen), kept into the row, or closed
     ./bench site PATH [security]       the site card for the tab on screen, drawn to a PNG
@@ -177,7 +182,29 @@ def main(argv):
     verb, args = argv[0], argv[1:]
     request = {"do": verb}
     if window is not None: request["window"] = window
-    if verb == "open":
+    if verb == "ask":
+        if len(args) < 2: sys.exit("usage: bench ask ID state|stop|send [QUESTION] [MODEL]")
+        request["id"], request["action"] = args[:2]
+        if args[1] == "send":
+            if len(args) not in (3, 4): sys.exit("usage: bench ask ID send QUESTION [MODEL]")
+            request["text"] = args[2]
+            if len(args) == 4: request["model"] = args[3]
+        elif len(args) != 2 or args[1] not in ("state", "stop"):
+            sys.exit("usage: bench ask ID state|stop")
+    elif verb == "ai-sessions":
+        action = args[0] if args else "state"
+        request["action"] = action
+        if action == "state":
+            if len(args) > 1: sys.exit("usage: bench ai-sessions [state]")
+        elif action == "age":
+            if len(args) != 3: sys.exit("usage: bench ai-sessions age SESSION SECONDS")
+            request["chat"], request["seconds"] = args[1], float(args[2])
+            if not 0 <= request["seconds"] < float('inf'): sys.exit("seconds must be finite and nonnegative")
+        elif action in ("keep", "kill", "go"):
+            if len(args) != 2: sys.exit("usage: bench ai-sessions keep|kill|go SESSION")
+            request["chat"] = args[1]
+        else: sys.exit("usage: bench ai-sessions [state|age SESSION SECONDS|keep SESSION|kill SESSION|go SESSION]")
+    elif verb == "open":
         if len(args) not in (1, 2) or args[1:] not in ([], ["private"]): sys.exit("usage: bench open URL [private]")
         request["url"] = args[0]
         if args[1:] == ["private"]: request["private"] = True

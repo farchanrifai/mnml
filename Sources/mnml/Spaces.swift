@@ -346,7 +346,12 @@ extension Browser {
         clearSpaceTransition()
         enter(Space.firstID)
         if floating != nil || systemPiP != nil { land() }
-        for (_, row) in parked { for tab in row.tabs { tab.close() } }
+        for (_, row) in parked {
+            for tab in row.tabs {
+                chats[tab.id]?.stop()
+                tab.close()
+            }
+        }
         parked = [:]
     }
 }
@@ -600,7 +605,10 @@ extension Browser {
     /// A space deleted in another window: this window's row there goes.
     func forget(space id: UUID) {
         if parked[id]?.tabs.contains(where: { $0.id == floating || $0.id == systemPiP }) == true { land() }
-        for tab in parked.removeValue(forKey: id)?.tabs ?? [] { tab.close() }
+        for tab in parked.removeValue(forKey: id)?.tabs ?? [] {
+            chats[tab.id]?.stop()
+            tab.close()
+        }
         record.rows[id.uuidString] = nil
     }
 }

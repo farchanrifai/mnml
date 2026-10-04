@@ -61,6 +61,7 @@ final class Links: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        Antigravity.stopAll()
         // Nothing left playing, and macOS told so: Droppy's media widget
         // launched the last app that had been "now playing" as soon as it
         // quit, and mnml came straight back. ponytail: a guess at what

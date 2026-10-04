@@ -309,6 +309,77 @@ final class Bench {
         }
 
         switch verb {
+        case "ai-sessions":
+            guard Store.testing else { answer(["error": "ai-sessions only works on a test run"]); return }
+            let pool = AntigravitySessions.shared
+            let action = request["action"] as? String ?? "state"
+            if action != "state" {
+                guard let chat = (request["chat"] as? String).flatMap(UUID.init(uuidString:)) else {
+                    answer(["error": "ai-sessions needs a chat session UUID"]); return
+                }
+                switch action {
+                case "age": pool.age(chat, by: request["seconds"] as? Double ?? 0)
+                case "keep": pool.keepLive(chat)
+                case "kill": pool.kill(chat)
+                case "go":
+                    guard AntigravitySessionUI.go(to: chat) else { answer(["error": "the owning tab is gone"]); return }
+                default: answer(["error": "ai-sessions action must be state, age, keep, kill or go"]); return
+                }
+            }
+            answer(["sessions": pool.sessions.map(Self.describe)])
+
+        case "connection-write-preview":
+            guard Store.testing, ProcessInfo.processInfo.environment["MNML_CONNECTION_FIXTURE"] != nil,
+                  let tab = browser.active else { answer(["error": "write preview requires a disposable fixture test run"]); return }
+            Task { @MainActor in
+                do {
+                    try await ConnectionAccounts.shared.waitUntilReady()
+                    guard let account = ConnectionAccounts.shared.eligible(in: browser.spaceID).first(where: { $0.canWrite(.drive) }) else {
+                        answer(["error": "no synthetic writable Drive account"]); return
+                    }
+                    let chat = browser.chat(for: tab)
+                    browser.chatting.insert(tab.id); browser.tuning = false
+                    let plan = ConnectionWritePlan(operation: .createSheet, account: account.id, title: "Sample budget", values: [
+                        [.string("Item"), .string("Amount"), .string("Paid")],
+                        [.string("Office rent"), .number(1500), .bool(true)],
+                        [.string("Supplies"), .number(250), .bool(false)]])
+                    let prepared = ConnectionPreparedWrite(plan: plan, account: account, before: "Create in My Drive.")
+                    chat.showWritePreviewForTesting(prepared)
+                    answer(["preview": prepared.id.uuidString, "chat": chat.sessionID.uuidString, "synthetic": true])
+                } catch { answer(["error": "could not load disposable fixture"] ) }
+            }
+
+        case "ask":
+            guard Store.testing else { answer(["error": "ask only works on a test run"]); return }
+            guard let tab = find(request, in: browser), !tab.shy else { answer(missing(request)); return }
+            let action = request["action"] as? String ?? "state"
+            if action == "load" {
+                guard let id = (request["history"] as? String).flatMap(UUID.init(uuidString:)),
+                      let saved = Chat.load(id) else { answer(["error": "ask load needs a saved chat in this test world"]); return }
+                browser.chats[tab.id]?.stop()
+                browser.chats[tab.id] = saved
+                browser.chatting.insert(tab.id)
+                browser.objectWillChange.send()
+            }
+            let chat = browser.chat(for: tab)
+            if action == "send" {
+                guard let text = request["text"] as? String, !text.isEmpty, !chat.working else {
+                    answer(["error": "ask needs a question and an idle chat"]); return
+                }
+                browser.prefs.askProvider = .antigravity
+                let model = request["model"] as? String ?? AIProvider.antigravity.models[0].id
+                browser.prefs.askModel = model
+                browser.chatting.insert(tab.id)
+                if let page = request["page"] as? Bool { chat.leftOwn = !page }
+                chat.send(text, about: tab, also: [], named: [], provider: .antigravity, model: model, picked: nil, space: browser.spaceID)
+            } else if action == "stop" { chat.stop() }
+            else if action != "state" && action != "load" { answer(["error": "ask action must be send, state, stop or load"]); return }
+            var state: [String: Any] = ["chat": chat.sessionID.uuidString, "history": chat.id.uuidString,
+                                      "working": chat.working, "queued": chat.queued, "page": !chat.leftOwn,
+                                      "turns": chat.turns.map { ["mine": $0.mine, "text": $0.text, "failed": $0.failed] as [String: Any] }]
+            if let session = AntigravitySessions.shared.session(for: chat.sessionID) { state["session"] = Self.describe(session) }
+            answer(state)
+
         case "tabs":
             // A private tab is nobody's business but yours: a test run has none
             // of yours, so there every tab is listed.
@@ -2454,6 +2525,18 @@ final class Bench {
 
     private func missing(_ request: [String: Any]) -> [String: Any] {
         ["error": "no tab “\(request["id"] as? String ?? "")” — see tabs"]
+    }
+
+    private static func describe(_ session: AntigravitySessions.Snapshot) -> [String: Any] {
+        let owner = AntigravitySessionUI.owner(of: session.id)
+        var data: [String: Any] = ["chat": session.id.uuidString, "pid": session.pid, "busy": session.busy,
+                                   "idle": session.idle, "remaining": session.remaining as Any? ?? NSNull(),
+                                   "rssBytes": session.rssBytes as Any? ?? NSNull()]
+        if let owner {
+            data["tab"] = owner.tab.id.uuidString; data["title"] = owner.title
+            data["space"] = owner.space.name; data["spaceID"] = owner.space.id.uuidString
+        }
+        return data
     }
 
     private func describe(_ tab: Tab) -> [String: Any] {

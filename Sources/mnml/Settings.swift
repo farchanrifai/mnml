@@ -18,7 +18,7 @@ struct SettingsPanel: View {
     @State private var hovered: Page?
 
     enum Page: String, CaseIterable, Identifiable {
-        case general, tabs, links, ai, shortcuts, extensions, passwords, downloads, privacy, about
+        case general, tabs, links, ai, connections, shortcuts, extensions, passwords, downloads, privacy, about
         var id: String { rawValue }
         var title: String {
             switch self {
@@ -26,6 +26,7 @@ struct SettingsPanel: View {
             case .tabs: return "Tabs"
             case .links: return "Links"
             case .ai: return "AI"
+            case .connections: return "Connections"
             case .shortcuts: return "Shortcuts"
             case .extensions: return "Extensions"
             case .passwords: return "Passwords"
@@ -40,6 +41,7 @@ struct SettingsPanel: View {
             case .tabs: return "rectangle.split.3x1"
             case .links: return "arrow.triangle.branch"
             case .ai: return "sparkles"
+            case .connections: return "link"
             case .shortcuts: return "keyboard"
             case .extensions: return "puzzlepiece.extension"
             case .passwords: return "key"
@@ -169,6 +171,7 @@ struct SettingsPanel: View {
                     case .passwords: passwords
                     case .downloads: downloads
                     case .ai: AISettings(prefs: prefs)
+                    case .connections: ConnectionsSettings(browser: browser)
                     case .privacy: privacy
                     case .about: about
                     }
@@ -1054,47 +1057,56 @@ private struct AISettings: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
             Card {
-                Line("Provider", "Ask sends the page and attachments directly to this provider. Groq and Gemini have limited free tiers; OpenAI and Anthropic may charge.") {
+                Line("Provider", prefs.askProvider == .antigravity ? "Uses your Antigravity subscription login. Page text goes to Google; usage shares your Antigravity allowance." : "Ask sends the page and attachments directly to this provider. Groq and Gemini have limited free tiers; OpenAI and Anthropic may charge.") {
                     Picker("", selection: $prefs.askProvider) {
                         ForEach(AIProvider.allCases) { Text($0.title).tag($0) }
                     }
                     .labelsHidden().fixedSize()
                 }
                 Rule()
-                Line("\(prefs.askProvider.title) key", "Stored in this Mac's Keychain") {
-                    if !keyLoaded {
-                        ProgressView().controlSize(.small)
-                    } else if let key, !changing {
-                        HStack(spacing: 6) {
-                            Text("••••\(key.suffix(4))").font(.system(size: 12, design: .monospaced)).foregroundStyle(Palette.muted)
-                            Pill("Change") { changing = true }
-                            Pill("Remove") {
-                                let provider = prefs.askProvider
-                                Task {
-                                    await AIKey.keepAsync("", for: provider)
-                                    let saved = await AIKey.readAsync(provider)
-                                    if prefs.askProvider == provider { self.key = saved }
+                if prefs.askProvider == .antigravity {
+                    Line("Connection", Antigravity.setup) {
+                        Text(Antigravity.executable == nil ? "CLI not found" : "CLI installed")
+                            .font(.system(size: 12)).foregroundStyle(Palette.muted)
+                        Link("Setup", destination: prefs.askProvider.keyURL).font(.system(size: 12))
+                    }
+                    Line("Attachments", "Page text, text files and CSVs. Images and PDFs need an API provider.") { EmptyView() }
+                } else {
+                    Line("\(prefs.askProvider.title) key", "Stored in this Mac's Keychain") {
+                        if !keyLoaded {
+                            ProgressView().controlSize(.small)
+                        } else if let key, !changing {
+                            HStack(spacing: 6) {
+                                Text("••••\(key.suffix(4))").font(.system(size: 12, design: .monospaced)).foregroundStyle(Palette.muted)
+                                Pill("Change") { changing = true }
+                                Pill("Remove") {
+                                    let provider = prefs.askProvider
+                                    Task {
+                                        await AIKey.keepAsync("", for: provider)
+                                        let saved = await AIKey.readAsync(provider)
+                                        if prefs.askProvider == provider { self.key = saved }
+                                    }
                                 }
                             }
+                        } else {
+                            Link("Get a key", destination: prefs.askProvider.keyURL)
+                                .font(.system(size: 12))
                         }
-                    } else {
-                        Link("Get a key", destination: prefs.askProvider.keyURL)
-                            .font(.system(size: 12))
                     }
-                }
-                if keyLoaded && (key == nil || changing) {
-                    HStack(spacing: 6) {
-                        SecureField("Paste the key", text: $typed)
-                            .textFieldStyle(.plain)
-                            .font(.system(size: 12.5))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 7)
-                            .background(Palette.wash, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                            .onSubmit(save)
-                        Pill("Save", filled: true, action: save)
+                    if keyLoaded && (key == nil || changing) {
+                        HStack(spacing: 6) {
+                            SecureField("Paste the key", text: $typed)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: 12.5))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 7)
+                                .background(Palette.wash, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                                .onSubmit(save)
+                            Pill("Save", filled: true, action: save)
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.bottom, 11)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.bottom, 11)
                 }
                 Rule()
                 Line("Model", "Custom IDs start as text-only; curated models have verified attachment support") {
@@ -1148,7 +1160,7 @@ private struct AISettings: View {
             typed = ""
             customModel = prefs.askProvider.models.contains(where: { $0.id == prefs.askModel }) ? "" : prefs.askModel
             let provider = prefs.askProvider
-            let saved = await AIKey.readAsync(provider)
+            let saved = provider == .antigravity ? nil : await AIKey.readAsync(provider)
             if !Task.isCancelled {
                 key = saved
                 keyLoaded = true

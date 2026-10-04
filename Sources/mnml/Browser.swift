@@ -1861,6 +1861,7 @@ final class Browser: NSObject, ObservableObject {
             tab.home = entry.home.flatMap(URL.init(string:))
             tab.group = entry.group
             if let id = entry.chat, let chat = Chat.load(id) {
+                chat.bindConnections(to: spaceID)
                 chats[tab.id] = chat
                 if entry.asking == true { chatting.insert(tab.id) }
             }
@@ -2279,6 +2280,7 @@ final class Browser: NSObject, ObservableObject {
 
     /// Its window closed for good, with others open: every page let go.
     func closeAll() {
+        chats.values.forEach { $0.stop() }
         if floating != nil || systemPiP != nil { land() }
         let pendingPeek = peekDismissal
         peekTab?.close()
@@ -2507,6 +2509,7 @@ final class Browser: NSObject, ObservableObject {
             return
         }
         guard let index = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
+        chats[tab.id]?.stop()
         if #available(macOS 15.4, *), docked[tab.id] != nil { SidePanels.shared.close(tab.id, in: self) }
         heldDialogs.removeValue(forKey: tab.id)?.forEach { $0.dismiss() }
 
@@ -2777,6 +2780,7 @@ final class Browser: NSObject, ObservableObject {
         tab.partner = nil
         for remaining in tabs where remaining.partner == tab.id { remaining.partner = nil }
         tab.rehome(in: id)
+        chats[tab.id]?.bindConnections(to: id)
         // Its group stays behind: the space it goes to has groups of its own.
         tab.group = nil
         var row = parked[id] ?? loadRow(id)
@@ -2805,6 +2809,7 @@ final class Browser: NSObject, ObservableObject {
         let destination = target ?? Browser(record: WindowRecord(space: spaceID))
         if split(of: tab.id) != nil { unsplit(tab.id) }
         destination.chats[tab.id] = chats.removeValue(forKey: tab.id)
+        destination.chats[tab.id]?.bindConnections(to: destination.spaceID)
         if chatting.remove(tab.id) != nil { destination.chatting.insert(tab.id) }
         destination.docked[tab.id] = docked.removeValue(forKey: tab.id)
         detach(tab)
@@ -3176,6 +3181,7 @@ final class Browser: NSObject, ObservableObject {
             tab.touched = entry.touched ?? Date()
             tab.pin = entry.pin
             if let id = entry.chat, let chat = Chat.load(id) {
+                chat.bindConnections(to: space)
                 chats[tab.id] = chat
                 if entry.asking == true { chatting.insert(tab.id) }
             }

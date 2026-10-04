@@ -745,6 +745,7 @@ struct ContentView: View {
             .overlay(alignment: .topTrailing) {
                 if let job = browser.fileImport { ImportProgress(browser: browser, job: job) }
             }
+            .overlay(alignment: .topTrailing) { AntigravitySessionToasts() }
             // The field comes on its spring, and goes quickly: once Return
             // is pressed the page is on its way, and the field is not what
             // there is to watch.

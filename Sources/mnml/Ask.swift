@@ -2,11 +2,12 @@ import Foundation
 import AppKit
 import UniformTypeIdentifiers
 import WebKit
+import Combine
 
 // A chat about a tab (AskPanel.swift is how it looks). Each tab has its own,
 // kept by the browser under the tab's id, and whether its panel is open is
 // the tab's too. The tab is always what the chat is about: its text is read
-// when you send, and goes directly to the chosen provider on your own key.
+// when you send, and goes to the chosen provider using your key or CLI login.
 // Private tabs have no chat.
 
 @MainActor
@@ -23,14 +24,107 @@ final class Chat: ObservableObject {
         /// The highlight asked about, and its name in the page, for Replace.
         var selection: String?
         var pin: String?
+        var sources: [ConnectionHit]? = nil
+        var writes: [ConnectionWriteReceipt]? = nil
     }
 
     let id: UUID
+    // History can be opened in two tabs; each live Chat owns its own worker.
+    let sessionID = UUID()
     /// The site it began on, for the history list.
     private(set) var site = ""
     private(set) var updated = Date()
 
-    init(id: UUID = UUID()) { self.id = id }
+    private var connectionSubscriptions: [AnyCancellable] = []
+    private var connectionSnapshot = ""
+    private var connectionAccountsLoaded = false
+    private var restoringHistory = false
+    init(id: UUID = UUID(), space: UUID = Space.firstID) {
+        self.id = id; connectionSpaceID = space
+        ConnectionActivity.shared.$chats.sink { [weak self] chats in
+            guard let self else { return }
+            let progress = chats[self.sessionID]
+            self.connectionActivity = progress?.label
+            if let writes = progress?.writes, !writes.isEmpty, let at = self.turns.indices.last, !self.turns[at].mine {
+                self.turns[at].writes = writes
+                self.save(immediately: true) // Keep the receipt before another network request.
+            }
+            if let sources = progress?.sources, !sources.isEmpty,
+               let at = self.turns.indices.last, !self.turns[at].mine {
+                self.turns[at].sources = sources
+            }
+        }.store(in: &connectionSubscriptions)
+        Publishers.CombineLatest3(ConnectionAccounts.shared.$accounts, ConnectionAccounts.shared.$policies,
+                                  ConnectionAccounts.shared.$loaded)
+            .sink { [weak self] accounts, policies, loaded in
+                guard let self, loaded else { return }
+                // @Published sends before the store updates its property, so
+                // reconcile using the values delivered by this publication.
+                let policy = policies[self.connectionSpaceID.uuidString] ?? .init(accountIDs: [])
+                let available = accounts.filter { policy.accountIDs.contains($0.id) }
+                self.reconcileConnections(available: available, automatic: policy.automatic, writeAccountIDs: policy.writeAccountIDs ?? [])
+                self.objectWillChange.send()
+            }.store(in: &connectionSubscriptions)
+    }
+
+    // Kept only to migrate histories written by the first connector prototype.
+    @Published var connectionServices: [ConnectionService] = []
+    @Published var connectionSelections: [ConnectionSelection] = [] {
+        didSet {
+            if connectionSelections != oldValue { stop(); save() }
+        }
+    }
+    @Published private(set) var connectionSpaceID: UUID
+    @Published private(set) var connectionActivity: String?
+    var automaticConnections: Bool { ConnectionAccounts.shared.policy(for: connectionSpaceID).automatic }
+    var availableConnections: [ConnectionSelection] { ConnectionAccounts.shared.selections(in: connectionSpaceID) }
+
+    func bindConnections(to space: UUID) {
+        guard space != connectionSpaceID else { return }
+        stop()
+        connectionSpaceID = space
+        // A moved or recalled chat keeps its transcript, but explicit access
+        // must be chosen again in the destination Space.
+        connectionServices = []; connectionSelections = []
+        connectionSnapshot = ""
+        if ConnectionAccounts.shared.loaded {
+            reconcileConnections(available: ConnectionAccounts.shared.eligible(in: space), automatic: automaticConnections, writeAccountIDs: ConnectionAccounts.shared.policy(for: space).writeAccountIDs ?? [])
+        }
+        save()
+    }
+
+    func mentionConnection(_ selection: ConnectionSelection) {
+        guard availableConnections.contains(selection), !connectionSelections.contains(selection) else { return }
+        connectionSelections.append(selection)
+    }
+
+    private func reconcileConnections(available: [ConnectionAccount], automatic: Bool, writeAccountIDs: [UUID] = []) {
+        if !connectionServices.isEmpty {
+            // Legacy service chips represented one account, not every grant.
+            connectionSelections = connectionServices.compactMap { service in
+                let candidates = available.filter { $0.services.contains(service) }.sorted {
+                    $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+                }
+                let prior = turns.reversed().flatMap { $0.sources ?? [] }.first { $0.service == service }
+                guard let account = prior?.accountID ?? candidates.first?.id else { return nil }
+                return ConnectionSelection(service: service, accountID: account)
+            }.sorted { $0.id < $1.id }
+            connectionServices = []
+        }
+        // Keep revoked explicit choices as unavailable chips. Dropping the
+        // last choice would accidentally turn a restricted chat into Auto.
+        let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+        let snapshot = (try? encoder.encode(available))?.base64EncodedString() ?? ""
+        let next = String(automatic) + snapshot + writeAccountIDs.map(\.uuidString).sorted().joined(separator: ",")
+        if connectionAccountsLoaded && next != connectionSnapshot { stop() }
+        connectionSnapshot = next; connectionAccountsLoaded = true
+    }
+
+    private var requestedConnections: [ConnectionSelection] {
+        let available = availableConnections
+        if !connectionSelections.isEmpty { return connectionSelections.filter { available.contains($0) } }
+        return automaticConnections ? available : []
+    }
 
     /// Its name in history: the first question.
     var title: String { turns.first { $0.mine }.map { String($0.text.prefix(80)) } ?? "New chat" }
@@ -53,13 +147,15 @@ final class Chat: ObservableObject {
 
     @Published private(set) var turns: [Turn] = []
     @Published private(set) var working = false
+    @Published private(set) var queued = false
     private var request: Task<Void, Never>?
 
     /// Sleeping tabs woken for one question, at most.
     static let wakeable = 8
 
     func send(_ question: String, about tab: Tab, also others: [Tab], named: [String],
-              provider: AIProvider, model: String, picked: Picked?) {
+              provider: AIProvider, model: String, picked: Picked?, space: UUID? = nil) {
+        if let space { bindConnections(to: space) }
         let asked = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !asked.isEmpty, !working else { return }
         let title = tab.label
@@ -84,14 +180,50 @@ final class Chat: ObservableObject {
         // resend it every time and run into the free tier's tokens a minute.
         let before = turns.dropLast().filter { !$0.failed }.map { (mine: $0.mine, text: $0.text) }
         let selected = provider.model(model)
+        if provider == .antigravity { AntigravitySessions.shared.keepLive(sessionID) }
         working = true
         request = Task {
-            defer { working = false; updated = Date(); save() }
-            guard let key = await AIKey.readAsync(provider) else {
+            var slot = false
+            defer {
+                ConnectionActivity.shared.end(sessionID)
+                if slot { Task { await AntigravityQueue.shared.release() } }
+                queued = false; working = false; updated = Date(); save()
+            }
+            let key = provider == .antigravity ? "" : await AIKey.readAsync(provider)
+            guard let key else {
                 if !Task.isCancelled {
                     turns.append(Turn(mine: false, text: "Add your \(provider.title) key first.", failed: true))
                 }
                 return
+            }
+            if provider == .antigravity {
+                do { try await ConnectionAccounts.shared.waitUntilReady(); try Task.checkCancellation() }
+                catch is CancellationError { return }
+                catch {
+                    turns.append(Turn(mine: false, text: error.localizedDescription, failed: true))
+                    return
+                }
+            }
+            let selections = provider == .antigravity ? requestedConnections.sorted { $0.id < $1.id } : []
+            let services = Array(Set(selections.map(\.service))).sorted { $0.rawValue < $1.rawValue }
+            let accountIDs = Array(Set(selections.map(\.accountID))).sorted { $0.uuidString < $1.uuidString }
+            let accountDetails = ConnectionAccounts.shared.accounts.filter { accountIDs.contains($0.id) }
+            let writes = selections.filter { selection in
+                ConnectionAccounts.shared.writesEnabled(account: selection.accountID, in: connectionSpaceID) &&
+                accountDetails.first(where: { $0.id == selection.accountID })?.canWrite(selection.service) == true
+            }
+            let sources = turns.flatMap { $0.sources ?? [] }.filter {
+                selections.contains(ConnectionSelection(service: $0.service, accountID: $0.accountID))
+            }.suffix(12)
+            if provider == .antigravity {
+                queued = true
+                do {
+                    try await AntigravityQueue.shared.acquire(UUID())
+                    slot = true
+                    try Task.checkCancellation()
+                } catch { return }
+                queued = false
+                AntigravitySessionUI.bind(chat: sessionID, to: tab.id)
             }
             guard !Task.isCancelled else { return }
             // Sleeping ones woken all at once, then read as each is ready.
@@ -128,7 +260,8 @@ final class Chat: ObservableObject {
                 return
             }
             guard !Task.isCancelled else { return }
-            let history = Self.recent(before, budget: min(12_000, selected.budget / 4))
+            let historyBudget = min(12_000, selected.budget / 4)
+            let history = Self.recent(before, budget: historyBudget)
             historyTrimmed = history.count < before.count
             let textFileChars = sent.filter { $0.mime == "text/plain" || $0.mime == "text/csv" }
                 .reduce(0) { $0 + (String(data: $1.data, encoding: .utf8)?.count ?? 0) }
@@ -137,7 +270,8 @@ final class Chat: ObservableObject {
                 return
             }
             let pageBudget = provider == .gemini ? selected.budget :
-                max(0, selected.budget - textFileChars - history.reduce(0) { $0 + $1.text.count })
+                max(0, selected.budget - textFileChars - (services.isEmpty ? 0 : ConnectionFlow.evidenceBudget) - (provider == .antigravity ? historyBudget :
+                                                        history.reduce(0) { $0 + $1.text.count }))
             let shares = Self.shares(texts.map(\.count), budget: pageBudget)
             trimmed = Set(zip([tab] + others, zip(texts, shares)).filter { $1.1 < $1.0.count }.map(\.0.id))
             let text = String(texts[0].prefix(shares[0]))
@@ -149,21 +283,25 @@ final class Chat: ObservableObject {
             let highlighted = picked.map {
                 "\nThe user highlighted this on the page — \"this\", \"the text\" and the like mean it:\n<selection>\n\($0.text)\n</selection>\n"
             } ?? ""
-            let prompt = !onPage ? """
+            let context = !onPage ? """
                 \(mentioned.isEmpty ? "" : "Tabs the user added to this chat:\n\(mentioned)\n")\(highlighted)
-                \(asked)
                 """ : """
                 The tab: \(title) — \(tab.address?.absoluteString ?? site)
                 <page>
                 \(text.isEmpty ? (own.file != nil ? "(the page is the attached \(own.file!.name))" : "(no text could be read from this page)") : text)
                 </page>
                 \(mentioned.isEmpty ? "" : "\nOther tabs the user added to this chat:\n\(mentioned)\n")\(highlighted)
-                \(asked)
                 """
+            let prompt = context + "\n" + asked
             turns.append(Turn(mine: false, text: ""))
             let at = turns.count - 1
             turns[at].note = "\(provider.title) · \(selected.title)"
-            let input = AIInput(system: Self.system, turns: history + [(mine: true, text: prompt)], files: sent)
+            let input = AIInput(system: Self.system + ConnectionFlow.instruction(services, selections: selections, accountDetails: accountDetails, writes: writes),
+                                turns: history + [(mine: true, text: prompt)], files: sent,
+                                context: context, question: asked, connectionServices: services,
+                                connectionAccounts: accountIDs, connectionSources: Array(sources),
+                                connectionSelections: selections, connectionAccountDetails: accountDetails,
+                                connectionWrites: writes, connectionSpaceID: connectionSpaceID)
             // Gemini may try its lighter model when Flash is overloaded.
             let tries = provider == .gemini && model == provider.models[0].id
                 ? [(selected, 0.0), (selected, 1.5), (selected, 4.0), (provider.models[1], 0.0)]
@@ -172,9 +310,10 @@ final class Chat: ObservableObject {
                 for (n, (asking, wait)) in tries.enumerated() {
                     if wait > 0 { try await Task.sleep(for: .seconds(wait)) }
                     do {
-                        for try await piece in AITransport.stream(input, provider: provider, model: asking, key: key) {
+                        for try await piece in AITransport.stream(input, provider: provider, model: asking, key: key, chat: sessionID) {
                             turns[at].text += piece
                         }
+                        try Task.checkCancellation()
                         if asking.id != model { turns[at].note = "Gemini · Flash-Lite (Flash was busy)" }
                         break
                     } catch AITransport.Failure.status(_, let code, _) where turns[at].text.isEmpty &&
@@ -184,7 +323,10 @@ final class Chat: ObservableObject {
                 }
                 if turns[at].text.isEmpty { turns[at].text = "No answer came back."; turns[at].failed = true }
             } catch is CancellationError {
-                if turns[at].text.isEmpty { turns.remove(at: at) }
+                if turns[at].text.isEmpty {
+                    if turns[at].writes?.isEmpty == false { turns[at].text = "The AI response was stopped. See the write result below." }
+                    else { turns.remove(at: at) }
+                }
             } catch {
                 turns[at].text = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
                 turns[at].failed = true
@@ -192,7 +334,24 @@ final class Chat: ObservableObject {
         }
     }
 
-    func stop() { request?.cancel() }
+    func showWritePreviewForTesting(_ prepared: ConnectionPreparedWrite) {
+        guard Store.testing, ProcessInfo.processInfo.environment["MNML_CONNECTION_FIXTURE"] != nil else { return }
+        stop(); working = true; leftOwn = true
+        turns = [.init(mine: true, text: "Create a Google Sheet for this synthetic sample budget."), .init(mine: false, text: "")]
+        request = Task { @MainActor in
+            defer { working = false; save() }
+            do {
+                let approved = try await ConnectionWriteApprovals.shared.request(prepared, chat: sessionID)
+                turns[1].text = approved ? "Synthetic preview approved. No cloud request was made." : "Synthetic preview cancelled. No cloud request was made."
+            } catch { turns[1].text = "Synthetic preview stopped. No cloud request was made." }
+        }
+    }
+
+    func stop() {
+        request?.cancel()
+        ConnectionWriteApprovals.shared.cancel(chat: sessionID)
+        AntigravitySessions.shared.kill(sessionID)
+    }
 
     nonisolated static func recent(_ turns: [(mine: Bool, text: String)], budget: Int) -> [(mine: Bool, text: String)] {
         var kept: [(mine: Bool, text: String)] = []
@@ -218,31 +377,39 @@ final class Chat: ObservableObject {
         var updated: Date
         var turns: [Turn]
         var mentions: [Mention]
+        var connectionServices: [ConnectionService]? = nil
+        var connectionSelections: [ConnectionSelection]? = nil
+        var connectionSpaceID: UUID? = nil
     }
 
     private static let folder = Store.file("chats")
     private static func file(_ id: UUID) -> URL { folder.appendingPathComponent("\(id.uuidString).json") }
 
-    func save() {
-        guard turns.contains(where: \.mine) else { return }
+    func save(immediately: Bool = false) {
+        guard !restoringHistory, turns.contains(where: \.mine) else { return }
         let saved = Saved(id: id, title: title, site: site, updated: updated,
-                          turns: turns.filter { !$0.text.isEmpty }.map { var t = $0; t.pin = nil; return t },
-                          mentions: mentions.filter { if case .tab = $0 { return false }; return true })
-        DispatchQueue.global(qos: .utility).async {
-            guard let data = try? JSONEncoder().encode(saved) else { return }
-            try? FileManager.default.createDirectory(at: Self.folder, withIntermediateDirectories: true)
-            try? data.write(to: Self.file(saved.id), options: .atomic)
-        }
+                          turns: turns.filter { !$0.text.isEmpty || $0.writes?.isEmpty == false }.map { var t = $0; t.pin = nil; return t },
+                          mentions: mentions.filter { if case .tab = $0 { return false }; return true },
+                          connectionServices: connectionServices.isEmpty ? nil : connectionServices,
+                          connectionSelections: connectionSelections, connectionSpaceID: connectionSpaceID)
+        Disk.write(Self.file(saved.id), now: immediately) { try? JSONEncoder().encode(saved) }
     }
 
     static func load(_ id: UUID) -> Chat? {
         guard let data = try? Data(contentsOf: file(id)),
               let saved = try? JSONDecoder().decode(Saved.self, from: data) else { return nil }
-        let chat = Chat(id: saved.id)
+        let chat = Chat(id: saved.id, space: saved.connectionSpaceID ?? Space.firstID)
+        chat.restoringHistory = true
         chat.turns = saved.turns
         chat.mentions = saved.mentions
+        chat.connectionServices = saved.connectionServices ?? []
+        chat.connectionSelections = saved.connectionSelections ?? []
+        if ConnectionAccounts.shared.loaded {
+            chat.reconcileConnections(available: ConnectionAccounts.shared.eligible(in: chat.connectionSpaceID), automatic: chat.automaticConnections, writeAccountIDs: ConnectionAccounts.shared.policy(for: chat.connectionSpaceID).writeAccountIDs ?? [])
+        }
         chat.site = saved.site
         chat.updated = saved.updated
+        chat.restoringHistory = false
         return chat
     }
 
@@ -393,8 +560,10 @@ final class Chat: ObservableObject {
 extension Browser {
     /// The chat of the tab on screen, made when first asked for.
     func chat(for tab: Tab) -> Chat {
-        if let chat = chats[tab.id] { return chat }
-        let chat = Chat()
+        let ownerSpace = tabs.contains { $0.id == tab.id } ? spaceID :
+            (parked.first { $0.value.tabs.contains { $0.id == tab.id } }?.key ?? spaceID)
+        if let chat = chats[tab.id] { chat.bindConnections(to: ownerSpace); return chat }
+        let chat = Chat(space: ownerSpace)
         chats[tab.id] = chat
         return chat
     }
@@ -410,6 +579,7 @@ extension Browser {
             // Open but the keys elsewhere — on the page: ⌘E is to type in
             // it, not to put it away. In it already, ⌘E closes it.
             guard askFocused else { return askFocusTick += 1 }
+            if let chat = chats[tab.id] { ConnectionWriteApprovals.shared.cancel(chat: chat.sessionID) }
             chatting.remove(tab.id)
         } else {
             askTyping = true
@@ -430,6 +600,7 @@ extension Browser {
         chats[tab.id] = Chat()
         chatting.remove(tab.id)
         chats[blank.id] = chat
+        AntigravitySessionUI.bind(chat: chat.sessionID, to: blank.id)
         askTyping = true
         chatting.insert(blank.id)
         rememberSession()

@@ -10,6 +10,8 @@ struct AskPanel: View {
     @ObservedObject var tab: Tab
     @ObservedObject var chat: Chat
     @ObservedObject var prefs: Preferences
+    @ObservedObject private var connections = ConnectionAccounts.shared
+    @ObservedObject private var writeApprovals = ConnectionWriteApprovals.shared
 
     let mode: AskMode
     /// Floating: the card dragged by its top, and let go (true).
@@ -29,6 +31,20 @@ struct AskPanel: View {
     @State private var keyed = false
     @State private var keyLoaded = false
 
+    private var contextHint: String? {
+        guard prefs.askProvider == .antigravity, !chat.working,
+              chat.turns.contains(where: { !$0.mine && !$0.failed && !$0.text.isEmpty }) else { return nil }
+        if !tab.isBlank, !chat.leftOwn {
+            return "For follow-ups about the answer, remove the page chip to use less context."
+        }
+        if chat.mentions.isEmpty, chat.files.isEmpty, tab.picked == nil,
+           chat.connectionSelections.isEmpty,
+           !(chat.automaticConnections && !chat.availableConnections.isEmpty) {
+            return "Conversation only. Add a page with @ when you need source details."
+        }
+        return nil
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             header
@@ -37,13 +53,14 @@ struct AskPanel: View {
                     ChatHistory(current: chat.id) { saved in
                         chat.stop()
                         if let picked = Chat.load(saved.id) {
+                            picked.bindConnections(to: browser.spaceID)
                             browser.chats[tab.id] = picked
                             browser.objectWillChange.send()
                             browser.rememberSession()
                         }
                         recalling = false
                     }
-                } else if chat.turns.isEmpty {
+                } else if chat.turns.isEmpty, writeApprovals.pending[chat.sessionID] == nil {
                     empty
                 } else {
                     thread
@@ -91,10 +108,19 @@ struct AskPanel: View {
 
         // Files and pictures from Finder or another app, anywhere on the panel.
         .onDrop(of: [.fileURL, .image], isTargeted: $dropping, perform: drop)
-        .onChange(of: typing) { _, on in browser.askFocused = on }
+        .onChange(of: typing) { _, on in
+            browser.askFocused = on
+            if on { AntigravitySessions.shared.keepLive(chat.sessionID) }
+        }
         .onChange(of: browser.askFocusTick) { _, _ in typing = true }
+        .onChange(of: browser.spaceID) { _, space in
+            if browser.tabs.contains(where: { $0.id == tab.id }), browser.chats[tab.id] === chat {
+                chat.bindConnections(to: space)
+            }
+        }
         .onDisappear { browser.askFocused = false }
         .onAppear {
+            chat.bindConnections(to: browser.spaceID)
             guard browser.askTyping else { return }
             browser.askTyping = false
             // A beat later: on the frame it's added, the page still holds
@@ -105,7 +131,7 @@ struct AskPanel: View {
             keyLoaded = false
             keyed = false
             key = ""
-            let available = await AIKey.readAsync(prefs.askProvider) != nil
+            let available = prefs.askProvider == .antigravity ? Antigravity.executable != nil : await AIKey.readAsync(prefs.askProvider) != nil
             if !Task.isCancelled {
                 keyed = available
                 keyLoaded = true
@@ -120,19 +146,28 @@ struct AskPanel: View {
             HStack(spacing: 2) {
                 Door(icon: "square.and.pencil", help: "New chat") {
                     chat.stop()
-                    browser.chats[tab.id] = Chat()
+                    let new = Chat()
+                    new.bindConnections(to: browser.spaceID)
+                    browser.chats[tab.id] = new
                     browser.objectWillChange.send()
                     browser.rememberSession()
                     recalling = false
                     typing = true
                 }
-                Door(icon: "clock", on: recalling, help: "Past chats") { recalling.toggle() }
+                Door(icon: "clock", on: recalling, help: "Past chats") {
+                    if !recalling { writeApprovals.cancel(chat: chat.sessionID) }
+                    recalling.toggle()
+                }
+                ConnectionChatMenu(browser: browser, chat: chat, provider: prefs.askProvider)
+                    .padding(.horizontal, 4)
                 Spacer()
                     .frame(maxHeight: .infinity)
                     .contentShape(Rectangle())
                     .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .global)
                         .onChanged { dragged?($0, false) }
                         .onEnded { dragged?($0, true) })
+                AntigravityLiveIndicator(chat: chat.sessionID)
+                    .padding(.horizontal, 4)
                 if !tab.isBlank {
                     Menu {
                         ForEach(AskMode.allCases, id: \.self) { choice in
@@ -157,6 +192,7 @@ struct AskPanel: View {
                     .help("Sidebar, floating, or the whole page")
                 }
                 Door(icon: "xmark", help: "Close   ⌘E") {
+                    writeApprovals.cancel(chat: chat.sessionID)
                     browser.chatting.remove(tab.id)
                     browser.rememberSession()
                 }
@@ -208,7 +244,7 @@ struct AskPanel: View {
                     Text(tab.isBlank ? "Ask anything" : "Ask about this page")
                         .font(.system(size: 12.5, weight: .medium))
                         .foregroundStyle(Palette.ink)
-                    Text(tab.isBlank ? "Type @ to bring in your tabs" : "Each tab keeps its own chat")
+                    Text(tab.isBlank ? (prefs.askProvider == .antigravity ? "Type @ to add tabs or connections" : "Type @ to bring in your tabs") : "Each tab keeps its own chat")
                         .font(.system(size: 11.5))
                         .foregroundStyle(Palette.muted)
                 }
@@ -224,26 +260,32 @@ struct AskPanel: View {
     /// No key yet: where to get one, and a field for it.
     private var keyForm: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Add a \(prefs.askProvider.title) key")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Palette.ink)
-            Text(prefs.askProvider == .gemini ? "Gemini has a limited free tier. Your page and attachments go to Google." :
-                 prefs.askProvider == .groq ? "Groq has a limited free tier. Your page and attachments go to Groq." :
-                 "This provider may charge for requests. Your page and attachments go to \(prefs.askProvider.title).")
-                .font(.system(size: 11.5))
-                .foregroundStyle(Palette.muted)
-                .fixedSize(horizontal: false, vertical: true)
-            Link("Get a \(prefs.askProvider.title) key", destination: prefs.askProvider.keyURL)
-                .font(.system(size: 11.5))
-            HStack(spacing: 6) {
-                SecureField("Paste the key", text: $key)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 12))
-                    .padding(.horizontal, 9)
-                    .padding(.vertical, 6)
-                    .background(Palette.ink.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    .onSubmit(saveKey)
-                Pill("Save", filled: true, action: saveKey)
+            if prefs.askProvider == .antigravity {
+                Text("Connect Antigravity").font(.system(size: 13, weight: .semibold))
+                Text(Antigravity.setup).font(.system(size: 11.5)).foregroundStyle(Palette.muted)
+                Link("Install and sign in", destination: prefs.askProvider.keyURL).font(.system(size: 11.5))
+            } else {
+                Text("Add a \(prefs.askProvider.title) key")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Palette.ink)
+                Text(prefs.askProvider == .gemini ? "Gemini has a limited free tier. Your page and attachments go to Google." :
+                     prefs.askProvider == .groq ? "Groq has a limited free tier. Your page and attachments go to Groq." :
+                     "This provider may charge for requests. Your page and attachments go to \(prefs.askProvider.title).")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(Palette.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+                Link("Get a \(prefs.askProvider.title) key", destination: prefs.askProvider.keyURL)
+                    .font(.system(size: 11.5))
+                HStack(spacing: 6) {
+                    SecureField("Paste the key", text: $key)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 6)
+                        .background(Palette.ink.opacity(0.06), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .onSubmit(saveKey)
+                    Pill("Save", filled: true, action: saveKey)
+                }
             }
         }
     }
@@ -273,9 +315,17 @@ struct AskPanel: View {
                     ForEach(chat.turns) { turn in
                         if turn.mine { mine(turn) } else { theirs(turn) }
                     }
-                    if chat.working, chat.turns.last.map({ $0.mine || $0.text.isEmpty }) == true {
+                    if chat.working, writeApprovals.pending[chat.sessionID] == nil,
+                       chat.turns.last.map({ $0.mine || $0.text.isEmpty }) == true {
                         Thinking()
                     }
+                    if let activity = chat.connectionActivity, writeApprovals.pending[chat.sessionID] == nil {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.mini)
+                            Text(activity).font(.system(size: 11)).foregroundStyle(Palette.muted)
+                        }
+                    }
+                    ConnectionWriteReview(chat: chat.sessionID)
                     Color.clear.frame(height: 1).id("end")
                 }
                 .padding(.horizontal, 14)
@@ -283,6 +333,9 @@ struct AskPanel: View {
             }
             .defaultScrollAnchor(.bottom)
             .onChange(of: chat.turns.count) { _, _ in scroller.scrollTo("end", anchor: .bottom) }
+            .onChange(of: writeApprovals.pending[chat.sessionID]?.id) { _, value in
+                if value != nil { scroller.scrollTo("end", anchor: .bottom) }
+            }
         }
     }
 
@@ -319,6 +372,9 @@ struct AskPanel: View {
                 if let note = turn.note {
                     Text(note).font(.system(size: 10.5)).foregroundStyle(Palette.muted)
                 }
+                if let sources = turn.sources, !sources.isEmpty {
+                    ConnectionSources(hits: sources)
+                }
                 if !(chat.working && turn.id == chat.turns.last?.id) {
                     HStack(spacing: 2) {
                         Door(icon: "doc.on.doc", help: "Copy") {
@@ -346,7 +402,40 @@ struct AskPanel: View {
                     .padding(.leading, -6)
                 }
             }
+            if let writes = turn.writes, !writes.isEmpty {
+                writeResults(writes)
+            }
         }
+    }
+
+    private func writeResults(_ writes: [ConnectionWriteReceipt]) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            ForEach(writes, id: \.id) { receipt in
+                VStack(alignment: .leading, spacing: 3) {
+                    Label(receipt.summary, systemImage: "square.and.pencil")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Palette.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                    if let hit = receipt.hit {
+                        if hit.url.scheme?.lowercased() == "https" {
+                            Link(hit.title, destination: hit.url)
+                                .font(.system(size: 11.5))
+                                .help(hit.url.absoluteString)
+                        } else {
+                            Text(hit.title).font(.system(size: 11.5)).foregroundStyle(Palette.ink)
+                        }
+                        if let identity = hit.accountTitle {
+                            Text(identity).font(.system(size: 10.5)).foregroundStyle(Palette.muted)
+                        }
+                    }
+                }
+                .padding(8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Palette.ink.opacity(0.04), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            }
+        }
+        .textSelection(.enabled)
+        .accessibilityLabel("Write results")
     }
 
     // MARK: - the box
@@ -375,6 +464,18 @@ struct AskPanel: View {
                         }
                         .transition(.scale(scale: 0.9, anchor: .leading).combined(with: .opacity))
                     }
+                    if prefs.askProvider == .antigravity {
+                        ForEach(chat.connectionSelections) { selection in
+                            let account = connections.accounts.first { $0.id == selection.accountID }
+                            Chip(title: selection.service.title, detail: chat.availableConnections.contains(selection) ?
+                                 (account?.displayTitle ?? "Connected") : "Unavailable",
+                                 leave: { chat.connectionSelections.removeAll { $0 == selection } }) {
+                                Image(systemName: selection.service.icon).font(.system(size: 11)).foregroundStyle(Palette.muted)
+                            }
+                            .help(selection.service.title + " · " + (account?.displayIdentity ?? "Connected account"))
+                            .transition(.scale(scale: 0.9, anchor: .leading).combined(with: .opacity))
+                        }
+                    }
                     if let picked = tab.picked {
                         Chip(title: picked.text.trimmingCharacters(in: .whitespacesAndNewlines)
                                 .replacingOccurrences(of: "\n", with: " "),
@@ -391,6 +492,7 @@ struct AskPanel: View {
             .animation(Motion.quick, value: chat.mentions)
             .animation(Motion.quick, value: chat.files)
             .animation(Motion.quick, value: chat.leftOwn)
+            .animation(Motion.quick, value: chat.connectionSelections)
 
             TextField(chat.turns.isEmpty ? (tab.isBlank || chat.leftOwn ? "Ask anything…" : "Ask a question about this page…") : "Ask another question…",
                       text: $question, axis: .vertical)
@@ -414,21 +516,31 @@ struct AskPanel: View {
                     browser.rememberSession()
                     return .handled
                 }
-                .onChange(of: question) { _, _ in menuShut = false; lit = 0 }
+                .onChange(of: question) { _, _ in
+                    menuShut = false
+                    lit = 0
+                    AntigravitySessions.shared.keepLive(chat.sessionID)
+                }
                 // A picture or a file pasted: attached. Text pastes as ever.
                 .onPasteCommand(of: [.fileURL, .png, .tiff]) { _ in attachPasted() }
 
-            if !supports(prefs.askProvider.model(prefs.askModel)) {
-                Text("Choose a model that supports these attachments.")
+            if chat.queued {
+                Text("Queued — two Antigravity chats are answering.")
+                    .font(.system(size: 11)).foregroundStyle(Palette.muted)
+            } else if !supports(prefs.askProvider.model(prefs.askModel)) {
+                Text(prefs.askProvider == .antigravity ? "Antigravity supports text and CSVs here. Choose an API provider for images or PDFs." : "Choose a model that supports these attachments.")
                     .font(.system(size: 11)).foregroundStyle(Palette.muted)
             } else if chat.historyTrimmed || !chat.trimmed.isEmpty {
                 Text("Some page or earlier chat context was trimmed to fit this model.")
                     .font(.system(size: 11)).foregroundStyle(Palette.muted)
+            } else if let contextHint {
+                Text(contextHint).font(.system(size: 11)).foregroundStyle(Palette.muted)
             }
             HStack(spacing: 2) {
                 Door(icon: "plus", help: "Add images or files") { pickFiles() }
                     .padding(.leading, -6)
-                Text("@ to add tabs").font(.system(size: 10.5)).foregroundStyle(Palette.muted.opacity(0.8))
+                Text(prefs.askProvider == .antigravity ? "@ to add tabs or connections" : "@ to add tabs")
+                    .font(.system(size: 10.5)).foregroundStyle(Palette.muted.opacity(0.8))
                 Spacer()
                 Door(icon: "camera", help: "Add a screenshot of the page") { screenshot() }
                 Button(action: chat.working ? chat.stop : send) {
@@ -545,7 +657,7 @@ struct AskPanel: View {
     private var menuShowing: Bool { mentionQuery != nil && !menuShut && !rows.isEmpty }
 
     private enum Row: Hashable {
-        case group(UUID), tab(Tab.ID), more, all, site(String)
+        case connection(ConnectionSelection), group(UUID), tab(Tab.ID), more, all, site(String)
     }
 
     private var rows: [Row] {
@@ -553,7 +665,11 @@ struct AskPanel: View {
         func fits(_ s: String) -> Bool { query.isEmpty || s.lowercased().contains(query) }
         // The chat's own tab too, once it's been left out, to add it back.
         let open = browser.tabs.filter { !$0.shy && !$0.isBlank && ($0 !== tab || chat.leftOwn) }
-        var out: [Row] = browser.groups
+        var out: [Row] = prefs.askProvider == .antigravity ? chat.availableConnections.filter { selection in
+            let account = connections.accounts.first { $0.id == selection.accountID }
+            return fits(selection.service.title) || fits(account?.displayTitle ?? "") || fits(account?.title ?? "")
+        }.map { .connection($0) } : []
+        out += browser.groups
             .filter { g in fits(g.name) && open.contains { $0.group == g.id } }
             .map { .group($0.id) }
         let tabs = open.filter { fits($0.label) || fits($0.address?.host() ?? "") }
@@ -567,6 +683,7 @@ struct AskPanel: View {
         }
         return out.filter { row in
             switch row {
+            case .connection(let selection): return !chat.connectionSelections.contains(selection)
             case .group(let id): return !chat.mentions.contains(.group(id))
             case .tab(let id): return !chat.mentions.contains(.tab(id))
             case .all: return !chat.mentions.contains(.all)
@@ -582,8 +699,13 @@ struct AskPanel: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 1) {
                     ForEach(Array(rows.enumerated()), id: \.element) { n, row in
-                        if n == 0, case .group = row { heading("Groups") }
-                        if case .tab = row, n == 0 || { if case .group = rows[n - 1] { return true }; return false }() {
+                        if n == 0, case .connection = row { heading("Connections") }
+                        if case .group = row, n == 0 || { if case .connection = rows[n - 1] { return true }; return false }() {
+                            heading("Groups")
+                        }
+                        if case .tab = row, n == 0 || {
+                            switch rows[n - 1] { case .group, .connection: return true; default: return false }
+                        }() {
                             heading("Tabs")
                         }
                         Button { pick(row) } label: {
@@ -616,6 +738,15 @@ struct AskPanel: View {
     private func menuRow(_ row: Row, lit: Bool) -> some View {
         HStack(spacing: 8) {
             switch row {
+            case .connection(let selection):
+                let account = connections.accounts.first { $0.id == selection.accountID }
+                Image(systemName: selection.service.icon).frame(width: 14)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(selection.service.title + " · " + (account?.displayTitle ?? "Connected account"))
+                    Text(account?.title ?? "")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(lit ? Color.white.opacity(0.8) : Palette.muted)
+                }
             case .group(let id):
                 let group = browser.groups.first { $0.id == id }
                 Circle().fill(TabGroup.tint(group?.colour ?? 0)).frame(width: 8, height: 8).frame(width: 14)
@@ -641,7 +772,7 @@ struct AskPanel: View {
         .lineLimit(1)
         .foregroundStyle(lit ? .white : Palette.ink)
         .padding(.horizontal, 7)
-        .frame(height: 24)
+        .frame(height: { if case .connection = row { return 38 }; return 24 }())
         .background(lit ? Color.accentColor : .clear, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         .contentShape(Rectangle())
     }
@@ -662,6 +793,12 @@ struct AskPanel: View {
     private func pick(_ row: Row) {
         let mention: Mention
         switch row {
+        case .connection(let selection):
+            if let at = question.lastIndex(of: "@") { question = String(question[..<at]) }
+            chat.mentionConnection(selection)
+            more = false
+            typing = true
+            return
         case .more:
             more = true
             return
@@ -696,7 +833,7 @@ struct AskPanel: View {
             }
         }
         chat.send(question, about: tab, also: others, named: chat.mentions.map(browser.name(of:)),
-                  provider: prefs.askProvider, model: prefs.askModel, picked: tab.picked)
+                  provider: prefs.askProvider, model: prefs.askModel, picked: tab.picked, space: browser.spaceID)
         question = ""
     }
 }
