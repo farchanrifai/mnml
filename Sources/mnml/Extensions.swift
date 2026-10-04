@@ -345,7 +345,9 @@ final class Extensions: NSObject, ObservableObject {
         let order = orders[key] ?? []
         let now = tabs.filter(seen)
         let ids = now.map(\.id)
-        let gone = order.filter { !ids.contains($0) }
+        let previousIDs = Set(order)
+        let currentIDs = Set(ids)
+        let gone = order.filter { !currentIDs.contains($0) }
         for id in gone {
             // Moved to another window rather than closed: that window says
             // so when it takes it (see below).
@@ -357,7 +359,7 @@ final class Extensions: NSObject, ObservableObject {
             adapters[id] = nil
             watching[id] = nil
         }
-        for tab in now where !order.contains(tab.id) {
+        for tab in now where !previousIDs.contains(tab.id) {
             let from = inTransit.removeValue(forKey: tab.id)
                 ?? orders.first(where: { $0.key != key && $0.value.contains(tab.id) })
                     .flatMap { entry in entry.value.firstIndex(of: tab.id).map { (entry.key, $0) } }
@@ -371,9 +373,12 @@ final class Extensions: NSObject, ObservableObject {
             watch(tab)
         }
         // Moves: anything whose position changed among the ones that stayed.
-        let stayed = order.filter { ids.contains($0) }
-        let newOrder = ids.filter { stayed.contains($0) }
-        for (index, id) in stayed.enumerated() where newOrder.firstIndex(of: id) != index {
+        let stayed = order.filter { currentIDs.contains($0) }
+        let stayedIDs = Set(stayed)
+        let newOrder = ids.filter { stayedIDs.contains($0) }
+        var positions: [Tab.ID: Int] = [:]
+        for (index, id) in newOrder.enumerated() { positions[id] = index }
+        for (index, id) in stayed.enumerated() where positions[id] != index {
             if let adapter = adapters[id] { controller.didMoveTab(adapter, from: index, in: window(of: browser)) }
         }
         orders[key] = ids
@@ -458,15 +463,20 @@ final class Extensions: NSObject, ObservableObject {
     }
 
     private func unload(_ id: String) {
+        if let watcher = errorWatchers.removeValue(forKey: id) { NotificationCenter.default.removeObserver(watcher) }
         guard let context = contexts[id] else { return }
         Browsers.closePopups(of: id)
+        SidePanels.shared.close(extension: id)
         try? controller.unload(context)
         // What it kept going outside WebKit goes with it: its offscreen
         // page, and a Mac kept awake on its behalf.
         ExtensionOffscreen.close(for: id)
         if let held = ExtensionShims.awake.removeValue(forKey: id) { IOPMAssertionRelease(held) }
         // Its ports read as gone only once WebKit has had a turn.
-        DispatchQueue.main.async { ExtensionNative.stopOrphans() }
+        DispatchQueue.main.async {
+            ExtensionNative.stopOrphans()
+            ExtensionSocket.stopOrphans()
+        }
         contexts[id] = nil
         actionsChanged += 1
     }

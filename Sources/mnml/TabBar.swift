@@ -208,31 +208,11 @@ struct TabBar: View {
 
     // MARK: - the row: pinned tabs, pinned groups, the line, the rest
 
-    private enum Entry: Identifiable {
-        case tab(Tab)
-        case group(TabGroup, [Tab])
-        var id: String {
-            switch self {
-            case .tab(let tab): return "t" + tab.id.uuidString
-            case .group(let group, _): return "g" + group.id.uuidString
-            }
-        }
-    }
+    private typealias Entry = TabRowEntry
 
     /// The pinned groups, or everything else: tabs and groups in the row's order.
     private func entries(pinned: Bool) -> [Entry] {
-        var out: [Entry] = []
-        var seen = Set<TabGroup.ID>()
-        for tab in browser.tabs where tab.pin == nil {
-            if let id = tab.group, let group = browser.group(id) {
-                guard group.pinned == pinned, !seen.contains(id) else { continue }
-                seen.insert(id)
-                out.append(.group(group, browser.members(of: id)))
-            } else if !pinned {
-                out.append(.tab(tab))
-            }
-        }
-        return out
+        Entry.entries(tabs: browser.tabs, groups: browser.groups, pinned: pinned)
     }
 
     /// A line after the pinned tabs and pinned groups, when there are any.
@@ -657,11 +637,12 @@ struct TabBar: View {
 
     /// The tabs in the row that aren't pinned and aren't folded away.
     private var looseShown: Int {
-        browser.tabs.filter { tab in
-            guard tab.pin == nil else { return false }
-            guard let id = tab.group, let group = browser.group(id) else { return true }
-            return group.open || group.peek == tab.id
-        }.count
+        let groups = Dictionary(browser.groups.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        return browser.tabs.reduce(into: 0) { count, tab in
+            guard tab.pin == nil else { return }
+            if let id = tab.group, let group = groups[id], !group.open, group.peek != tab.id { return }
+            count += 1
+        }
     }
 
     /// Everything in the row but the loose tabs themselves: the pinned

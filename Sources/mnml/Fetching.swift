@@ -2,6 +2,30 @@ import AppKit
 import SwiftUI
 import WebKit
 
+/// KVO can report many byte changes before the main queue catches up. One
+/// pending refresh reads the newest values for all of them, without keeping
+/// an unbounded queue of identical aggregate scans and file metadata reads.
+final class DownloadProgressRefresh: @unchecked Sendable {
+    private let lock = NSLock()
+    private var pending = false
+
+    func schedule(_ update: @escaping @MainActor @Sendable () -> Void) {
+        lock.lock()
+        guard !pending else {
+            lock.unlock()
+            return
+        }
+        pending = true
+        lock.unlock()
+        DispatchQueue.main.async {
+            self.lock.lock()
+            self.pending = false
+            self.lock.unlock()
+            MainActor.assumeIsolated { update() }
+        }
+    }
+}
+
 /// A download visible in the Downloads panel. Resume data and the cookie
 /// store it was asked with live only for this process; neither is part of
 /// the saved history.
@@ -309,6 +333,7 @@ final class Fetches: ObservableObject {
 
     private var running: [ObjectIdentifier: Running] = [:]
     private var leaving: DispatchWorkItem?
+    private let progressRefresh = DownloadProgressRefresh()
 
     /// A download has begun. Private downloads are tracked for cleanup and
     /// aggregate progress, but never become entries in the shared panel.
@@ -345,8 +370,9 @@ final class Fetches: ObservableObject {
         leaving = nil
         done = false
         showing = true
-        item.watch = download.progress.observe(\.fractionCompleted) { [weak self] _, _ in
-            DispatchQueue.main.async { self?.measure() }
+        let refresh = progressRefresh
+        item.watch = download.progress.observe(\.fractionCompleted) { [weak self, refresh] _, _ in
+            refresh.schedule { [weak self] in self?.measure() }
         }
         measure()
         return true

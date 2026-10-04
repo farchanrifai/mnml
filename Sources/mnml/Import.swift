@@ -256,7 +256,10 @@ enum Chromium {
             defer { withExtendedLifetime(copy) {} }
 
             var db: OpaquePointer?
-            guard sqlite3_open_v2(temp.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else { continue }
+            guard sqlite3_open_v2(temp.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+                if let db { sqlite3_close(db) }
+                continue
+            }
             defer { sqlite3_close(db) }
             let sql = """
             SELECT b.image_data FROM icon_mapping m
@@ -316,6 +319,7 @@ enum Chromium {
 
         var db: OpaquePointer?
         guard sqlite3_open_v2(temp.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+            if let db { sqlite3_close(db) }
             throw Trouble.unreadable
         }
         defer { sqlite3_close(db) }
@@ -377,7 +381,10 @@ enum Chromium {
         guard FileManager.default.fileExists(atPath: file.path), let copy = try? Snapshot(of: file) else { return 0 }
         defer { withExtendedLifetime(copy) {} }
         var db: OpaquePointer?
-        guard sqlite3_open_v2(copy.file.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else { return 0 }
+        guard sqlite3_open_v2(copy.file.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+            if let db { sqlite3_close(db) }
+            return 0
+        }
         defer { sqlite3_close(db) }
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK, let statement else { return 0 }
@@ -531,6 +538,7 @@ enum Chromium {
 
         var db: OpaquePointer?
         guard sqlite3_open_v2(temp.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+            if let db { sqlite3_close(db) }
             throw Trouble.unreadable
         }
         defer { sqlite3_close(db) }
@@ -710,6 +718,7 @@ enum Mozilla {
 
         var db: OpaquePointer?
         guard sqlite3_open_v2(temp.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+            if let db { sqlite3_close(db) }
             throw Trouble.unreadable
         }
         defer { sqlite3_close(db) }
@@ -801,7 +810,10 @@ enum Mozilla {
             defer { withExtendedLifetime(copy) {} }
 
             var db: OpaquePointer?
-            guard sqlite3_open_v2(temp.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else { continue }
+            guard sqlite3_open_v2(temp.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+                if let db { sqlite3_close(db) }
+                continue
+            }
             defer { sqlite3_close(db) }
             let sql = """
             SELECT i.data FROM moz_pages_w_icons p
@@ -852,6 +864,7 @@ enum Mozilla {
 
         var db: OpaquePointer?
         guard sqlite3_open_v2(temp.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+            if let db { sqlite3_close(db) }
             throw Trouble.unreadable
         }
         defer { sqlite3_close(db) }
@@ -986,6 +999,7 @@ enum Mozilla {
 
         var db: OpaquePointer?
         guard sqlite3_open_v2(temp.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+            if let db { sqlite3_close(db) }
             throw Trouble.unreadable
         }
         defer { sqlite3_close(db) }

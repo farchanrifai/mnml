@@ -45,7 +45,7 @@ struct Suggestion: Identifiable, Equatable {
     }
 }
 
-private struct Visit: Codable {
+private struct Visit: Codable, Equatable {
     var url: String
     var key: String
     var title: String
@@ -73,7 +73,9 @@ final class History: ObservableObject {
     /// into the address field included — and sorting the whole history for
     /// it each time cost more than everything else a key press does.
     private var recentCache: [Trace]?
-    private var saving = false
+    private var saving: DispatchWorkItem?
+    private var saveTurn = 0
+    private let file: URL
     /// Visits counted at most: far more than anyone makes, and room to add.
     static let mostVisits = 1_000_000_000
     /// These are derived once when a visit enters memory. Suggestions run on
@@ -82,7 +84,10 @@ final class History: ObservableObject {
     private var pageText: [String: PageText] = [:]
     private var visitedHosts: Set<String> = []
 
-    init() { load() }
+    init(file: URL = Store.file("history.json")) {
+        self.file = file
+        load()
+    }
 
     /// URL identity ignores fragments, normalizes only the scheme and host,
     /// and keeps the spelling and encoding of the path and query intact.
@@ -218,12 +223,13 @@ final class History: ObservableObject {
         let key = History.identity(for: url)
         guard !key.isEmpty else { return }
         if var seen = visits[key] {
+            let before = seen
             // The larger of the two, not their sum: the same browser brought
             // in again must not count every visit twice.
             seen.count = min(History.mostVisits, max(seen.count, count))
             if last > seen.last { seen.last = last }
             if seen.title.isEmpty { seen.title = title }
-            visits[key] = seen
+            if seen != before { visits[key] = seen }
         } else {
             let visit = Visit(url: url.absoluteString, key: key, title: title, count: min(max(count, 0), History.mostVisits), last: last)
             visits[key] = visit
@@ -303,7 +309,23 @@ final class History: ObservableObject {
     /// history has changed.
     func recent() -> [Trace] {
         if let recentCache { return recentCache }
-        let made = Array(everything().prefix(8))
+        // Only eight are shown. Keep those while scanning rather than
+        // sorting, formatting and parsing every page after each visit.
+        var latest: [Visit] = []
+        for visit in visits.values {
+            guard let text = pageText[visit.key], !(visit.title.isEmpty && text.homepage) else { continue }
+            let index = latest.firstIndex { visit.last > $0.last } ?? latest.endIndex
+            if index < 8 {
+                latest.insert(visit, at: index)
+                if latest.count > 8 { latest.removeLast() }
+            }
+        }
+        let made = latest.compactMap { visit in
+            URL(string: visit.url).map {
+                Trace(key: visit.key, address: pageText[visit.key]?.address ?? visit.key,
+                      title: visit.title, url: $0, last: visit.last, count: visit.count)
+            }
+        }
         recentCache = made
         return made
     }
@@ -318,7 +340,7 @@ final class History: ObservableObject {
         // An empty field proposes nothing. A list of guesses in front of
         // someone who has not yet said what they want is noise, and it is in
         // the way of the one thing they came here to do.
-        guard !needle.isEmpty else { return [] }
+        guard !needle.isEmpty, limit > 0 else { return [] }
 
         let bytes = Array(needle.utf8)
         let ascii = bytes.allSatisfy { $0 >= 0x20 && $0 < 0x7F } ? bytes : nil
@@ -457,13 +479,10 @@ final class History: ObservableObject {
 
     // MARK: - the file
 
-    private static var folder: URL { Store.folder }
-    private static var file: URL { Store.file("history.json") }
-
     private func load() {
-        guard let data = try? Data(contentsOf: History.file) else { return }
+        guard let data = try? Data(contentsOf: file) else { return }
         guard let list = try? JSONDecoder().decode([Visit].self, from: data) else {
-            Store.quarantine(History.file)
+            Store.quarantine(file)
             return
         }
         // Keys written by an older mnml can meet under the new rule:
@@ -536,20 +555,36 @@ final class History: ObservableObject {
     /// Coalesced: a busy minute of browsing writes the file once, not thirty
     /// times, and never on the main thread.
     private func save() {
-        guard !saving else { return }
-        saving = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
-            guard let self else { return }
-            saving = false
-            let now = Date()
-            // A cap, so the file can't grow without end. What goes is what has
-            // been visited least and longest ago.
-            let snapshot = self.visits
-            let file = History.file
-            Disk.write(file) {
-                let list = Array(snapshot.values.sorted { History.score($0, now: now) > History.score($1, now: now) }.prefix(2_000))
-                return try? JSONEncoder().encode(list)
-            }
+        guard saving == nil else { return }
+        saveTurn &+= 1
+        let turn = saveTurn
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.saveTurn == turn else { return }
+            self.saving = nil
+            self.persist()
+        }
+        saving = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: work)
+    }
+
+    /// A quit cannot wait for the debounce to put its snapshot on Disk's
+    /// queue. Commit it now; a previously scheduled callback stays obsolete.
+    func flush() {
+        guard saving != nil else { return }
+        saving?.cancel()
+        saving = nil
+        saveTurn &+= 1
+        persist(now: true)
+    }
+
+    private func persist(now immediate: Bool = false) {
+        let now = Date()
+        // A cap, so the file can't grow without end. What goes is what has
+        // been visited least and longest ago.
+        let snapshot = visits
+        Disk.write(file, now: immediate) {
+            let list = Array(snapshot.values.sorted { History.score($0, now: now) > History.score($1, now: now) }.prefix(2_000))
+            return try? JSONEncoder().encode(list)
         }
     }
 

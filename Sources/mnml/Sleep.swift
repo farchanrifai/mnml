@@ -68,11 +68,12 @@ extension Browser {
             .filter { now.timeIntervalSince($0.touched) >= ($0.pin != nil && given == nil ? prefs.tabMemoryProfile.policy.pinned : wait) }
             .sorted { $0.touched < $1.touched }
         for tab in idle { self.sleep(tab) }
+        let idleIDs = Set(idle.map(\.id))
         // Past the cap, the least recently used go too, whatever the clock —
         // though never one left only a minute ago, so going back and forth
         // between a few doesn't reload them.
         let over = free
-            .filter { tab in tab.pin == nil && !idle.contains { $0 === tab } && now.timeIntervalSince(tab.touched) >= 60 }
+            .filter { tab in tab.pin == nil && !idleIDs.contains(tab.id) && now.timeIntervalSince(tab.touched) >= 60 }
             .sorted { $0.touched > $1.touched }
             .dropFirst(max(0, awakeCap - 1))
         for tab in over { self.sleep(tab) }
@@ -112,25 +113,37 @@ extension Browser {
             done?(reason)
             return
         }
-        tab.unsaved { [weak self, weak tab] typed in
-            guard let self, let tab else { return }
+        guard sleepRequests[tab.id] == nil else { done?("already being put to sleep"); return }
+        let id = tab.id, request = UUID(), address = tab.address
+        let web = tab.built
+        sleepRequests[id] = request
+        let finish: (String) -> Void = { [weak self] reason in
+            if self?.sleepRequests[id] == request { self?.sleepRequests[id] = nil }
+            done?(reason)
+        }
+        tab.unsaved { [weak self, weak tab, weak web] typed in
+            guard let self, let tab, let web, self.sleepRequests[id] == request,
+                  tab.built === web, tab.address == address
+            else { finish("page changed"); return }
             if typed {
-                done?("holding something typed")
+                finish("holding something typed")
                 return
             }
             if let reason = self.awake(because: tab) {
-                done?(reason)
+                finish(reason)
                 return
             }
-            tab.snapshot { [weak self, weak tab] picture in
-                guard let self, let tab else { return }
+            tab.snapshot { [weak self, weak tab, weak web] picture in
+                guard let self, let tab, let web, self.sleepRequests[id] == request,
+                      tab.built === web, tab.address == address
+                else { finish("page changed"); return }
                 if let reason = self.awake(because: tab) {
-                    done?(reason)
+                    finish(reason)
                     return
                 }
                 tab.sleep(picture: picture)
                 self.tabSwitcher.rememberPreview(of: tab)
-                done?("asleep")
+                finish("asleep")
             }
         }
     }

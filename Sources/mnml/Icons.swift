@@ -172,6 +172,9 @@ final class Favicons {
             config.timeoutIntervalForRequest = 8
             return config
         }())
+        // Each host gets a short-lived ephemeral session. URLSession keeps
+        // its resources until invalidated, even after the last task ends.
+        defer { session.finishTasksAndInvalidate() }
         for candidate in candidates {
             guard let (data, response) = try? await session.data(from: candidate),
                   (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true,

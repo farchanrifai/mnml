@@ -31,6 +31,11 @@ in [ROADMAP.md](ROADMAP.md).
 
 ### Fixed
 
+- Address suggestions, tab groups, bookmarks, downloads and Find on Page do less repeated work as collections grow; Next in Find on Page updates only the current highlight.
+- Closed windows and unloaded extensions release their keyboard monitors, observers, panels and socket resources. Old wake, sleep and popup callbacks no longer act on a replaced page or window.
+- Floating-video controls query progress only while visible, and autoscroll rests while the pointer is stationary and follows the same speed across display refresh rates.
+- A visit made just before quitting is saved even when the history save delay has not elapsed.
+
 - The bookmarks list opens tall enough for its folders. With one folder at the top, as bookmarks brought in from Dia are, the list under the bookmark button was a single row high, and opening the folder showed a sliver of it above Add This Page: the list took its height from the closed folders as it opened and never grew. It is now as tall as the whole tree would be with every folder open, up to the height it always had at most, and a top level that is one folder alone opens with that folder open.
 - The column comes back after a video's full screen. Leaving a video's own full screen with Escape, on YouTube for one, could leave the tabs gone until the column was switched off and on again in the View menu: the window heard of a page going full screen and coming back only when something else changed, and coming back there sometimes was nothing else.
 - A live video no longer jumps every few seconds, on X and wherever a player keeps up with the broadcast by nudging its speed. X's switches between normal speed and a touch faster all the time, and each switch through normal speed made WebKit rebuild the sound and hold the picture still meanwhile. Once a page has nudged a video's speed, Search plays its normal speed a hair off exactly 1 (a tenth of a millisecond a second), so the switches go through without a break; the page still reads the speed it asked for.

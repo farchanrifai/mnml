@@ -78,6 +78,14 @@ final class Bookmarks: ObservableObject {
         }
     }
 
+    /// Leaf rows can use the shared list directly. A folder excludes its
+    /// own subtree once, instead of recursively walking it for every target.
+    static func moveTargets(for node: Bookmark, among folders: [(node: Bookmark, depth: Int)]) -> [(node: Bookmark, depth: Int)] {
+        guard node.isFolder else { return folders }
+        let excluded = Set(ids([node]))
+        return folders.filter { !excluded.contains($0.node.id) }
+    }
+
     /// Every site and folder whose title or address holds all the words,
     /// with the folders it sits in — the same rule chrome.bookmarks.search
     /// keeps (see ExtensionShims.swift).
@@ -589,8 +597,10 @@ struct BookmarkOutline: View {
     @State private var spring: DispatchWorkItem?
 
     var body: some View {
+        let folders = Bookmarks.folders(bookmarks.roots)
+        let arrows = bookmarks.roots.contains(where: \.isFolder)
         VStack(alignment: .leading, spacing: 1) {
-            rows(bookmarks.roots, depth: 0, parent: nil)
+            rows(bookmarks.roots, depth: 0, parent: nil, folders: folders, arrows: arrows)
             // Past the last row: the end of the top level, which "after" on
             // an open folder at the bottom can't reach. Only there while a
             // row is carried, or it is an empty band under the list (#391).
@@ -610,7 +620,7 @@ struct BookmarkOutline: View {
     }
 
     @ViewBuilder
-    private func rows(_ nodes: [Bookmark], depth: Int, parent: Bookmark.ID?) -> some View {
+    private func rows(_ nodes: [Bookmark], depth: Int, parent: Bookmark.ID?, folders: [(node: Bookmark, depth: Int)], arrows: Bool) -> some View {
         ForEach(Array(nodes.enumerated()), id: \.element.id) { index, node in
             let isOpen = node.isFolder && expanded.contains(node.id)
             Row(
@@ -618,7 +628,7 @@ struct BookmarkOutline: View {
                 depth: depth,
                 // A folder's arrow has a place in front of every row, so the
                 // icons line up; with no folder at all, it is only a gap.
-                arrows: bookmarks.roots.contains(where: \.isFolder),
+                arrows: arrows,
                 // An extension can write an address that does not parse,
                 // and the menu below already unwraps this the same way.
                 open: node.isFolder ? nil : { if let text = node.url, let url = URL(string: text) { open(url) } },
@@ -627,7 +637,7 @@ struct BookmarkOutline: View {
                 aim: aimed?.id == node.id ? aimed?.zone : nil,
                 shown: shown == node.id,
                 toggle: node.isFolder ? { toggle(node.id) } : nil,
-                moveTargets: Bookmarks.folders(bookmarks.roots).filter { !Bookmarks.holds($0.node.id, node) },
+                moveTargets: Bookmarks.moveTargets(for: node, among: folders),
                 moveTo: { bookmarks.move(node.id, into: $0) },
                 rename: { rename(node) },
                 newFolder: node.isFolder ? {
@@ -668,7 +678,7 @@ struct BookmarkOutline: View {
                 if let kids = node.children, !kids.isEmpty {
                     // Type-erased: a view that calls itself can't let Swift
                     // infer its own opaque return type from its own body.
-                    AnyView(rows(kids, depth: depth + 1, parent: node.id))
+                    AnyView(rows(kids, depth: depth + 1, parent: node.id, folders: folders, arrows: arrows))
                 } else {
                     // Where its first bookmark would be, so a drop here goes
                     // in, shown as the folder's own lower edge shows it.
@@ -1451,6 +1461,7 @@ final class BookmarkMenu: NSObject, NSMenuDelegate {
     /// same items as the menu bar's, folders opening as they are reached.
     func popUp(_ folder: Bookmark) {
         let menu = NSMenu(title: folder.title)
+        defer { discardFolders(in: menu) }
         let made = items(for: folder.children ?? [])
         if made.isEmpty {
             let empty = NSMenuItem(title: "Empty", action: nil, keyEquivalent: "")
@@ -1493,6 +1504,9 @@ final class BookmarkMenu: NSObject, NSMenuDelegate {
     /// A folder, opening.
     func menuNeedsUpdate(_ menu: NSMenu) {
         guard let kids = folders[ObjectIdentifier(menu)] else { return }
+        for item in menu.items {
+            if let submenu = item.submenu { discardFolders(in: submenu) }
+        }
         menu.removeAllItems()
         let made = items(for: kids)
         if made.isEmpty {
@@ -1501,6 +1515,15 @@ final class BookmarkMenu: NSObject, NSMenuDelegate {
             menu.addItem(empty)
         }
         for item in made { menu.addItem(item) }
+    }
+
+    /// A rebuilt submenu, or a popup that has closed, no longer needs the
+    /// child snapshots held for menus that will never open again.
+    private func discardFolders(in menu: NSMenu) {
+        folders.removeValue(forKey: ObjectIdentifier(menu))
+        for item in menu.items {
+            if let submenu = item.submenu { discardFolders(in: submenu) }
+        }
     }
 
     @objc private func open(_ item: NSMenuItem) {

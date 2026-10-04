@@ -31,11 +31,12 @@ final class Float {
     var onPlayPause: ((@escaping (Bool) -> Void) -> Void)?
     /// Step over the bit you missed, or back to it.
     var onSkip: ((Double) -> Void)?
-    /// Asked every half second while the window is up, for the line along the
-    /// bottom edge.
-    var onProgress: ((@escaping (Double, Bool) -> Void) -> Void)?
+    /// Asked every half second while the controls are visible, for the line
+    /// along the bottom edge.
+    var onProgress: ((@escaping (Double?, Bool?) -> Void) -> Void)?
 
     private var ticker: Timer?
+    private var progressRequest: UUID?
 
     var showing: Bool { panel != nil }
 
@@ -216,11 +217,25 @@ final class Float {
                     return
                 }
 
-                self.onProgress? { through, playing in
-                    self.controls?.progress = through
-                    self.controls?.playing = playing
-                }
+                self.refreshProgress()
             }
+        }
+        ticker?.tolerance = 0.05
+    }
+
+    /// A busy page gets one query at a time. The controls disappear when
+    /// the pointer leaves, so querying their hidden progress would wake the
+    /// page for a result that is never drawn.
+    func refreshProgress() {
+        guard controls?.showingProgress == true,
+              progressRequest == nil, let onProgress else { return }
+        let request = UUID()
+        progressRequest = request
+        onProgress { [weak self] through, playing in
+            guard let self, self.progressRequest == request else { return }
+            self.progressRequest = nil
+            if let through { self.controls?.progress = through }
+            if let playing { self.controls?.playing = playing }
         }
     }
 
@@ -261,6 +276,7 @@ final class Float {
         keeping = []
         ticker?.invalidate()
         ticker = nil
+        progressRequest = nil
         (page as? WKWebView)?.allowsMagnification = true
         page?.removeFromSuperview()
         page = nil
@@ -282,7 +298,10 @@ final class Float {
         var onSkip: ((Double) -> Void)?
 
         var playing = true {
-            didSet { pause.image = glyph(playing ? "pause.fill" : "play.fill", 17) }
+            didSet {
+                guard playing != oldValue else { return }
+                pause.image = glyph(playing ? "pause.fill" : "play.fill", 17)
+            }
         }
 
         /// Nought to one. Drawn as a hairline along the bottom edge.
@@ -298,6 +317,7 @@ final class Float {
         private let scrim = CAGradientLayer()
         private let line = Line()
         private var near = false
+        var showingProgress: Bool { near }
 
         override init(frame: NSRect) {
             super.init(frame: frame)
@@ -808,7 +828,7 @@ final class Float {
         /// How far through, along the bottom edge. Quiet enough to ignore.
         final class Line: NSView {
             var through: Double = 0 {
-                didSet { needsDisplay = true }
+                didSet { if through != oldValue { needsDisplay = true } }
             }
 
             override func draw(_ dirty: NSRect) {

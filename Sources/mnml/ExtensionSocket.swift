@@ -27,17 +27,26 @@ enum ExtensionSocket {
     private static var open: [ObjectIdentifier: Connection] = [:]
 
     static func connect(_ port: WKWebExtension.MessagePort, from extensionID: String) {
+        stopOrphans()
         let connection = Connection(port: port, origin: "\(Extensions.scheme)://\(extensionID)")
         let key = ObjectIdentifier(connection)
         open[key] = connection
         connection.onEnd = { open[key] = nil }
     }
 
+    /// A worker can disappear without WebKit calling its disconnect handler.
+    static func stopOrphans() {
+        for connection in Array(open.values) where connection.port.isDisconnected {
+            connection.end(tellingPort: false)
+        }
+    }
+
     @MainActor
     final class Connection: NSObject, URLSessionWebSocketDelegate {
-        private let port: WKWebExtension.MessagePort
+        fileprivate let port: WKWebExtension.MessagePort
         private let origin: String
         private var task: URLSessionWebSocketTask?
+        private var receiving: Task<Void, Never>?
         private var ended = false
         var onEnd: (() -> Void)?
 
@@ -104,7 +113,8 @@ enum ExtensionSocket {
         /// Frames as they come, until the socket ends; how it ended is the
         /// delegate's to say.
         private func receive(from task: URLSessionWebSocketTask) {
-            Task { [weak self] in
+            guard !ended, self.task === task, receiving == nil else { return }
+            receiving = Task { [weak self] in
                 while let message = try? await task.receive() {
                     guard let self, !self.ended else { return }
                     switch message {
@@ -127,16 +137,25 @@ enum ExtensionSocket {
             end(tellingPort: true)
         }
 
-        private func end(tellingPort: Bool) {
+        fileprivate func end(tellingPort: Bool) {
             guard !ended else { return }
             ended = true
+            receiving?.cancel()
+            receiving = nil
             task?.cancel(with: .goingAway, reason: nil)
+            task?.delegate = nil
+            task = nil
+            port.messageHandler = nil
+            port.disconnectHandler = nil
             if tellingPort, !port.isDisconnected { port.disconnect() }
-            onEnd?()
+            let finished = onEnd
+            onEnd = nil
+            finished?()
         }
 
         nonisolated func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didOpenWithProtocol chosen: String?) {
             MainActor.assumeIsolated {
+                guard !ended, task === webSocketTask else { return }
                 post(["opened": chosen ?? ""])
                 receive(from: webSocketTask)
             }
@@ -144,6 +163,7 @@ enum ExtensionSocket {
 
         nonisolated func urlSession(_ session: URLSession, webSocketTask: URLSessionWebSocketTask, didCloseWith closeCode: URLSessionWebSocketTask.CloseCode, reason: Data?) {
             MainActor.assumeIsolated {
+                guard !ended else { return }
                 post(["closed": closeCode.rawValue, "reason": reason.map { String(decoding: $0, as: UTF8.self) } ?? "", "clean": true])
                 end(tellingPort: true)
             }

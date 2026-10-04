@@ -466,31 +466,11 @@ struct SideBar: View {
     // MARK: - the rows
 
     /// A tab by itself, or a group with its tabs, in the order of the row.
-    private enum Entry: Identifiable {
-        case tab(Tab)
-        case group(TabGroup, [Tab])
-        var id: String {
-            switch self {
-            case .tab(let tab): return "t" + tab.id.uuidString
-            case .group(let group, _): return "g" + group.id.uuidString
-            }
-        }
-    }
+    private typealias Entry = TabRowEntry
 
     /// Above the line (pinned groups) or below it (everything else).
     private func entries(pinned: Bool) -> [Entry] {
-        var out: [Entry] = []
-        var seen = Set<TabGroup.ID>()
-        for tab in browser.tabs where tab.pin == nil {
-            if let id = tab.group, let group = browser.group(id) {
-                guard group.pinned == pinned, !seen.contains(id) else { continue }
-                seen.insert(id)
-                out.append(.group(group, browser.members(of: id)))
-            } else if !pinned {
-                out.append(.tab(tab))
-            }
-        }
-        return out
+        Entry.entries(tabs: browser.tabs, groups: browser.groups, pinned: pinned)
     }
 
     /// A line under the pinned squares and pinned groups, when there are any.

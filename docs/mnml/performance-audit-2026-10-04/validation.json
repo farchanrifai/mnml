@@ -1,0 +1,151 @@
+{
+  "date": "2026-10-04",
+  "branch": "codex/performance-audit-2026-10-04",
+  "base_commit": "91c0897fcbd8d576ec4d3bd73de0ee348f29e0ef",
+  "test_execution": {
+    "release_general": {
+      "total": 154,
+      "passed": 153,
+      "skipped": 1,
+      "failed": 0,
+      "process_isolated": true
+    },
+    "release_downloads": {
+      "total": 7,
+      "passed": 7,
+      "failed": 0,
+      "process_isolated": true
+    },
+    "search_fixture": {
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "opt_in": true
+    },
+    "page_find": {
+      "checks": 70,
+      "passed": 70,
+      "failed": 0,
+      "real_webkit": true
+    },
+    "extension_files": {
+      "checks": 5,
+      "passed": 5,
+      "failed": 0
+    },
+    "history_identity": {
+      "passed": true
+    },
+    "pristine_download_control": {
+      "commit": "91c0897fcbd8d576ec4d3bd73de0ee348f29e0ef",
+      "configuration": "debug",
+      "total": 7,
+      "passed": 7,
+      "failed": 0
+    }
+  },
+  "search_measurement": {
+    "fixture": "1000 lazy tabs; 500 typed query changes; release",
+    "before": {
+      "samples": 500,
+      "median_ms": 4.21297550201416,
+      "p95_ms": 5.385994911193848
+    },
+    "after": {
+      "samples": 500,
+      "median_ms": 0.8620023727416992,
+      "p95_ms": 5.778908729553223
+    },
+    "p95_improvement_claimed": false,
+    "confirmation": {
+      "samples": 500,
+      "median_ms": 0.8600950241088867,
+      "p95_ms": 5.617022514343262
+    }
+  },
+  "package": {
+    "command": "MNML_SIGN_IDENTITY=- ./build.sh release app (SwiftPM scratch/cache overrides)",
+    "build_success": true,
+    "configuration": "release",
+    "ad_hoc_signature_verified": true,
+    "plist_valid": true,
+    "minimum_macos": "14.0",
+    "sdk": "27.0",
+    "binary_sha256": "a66f43e35bb50a82b9965b1318d92eed3b5048b1745b0956cb31986719526e54"
+  },
+  "runtime_smoke": {
+    "world": "perf-audit-1791078740",
+    "app": "/Users/farchan/.codex/worktrees/c98b/mnml/build/mnml.app",
+    "checks": [
+      "isolated hidden launch without modal",
+      "six local pages loaded and evaluated",
+      "all owned fixture tabs closed",
+      "five window creation and retirement cycles",
+      "no modal or foreground activation after cycles",
+      "normal application quit completed without confirmation or user input"
+    ],
+    "tabs_opened": 6,
+    "window_cycles": 5,
+    "pid": 50794
+  },
+  "checks": {
+    "git_diff_check": true,
+    "shell_syntax": true,
+    "main_checkout_modified": false,
+    "merged_to_main": false,
+    "installed_app_modified": false
+  },
+  "limitations": [
+    "Mixed-process download suite reported timeouts; all seven tests pass in a fresh process on both baseline and candidate.",
+    "No whole-app memory, battery, CPU, startup, or frame-rate improvement was measured.",
+    "No third-party extension/network or long-duration real-site soak."
+  ],
+  "evidence": {
+    "release_suite": {
+      "local_log": "/tmp/mnml-performance-suite-final.log",
+      "sha256": "2f2d5fe7d56ba5d3fb17b5aa07f2f38e818a12f3d6368dd3a955f4324e090eca"
+    },
+    "page_find": {
+      "local_log": "/tmp/mnml-performance-page-find-final.log",
+      "sha256": "d02c0375764f53c8c4fc3a4f8da09ac0ce0805192cd7166c58b87511a23c066d"
+    },
+    "extension_files": {
+      "local_log": "/tmp/mnml-performance-extension-files.log",
+      "sha256": "1add4de0e934a4244d3768d25fed7981814865c62fd040d15589df3ebfff8c64"
+    },
+    "history_identity": {
+      "local_log": "/tmp/mnml-performance-history-regression.log",
+      "sha256": "fae052d73de74c907e8a8b50ed12d9c4ad9d03037621c0488194e9c94983bfc4"
+    },
+    "pristine_downloads": {
+      "local_log": "/tmp/mnml-performance-pristine-download-tests.log",
+      "sha256": "97d77bc1627f6e81b57037d77209e11f20fe7e0b966b5e15188cab459926c556"
+    },
+    "search_before": {
+      "local_log": "/tmp/mnml-performance-search-before.log",
+      "sha256": "b9404bb7b3641005f86200a98fe49f4cd92ea27f4f5ff74d844a45c88ffa86fa"
+    },
+    "search_after": {
+      "local_log": "/tmp/mnml-performance-search-after.log",
+      "sha256": "007b1365edce46bf4b7aefc67682b86bec124585c3b658c64aaaec37b4838d7c"
+    },
+    "package": {
+      "local_log": "/tmp/mnml-performance-package.log",
+      "sha256": "11e472da84dd36d3b830bffafccd0b158c21dddde34733a8a43a1a098f9a9750"
+    },
+    "runtime": {
+      "local_log": "/tmp/mnml-performance-runtime-smoke.log",
+      "sha256": "382c248a86879d7ac5d771c7119fa99b1005357f3da6a7dc67bf050f4bfd73eb"
+    },
+    "search_confirmation": {
+      "local_log": "/tmp/mnml-performance-search-confirm.log",
+      "sha256": "d24ac342fb14d0dcc426ba725cc5ba0ee5c018321e7be5fb1ea2ae8001a65b63"
+    }
+  },
+  "environment": {
+    "macos": "27.0 (26A5421a)",
+    "architecture": "arm64",
+    "xcode": "27.0 (27A5194q)",
+    "swift": "6.4 (swiftlang-6.4.0.20.104)"
+  }
+}

@@ -26,7 +26,9 @@ final class Links: NSObject, NSApplicationDelegate {
     /// Quitting closes every window on the way out; that isn't a window
     /// closed for good, whose tabs would go (see Browsers.closing).
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        if !terminationPending {
+        // Scripted probes must be able to finish unattended. The installed
+        // browser and the daily-use Test copy still ask before quitting.
+        if !terminationPending && (!Store.testing || Store.testCopy) {
             let alert = NSAlert()
             alert.messageText = "Quit mnml?"
             alert.informativeText = "Your tabs will be saved for next time."
@@ -70,6 +72,7 @@ final class Links: NSObject, NSApplicationDelegate {
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         MPNowPlayingInfoCenter.default().playbackState = .stopped
         Browsers.flush()
+        MainActor.assumeIsolated { Shared.history.flush() }
         // And the bookmarks or downloads list saved a moment ago, still on
         // their way to the disk.
         Disk.drain()
