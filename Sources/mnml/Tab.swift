@@ -692,9 +692,9 @@ final class Tab: ObservableObject, Identifiable {
                     // Another page: its highlight went with the old one. Not on
                     // a change of hash or query only — Gmail's compose is one.
                     if fresh.host() != self.address?.host() || fresh.path != self.address?.path { self.picked = nil }
-                    let freshHost = fresh.host()?.lowercased()
-                    let currentHost = self.address?.host()?.lowercased()
-                    let moved = freshHost != currentHost
+                    // By site, port included: localhost:3000 to localhost:5173
+                    // is another project, with another icon.
+                    let moved = Favicons.site(fresh) != self.address.flatMap(Favicons.site)
                     self.address = fresh
                     // Within the same origin — history.pushState, a fragment —
                     // the page on screen is the one at the new address.
