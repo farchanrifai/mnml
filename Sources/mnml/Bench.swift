@@ -706,6 +706,8 @@ final class Bench {
                 "systemPiP": browser.systemPiP?.uuidString ?? "",
                 "welcome": browser.welcoming,
                 "passwords": browser.managing,
+                // A question hanging from the window (Ask), still unanswered.
+                "sheet": browser.window?.attachedSheet != nil,
                 "history": browser.recalling,
                 "downloads": browser.hoarding,
                 "bookmarks": browser.bookmarking,
@@ -816,7 +818,10 @@ final class Bench {
                 guard let event = NSEvent.keyEvent(
                     with: type, location: .zero, modifierFlags: flags,
                     timestamp: ProcessInfo.processInfo.systemUptime,
-                    windowNumber: (browser.window ?? Links.window)?.windowNumber ?? 0, context: nil,
+                    // "sheet": to the question hanging from the window, as a
+                    // key typed while it is up goes to it.
+                    windowNumber: (request["sheet"] as? Bool == true ? browser.window?.attachedSheet : nil)?.windowNumber
+                        ?? (browser.window ?? Links.window)?.windowNumber ?? 0, context: nil,
                     characters: chars, charactersIgnoringModifiers: chars,
                     isARepeat: repeats && type == .keyDown, keyCode: UInt16(code)
                 ) else { continue }
@@ -1212,6 +1217,17 @@ final class Bench {
                         "kept": took.kept, "skipped": took.skipped, "cancelled": took.cancelled,
                         "total": browser.bookmarks.count, "top": browser.bookmarks.roots.map(\.title), "saved": browser.saved.count])
             }
+
+        case "remove-folder":
+            // The bookmarks list's Remove on a top-level folder, question and
+            // all: the real sheet, which `press` with "sheet" answers. Only on
+            // a SEARCH_PROBE run.
+            guard Store.testing else { answer(["error": "remove-folder only works on a --test run"]); return }
+            guard let title = request["title"] as? String,
+                  let folder = browser.bookmarks.roots.first(where: { $0.isFolder && $0.title == title })
+            else { answer(["error": "no top-level folder by that title"]); return }
+            browser.bookmarks.askRemove(folder)
+            answer(["asked": title])
 
         case "import-file-start":
             guard Store.testing else { answer(["error": "import-file only works on a --test run"]); return }
