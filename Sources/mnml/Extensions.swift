@@ -118,6 +118,29 @@ final class Extensions: NSObject, ObservableObject {
         folder.appendingPathComponent(".staging-\(id)-\(UUID().uuidString)", isDirectory: true)
     }
 
+    /// One loaded from a folder is copied in links and all, and both WebKit,
+    /// serving its files, and the shim, rewriting its pages, go where a link
+    /// points. So a link stays only if what it names is there and inside the
+    /// package; one leading anywhere else, or nowhere, is taken out. (A
+    /// package from the store with any link in it is refused whole: see
+    /// Crx.) Throws if one couldn't be taken out.
+    nonisolated static func unlinkOutside(_ root: URL) throws {
+        guard let base = realpath(root.path, nil) else { return }
+        let inside = String(cString: base) + "/"
+        free(base)
+        let files = FileManager.default
+        let found = files.enumerator(at: root, includingPropertiesForKeys: [.isSymbolicLinkKey])
+        while let item = found?.nextObject() as? URL {
+            guard (try? item.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true else { continue }
+            var kept = false
+            if let real = realpath(item.path, nil) {
+                kept = String(cString: real).hasPrefix(inside)
+                free(real)
+            }
+            if !kept { try files.removeItem(at: item) }
+        }
+    }
+
     private override init() {
         WKWebExtension.MatchPattern.registerCustomURLScheme(Extensions.scheme)
         // A test run keeps its extensions' storage apart, as it does its
@@ -414,6 +437,11 @@ final class Extensions: NSObject, ObservableObject {
         // first launch after an update reads and rewrites every script and
         // page each extension ships (Grammarly: 450 ms).
         let folder = Extensions.folder(for: item.id)
+        // One installed from a folder before links were looked at.
+        if item.source != nil {
+            do { try await Task.detached(priority: .userInitiated) { try Extensions.unlinkOutside(folder) }.value }
+            catch { return false }
+        }
         try? await Task.detached(priority: .userInitiated) { try ExtensionShims.prepare(folder, id: item.id) }.value
         do {
             let found = try await WKWebExtension(resourceBaseURL: Extensions.folder(for: item.id))
@@ -548,7 +576,9 @@ final class Extensions: NSObject, ObservableObject {
             defer { try? FileManager.default.removeItem(at: staged) }
             do {
                 try FileManager.default.createDirectory(at: Extensions.folder, withIntermediateDirectories: true)
-                try FileManager.default.copyItem(at: source, to: staged)
+                // The folder itself, wherever a link to it leads.
+                try FileManager.default.copyItem(at: source.resolvingSymlinksInPath(), to: staged)
+                try Extensions.unlinkOutside(staged)
                 try ExtensionShims.prepare(staged, id: id, fresh: true)
                 try await admit(staged, as: id, fromStore: false, finalFolder: Extensions.folder(for: id), confirm: confirm || !Store.testing, source: source)
             } catch {
@@ -578,7 +608,8 @@ final class Extensions: NSObject, ObservableObject {
                     return
                 }
                 do {
-                    try FileManager.default.copyItem(at: source, to: staged)
+                    try FileManager.default.copyItem(at: source.resolvingSymlinksInPath(), to: staged)
+                    try Extensions.unlinkOutside(staged)
                     try ExtensionShims.prepare(staged, id: id, fresh: true)
                 } catch {
                     browser?.announce("Couldn't copy \(original.name) again: \(error.localizedDescription)")
