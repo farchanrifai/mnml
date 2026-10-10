@@ -431,11 +431,7 @@ final class Extensions: NSObject, ObservableObject {
                 context.setPermissionStatus(.grantedExplicitly, for: permission)
             }
             context.setPermissionStatus(.grantedExplicitly, for: .nativeMessaging)
-            // Never one for extension pages, another's or all of them (see
-            // `fence`).
-            for pattern in found.allRequestedMatchPatterns where !Extensions.reachesExtensions(pattern) {
-                context.setPermissionStatus(.grantedExplicitly, for: pattern)
-            }
+            Extensions.grantSites(context)
             // Its own sign-in address, https://<id>.chromiumapp.org, which
             // is never loaded (see ExtensionAuth.handOver). WebKit shows an
             // extension a tab's address only where it has access, where
@@ -901,6 +897,29 @@ final class Extensions: NSObject, ObservableObject {
         return [Extensions.scheme, Extensions.formerScheme, "webkit-extension"].contains(scheme)
     }
 
+    /// Files on this Mac aren't an extension's to reach either, whatever its
+    /// manifest names: Chrome keeps them from every extension until "Allow
+    /// access to file URLs" is turned on for it, and Search has no such
+    /// switch. WebKit's <all_urls> leaves file: out; a pattern naming it
+    /// (file:///*) would be granted with the rest.
+    nonisolated static func reachesFiles(_ pattern: WKWebExtension.MatchPattern) -> Bool {
+        pattern.scheme?.lowercased() == "file"
+    }
+
+    /// What no extension is given or asked about: extension pages and files.
+    nonisolated static func withheld(_ pattern: WKWebExtension.MatchPattern) -> Bool {
+        reachesExtensions(pattern) || reachesFiles(pattern)
+    }
+
+    /// The sites its manifest names, granted as it loads: never one for
+    /// extension pages, another's or all of them, nor for files on this Mac
+    /// (see `fence`, which is set after).
+    static func grantSites(_ context: WKWebExtensionContext) {
+        for pattern in context.webExtension.allRequestedMatchPatterns where !withheld(pattern) {
+            context.setPermissionStatus(.grantedExplicitly, for: pattern)
+        }
+    }
+
     /// Other extensions' pages are never among "all sites" either: with
     /// chrome-extension registered as a scheme, WebKit counts them in
     /// <all_urls>, which Chrome doesn't, so they are refused outright. A
@@ -911,6 +930,12 @@ final class Extensions: NSObject, ObservableObject {
         for scheme in Set([Extensions.scheme, Extensions.formerScheme, "webkit-extension"]) {
             if let pages = try? WKWebExtension.MatchPattern(string: "\(scheme)://*/*") {
                 context.setPermissionStatus(.deniedExplicitly, for: pages)
+            }
+        }
+        // Nor files (see `reachesFiles`).
+        for string in ["file:///*", "file://*/*"] {
+            if let files = try? WKWebExtension.MatchPattern(string: string) {
+                context.setPermissionStatus(.deniedExplicitly, for: files)
             }
         }
     }
@@ -1286,8 +1311,8 @@ extension Extensions: WKWebExtensionControllerDelegate {
     }
 
     func webExtensionController(_ controller: WKWebExtensionController, promptForPermissionMatchPatterns matchPatterns: Set<WKWebExtension.MatchPattern>, in tab: (any WKWebExtensionTab)?, for extensionContext: WKWebExtensionContext) async -> (Set<WKWebExtension.MatchPattern>, Date?) {
-        // Extension pages are never given, so never asked about.
-        let wanted = matchPatterns.filter { !Extensions.reachesExtensions($0) }
+        // Extension pages and files are never given, so never asked about.
+        let wanted = matchPatterns.filter { !Extensions.withheld($0) }
         guard !wanted.isEmpty else { return ([], nil) }
         let all = wanted.contains { $0.matchesAllHosts || $0.matchesAllURLs }
         let what = all ? "every website" : wanted.map(\.string).sorted().joined(separator: ", ")

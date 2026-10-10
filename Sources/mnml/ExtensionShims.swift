@@ -2931,8 +2931,9 @@ enum ExtensionShims {
         };
         // Extension pages are never an extension's to reach, as in Chrome,
         // where such a pattern isn't even valid (see
-        // Extensions.reachesExtensions): never held, never asked for.
-        const extensionPages = (origins) => origins.some((o) => /^(chrome|webkit)-extension:/i.test(String(o)));
+        // Extensions.reachesExtensions): never held, never asked for. Nor
+        // files, as in Chrome with file access left off (Extensions.reachesFiles).
+        const extensionPages = (origins) => origins.some((o) => /^((chrome|webkit)-extension|file):/i.test(String(o)));
         put(p, "contains", withCb(async ({ permissions = [], origins = [] }) => {
           const { theirs, mine, unknown } = split(permissions);
           if (unknown.length || extensionPages(origins)) return false;
@@ -3860,7 +3861,7 @@ enum ExtensionShims {
             let found = context.webExtension
             let wanted = ((first as? [String]) ?? []).map { WKWebExtension.Permission(rawValue: $0) }
             let origins = ((args.dropFirst().first as? [String]) ?? []).compactMap { try? WKWebExtension.MatchPattern(string: $0) }
-                .filter { !Extensions.reachesExtensions($0) }
+                .filter { !Extensions.withheld($0) }
             let named = found.requestedPermissions.union(found.optionalPermissions)
             // Sites as the manifest names them, optional ones included —
             // which allRequestedMatchPatterns leaves out.
