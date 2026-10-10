@@ -2256,6 +2256,7 @@ final class Bench {
             }
             answer([
                 "littles": LittleWindow.all.map { $0.tab.address?.absoluteString ?? "" },
+                "failures": LittleWindow.all.map { $0.tab.failure ?? "" },
                 "tabs": browser.tabs.map { ($0.pin != nil ? "PIN " : "") + ($0.address?.host() ?? "blank") },
                 "active": browser.active?.address?.host() ?? "",
             ])
@@ -2433,7 +2434,7 @@ final class Bench {
 
         default:
             answer(["error": "unknown command “\(verb)”", "commands": [
-                "tabs", "open", "go", "close", "wait", "sleep", "select", "text", "eval", "click", "type", "submit", "shot", "probe", "key", "resize", "hit", "film", "window", "fullscreen", "snapshot", "dragrow", "group", "pages", "picture", "place", "field", "bookmark", "menu", "space", "strip", "column", "ui", "keyeq", "pull", "fold", "consent", "site", "little", "float", "tospace", "fill", "pin", "middle", "windows", "quit", "towindow", "news", "update", "import", "import-preview", "import-file",
+                "tabs", "open", "go", "close", "wait", "sleep", "select", "text", "eval", "click", "type", "submit", "shot", "probe", "key", "resize", "hit", "film", "window", "fullscreen", "snapshot", "dragrow", "group", "pages", "picture", "place", "field", "bookmark", "menu", "space", "strip", "column", "ui", "keyeq", "pull", "fold", "consent", "site", "little", "float", "tospace", "fill", "pin", "middle", "windows", "quit", "towindow", "news", "update", "import", "import-preview", "import-file", "remove-folder",
             ]])
         }
     }
