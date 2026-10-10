@@ -1240,6 +1240,22 @@ final class Bench {
             guard Store.testing else { answer(["error": "menu only works on a --test run"]); return }
             guard let main = NSApp.mainMenu, let menu = main.items.first(where: { $0.title == "Bookmarks" })?.submenu
             else { answer(["error": "no Bookmarks menu"]); return }
+            // "peek": only what is in it now, nothing opened or filled — to
+            // see what an update while it is open left of the bookmarks.
+            // "shown"/"hidden": the menu told it opened or closed, as tracking would.
+            if request["shown"] as? Bool == true {
+                NotificationCenter.default.post(name: NSMenu.didBeginTrackingNotification, object: main)
+                menu.delegate?.menuWillOpen?(menu)
+            }
+            if request["swiftui"] as? Bool == true { BookmarkMenu.shared.swiftUIUpdate() }
+            if request["hidden"] as? Bool == true {
+                menu.delegate?.menuDidClose?(menu)
+                NotificationCenter.default.post(name: NSMenu.didEndTrackingNotification, object: main)
+            }
+            if request["peek"] as? Bool == true {
+                answer(["ours": BookmarkMenu.shared.count, "items": menu.items.count])
+                return
+            }
             let before = menu.items.count
             let wrapped = menu.delegate.map { "\(type(of: $0))" } ?? "none"
             let start = CACurrentMediaTime()
