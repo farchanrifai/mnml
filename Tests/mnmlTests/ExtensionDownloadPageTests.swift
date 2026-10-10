@@ -1,7 +1,7 @@
 import AppKit
 import WebKit
 import XCTest
-@testable import Search
+@testable import mnml
 
 /// An extension's downloads.download never goes through a private tab.
 @available(macOS 15.4, *)

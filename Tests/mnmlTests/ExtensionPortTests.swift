@@ -1,6 +1,6 @@
 import JavaScriptCore
 import XCTest
-@testable import Search
+@testable import mnml
 
 @available(macOS 15.4, *)
 final class ExtensionPortTests: XCTestCase {

@@ -1,5 +1,5 @@
 import XCTest
-@testable import Search
+@testable import mnml
 
 /// The id an extension loaded from a folder gets (Crx.unpackedID): the one
 /// Chrome gives it from the folder's path, which is what native messaging

@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import Search
+@testable import mnml
 
 @available(macOS 15.4, *)
 final class ExtensionWorkerLinkTests: XCTestCase {
@@ -29,7 +29,7 @@ final class ExtensionWorkerLinkTests: XCTestCase {
         try "console.log('made up worker');\n".write(to: folder.appendingPathComponent("background.js"), atomically: true, encoding: .utf8)
         try FileManager.default.createSymbolicLink(atPath: folder.appendingPathComponent("background-143.js").path, withDestinationPath: "background.js")
 
-        try ExtensionShims.prepare(folder, fresh: true)
+        try ExtensionShims.prepare(folder, id: "abcdefghijklmnopabcdefghijklmnop", fresh: true)
 
         let worker = folder.appendingPathComponent("background-143.js")
         XCTAssertEqual(try worker.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink, false)
@@ -53,7 +53,7 @@ final class ExtensionWorkerLinkTests: XCTestCase {
         try FileManager.default.createSymbolicLink(atPath: bystander.path, withDestinationPath: folder.appendingPathComponent("real.js").path)
         try FileManager.default.createSymbolicLink(atPath: folder.appendingPathComponent("sub").path, withDestinationPath: outside.path)
 
-        try ExtensionShims.prepare(folder, fresh: true)
+        try ExtensionShims.prepare(folder, id: "abcdefghijklmnopabcdefghijklmnop", fresh: true)
 
         XCTAssertEqual(try bystander.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink, true)
         XCTAssertEqual(try FileManager.default.destinationOfSymbolicLink(atPath: bystander.path), folder.appendingPathComponent("real.js").path)

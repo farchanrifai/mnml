@@ -1,7 +1,7 @@
 import AppKit
 import WebKit
 import XCTest
-@testable import Search
+@testable import mnml
 
 /// Files on this Mac are never an extension's, whatever its manifest names,
 /// as in Chrome with "Allow access to file URLs" left off.
