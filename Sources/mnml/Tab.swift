@@ -820,6 +820,13 @@ final class Tab: ObservableObject, Identifiable {
         controller.addUserScript(
             WKUserScript(source: LiveRate.script, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .page)
         )
+        // Every frame, in the page's own world: a page an extension lists
+        // reaches it as chrome.runtime (see ExtensionExternal.swift).
+        if let external = ExtensionExternal.script {
+            controller.addUserScript(
+                WKUserScript(source: external, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .page)
+            )
+        }
         // Passkeys stand in the page's own world — they replace the page's
         // functions — and reach Search through a bridge in Search's, off or on:
         // an extension's page script can carry the patch either way (see
