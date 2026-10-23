@@ -171,6 +171,9 @@ final class HostPipe: @unchecked Sendable {
     private let origin: String
     private var pid: pid_t = 0
     private var reaper: DispatchSourceProcess?
+    /// Whether the host still runs, apart from the pipe: the kill timer
+    /// reads it without holding the pipe, which is freed once it has ended.
+    private let alive = Alive()
     private let input = Pipe()
     private let output = Pipe()
     private var buffer = Data()
@@ -181,7 +184,6 @@ final class HostPipe: @unchecked Sendable {
     var onExit: (() -> Void)?
     private var waiters: [(id: Int, continuation: CheckedContinuation<Any?, Error>)] = []
     private var nextWaiter = 0
-    private var running = false
     private var stopped = false
     private var outputClosed = false
     private var finished = false
@@ -248,8 +250,8 @@ final class HostPipe: @unchecked Sendable {
         }
         lock.lock()
         pid = child
-        running = true
         lock.unlock()
+        alive.set(true)
         // The host's ends are its own now; with ours of its output closed,
         // its closing that output is what reads as the end.
         try? input.fileHandleForReading.close()
@@ -260,21 +262,21 @@ final class HostPipe: @unchecked Sendable {
         // Chrome. But a child of the host's may hold that output open long
         // after, so an exit ends things after a grace in any case.
         let reaper = DispatchSource.makeProcessSource(identifier: child, eventMask: .exit)
-        reaper.setEventHandler { [weak self] in
+        reaper.setEventHandler { [weak self, alive] in
             var status: Int32 = 0
             waitpid(child, &status, 0)
+            alive.set(false)
             // Reap even if the one-shot caller has already released its pipe.
             reaper.setEventHandler(handler: nil)
             reaper.cancel()
             guard let self else { return }
             self.lock.lock()
-            self.running = false
             let now = self.stopped || self.outputClosed
             self.lock.unlock()
             if now {
                 self.finish()
             } else {
-                DispatchQueue.global().asyncAfter(deadline: .now() + Self.exitGrace) { self.finish(); self.end() }
+                DispatchQueue.global().asyncAfter(deadline: .now() + Self.exitGrace) { [weak self] in self?.finish(); self?.end() }
             }
         }
         reaper.resume()
@@ -284,10 +286,9 @@ final class HostPipe: @unchecked Sendable {
     func stop() {
         lock.lock()
         stopped = true
-        let alive = running
         lock.unlock()
         output.fileHandleForReading.readabilityHandler = nil
-        if alive { end() } else { finish(); end() }
+        if alive.running { end() } else { finish(); end() }
     }
 
     /// Chrome's call for the same thing: the host, not the browser, is what
@@ -379,12 +380,14 @@ final class HostPipe: @unchecked Sendable {
         lock.lock()
         let first = !ending
         ending = true
-        let child = running ? pid : 0
+        let child = alive.running ? pid : 0
         lock.unlock()
         guard first else { return }
         // Off the caller's thread: a write stuck on a host that doesn't read
-        // holds `writing` until the signals below free it.
-        DispatchQueue.global().async {
+        // holds `writing` until the signals below free it. A pipe already
+        // freed has closed its handles with it.
+        DispatchQueue.global().async { [weak self] in
+            guard let self else { return }
             self.writing.lock()
             if !self.inputClosed {
                 self.inputClosed = true
@@ -394,11 +397,9 @@ final class HostPipe: @unchecked Sendable {
         }
         guard child > 0 else { return }
         kill(child, SIGTERM)
-        DispatchQueue.global().asyncAfter(deadline: .now() + Self.killGrace) {
-            self.lock.lock()
-            let still = self.running
-            self.lock.unlock()
-            if still { kill(child, SIGKILL) }
+        // Only while it is still the host: once reaped, its pid may be another's.
+        DispatchQueue.global().asyncAfter(deadline: .now() + Self.killGrace) { [alive] in
+            if alive.running { kill(child, SIGKILL) }
         }
     }
 
@@ -411,9 +412,18 @@ final class HostPipe: @unchecked Sendable {
         buffer = Data()
         let exit = onExit
         onExit = nil
+        onMessage = nil
         lock.unlock()
         output.fileHandleForReading.readabilityHandler = nil
         pending.forEach { $0.continuation.resume(throwing: Self.exited) }
         exit?()
     }
+}
+
+/// A host's running, kept apart from its pipe (see HostPipe.alive).
+private final class Alive: @unchecked Sendable {
+    private let lock = NSLock()
+    private var on = false
+    var running: Bool { lock.lock(); defer { lock.unlock() }; return on }
+    func set(_ value: Bool) { lock.lock(); on = value; lock.unlock() }
 }
