@@ -291,6 +291,7 @@ struct SideBar: View {
                                 rows.padding(.trailing, 10)
                             }
                             .padding(.trailing, -10)
+                            .background(SlimScroller())
                             // The tab you go to is the tab you see — ⌘1–⌘9,
                             // ⇧⌘], a link opening beside the one on screen.
                             .onChange(of: browser.activeID) { _, id in
@@ -1399,5 +1400,26 @@ extension View {
         background(GeometryReader { box in
             Color.clear.preference(key: RowFrames.self, value: when ? [key: box.frame(in: .named("column"))] : [:])
         })
+    }
+}
+
+/// The tab list's bar, slim: the mini control size and the overlay style, so
+/// it is a thin line that fades away instead of a fat always-on track.
+private struct SlimScroller: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { NSView() }
+
+    func updateNSView(_ view: NSView, context: Context) {
+        DispatchQueue.main.async {
+            guard let scroll = view.superview?.subviews.lazy.compactMap({ Self.scroll(in: $0) }).first
+                    ?? Self.scroll(in: view.superview) else { return }
+            scroll.scrollerStyle = .overlay
+            scroll.verticalScroller?.controlSize = .mini
+        }
+    }
+
+    private static func scroll(in view: NSView?) -> NSScrollView? {
+        guard let view else { return nil }
+        if let scroll = view as? NSScrollView { return scroll }
+        return view.subviews.lazy.compactMap { scroll(in: $0) }.first
     }
 }
