@@ -1,7 +1,7 @@
 import AppKit
 import WebKit
 import XCTest
-@testable import Search
+@testable import mnml
 
 /// Settings › General › Suggestions from your search engine (idea 347).
 @MainActor
@@ -11,7 +11,7 @@ final class EngineSuggestTests: XCTestCase {
     private let fakeToken = "gh" + "p_" + "0000Fake1111Token2222Shape3333Only44"
 
     override class func setUp() {
-        setenv("SEARCH_PROBE", "engine-suggest-\(getpid())", 1)
+        setenv("MNML_PROBE", "engine-suggest-\(getpid())", 1)
         super.setUp()
     }
 

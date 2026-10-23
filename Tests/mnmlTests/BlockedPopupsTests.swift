@@ -1,14 +1,14 @@
 import AppKit
 import WebKit
 import XCTest
-@testable import Search
+@testable import mnml
 
 @MainActor
 final class BlockedPopupsTests: XCTestCase {
     private var browser: Browser!
 
     override class func setUp() {
-        setenv("SEARCH_PROBE", "blocked-popups-\(getpid())", 1)
+        setenv("MNML_PROBE", "blocked-popups-\(getpid())", 1)
         super.setUp()
     }
 

@@ -2,12 +2,12 @@ import AppKit
 import PDFKit
 import WebKit
 import XCTest
-@testable import Search
+@testable import mnml
 
 @MainActor
 final class PDFExportTests: XCTestCase {
     override class func setUp() {
-        setenv("SEARCH_PROBE", "pdf-export-\(getpid())", 1)
+        setenv("MNML_PROBE", "pdf-export-\(getpid())", 1)
         super.setUp()
     }
 
@@ -29,7 +29,7 @@ final class PDFExportTests: XCTestCase {
         let captured = try XCTUnwrap(browser.active)
         browser.activeID = other.id
 
-        let file = FileManager.default.temporaryDirectory.appendingPathComponent("Search-PDF-\(UUID().uuidString).pdf")
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("mnml-PDF-\(UUID().uuidString).pdf")
         defer { try? FileManager.default.removeItem(at: file) }
         let worked = await withCheckedContinuation { continuation in
             browser.exportPDF(captured, to: file) { continuation.resume(returning: $0) }
@@ -40,7 +40,7 @@ final class PDFExportTests: XCTestCase {
         XCTAssertFalse(text.contains("Different active page"))
     }
 
-    private func page(_ text: String, in browser: Browser) async throws -> Search.Tab {
+    private func page(_ text: String, in browser: Browser) async throws -> mnml.Tab {
         let tab = browser.open(try XCTUnwrap(URL(string: "about:blank")), foreground: true)
         tab.web.frame = NSRect(x: 0, y: 0, width: 700, height: 500)
         tab.web.loadHTMLString("<html><body><h1>\(text)</h1></body></html>", baseURL: URL(string: "https://example.invalid/"))
