@@ -499,6 +499,7 @@ final class Preferences: ObservableObject {
         keepsSignIns = keeps
         // Before the first page is loaded into the store.
         Store.keepsSignIns = keeps
+        Spaces.everyStore.forEach(Store.followCookies)
         extensionsInPrivate = store.bool(forKey: "extensions.private")
         // Offered by default only in a build that can actually do them —
         // one with Apple's browser entitlement and its profile embedded. A

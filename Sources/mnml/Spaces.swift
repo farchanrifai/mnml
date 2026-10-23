@@ -102,7 +102,7 @@ enum Spaces {
         if id == Space.firstID || sharing.contains(id) { return Store.websites }
         if let made = stores[id] { return made }
         let made = WKWebsiteDataStore(forIdentifier: id)
-        if Store.keepsSignIns { Store.followSignIns(made) }
+        if Store.keepsSignIns { Store.followSignIns(made) } else { Store.followCookies(made) }
         stores[id] = made
         return made
     }
