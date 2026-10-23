@@ -89,6 +89,9 @@
     ./bench remove-folder TITLE        test run: the bookmarks list's Remove on a top-level folder, its question left up
     ./bench menu [open]                test run: the Bookmarks menu as it is about to open, and its first
                                        folder (open: its first bookmark picked)
+    ./bench marks                      test run: each bookmark on the bar (its size), in the bar's folders'
+                                       menus and the Bookmarks menu, every folder opened, and in the list:
+                                       what it reads, and whether it wears an icon
     ./bench bookmark URL [new]         test run: a bookmark picked from the list, timed until it loads
                                        (new: into a new tab, whose page isn't built yet)
     ./bench windows [list|new|close N|reopen|frame N X Y W H|front N|link URL]
@@ -379,6 +382,8 @@ def main(argv):
     elif verb == "menu":
         if args not in ([], ["open"]): sys.exit("usage: bench menu [open]")
         request["open"] = args == ["open"]
+    elif verb == "marks":
+        if args: sys.exit("usage: bench marks")
     elif verb == "keyeq":
         if len(args) < 2 or any(a != "shift" for a in args[2:]): sys.exit("usage: bench keyeq CHARS CODE [shift]")
         request["chars"], request["code"], request["mods"] = args[0], int(args[1]), args[2:]

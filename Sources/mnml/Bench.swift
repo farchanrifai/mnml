@@ -1117,6 +1117,68 @@ final class Bench {
                     "shown": Double(NSHostingView(rootView: shown).fittingSize.height),
                     "opening": opening.count])
 
+        case "marks":
+            // Each bookmark wherever it is shown, nothing drawn on a screen:
+            // the bar's buttons laid out off every screen, with their size;
+            // each of the bar's folders as the menu it opens, and the menu
+            // bar's Bookmarks menu, every folder in them opened; and the
+            // button's list, row by row — each with what it reads and
+            // whether it wears the site's icon or a letter in its place.
+            guard Store.testing else { answer(["error": "marks only works on a --test run"]); return }
+            // "rename": [url, name] — typed into the ⇧⌘B card's Name field.
+            if let pair = request["rename"] as? [String], pair.count == 2,
+               let url = URL(string: pair[0]), let kept = browser.bookmarks.bookmark(for: url) {
+                BookmarkCard.rename(kept.id, pair[1], in: browser.bookmarks)
+            }
+            func line(_ depth: Int, _ item: NSMenuItem) -> [String: Any] {
+                ["depth": depth, "title": item.title, "folder": item.submenu != nil, "image": item.image != nil]
+            }
+            let bar = browser.bookmarks.roots.map { node -> [String: Any] in
+                let size = NSHostingView(rootView: BookmarksBar.Item(node: node, act: {})).fittingSize
+                return ["label": node.label, "title": node.title, "unnamed": node.unnamed,
+                        "width": Double(size.width), "height": Double(size.height)]
+            }
+            let folders = browser.bookmarks.roots.filter(\.isFolder).map { folder -> [String: Any] in
+                ["folder": folder.title, "items": BookmarkMenu.shared.walk(folder).map { line($0.depth, $0.item) }]
+            }
+            var menu: [[String: Any]] = []
+            if let main = NSApp.mainMenu?.items.first(where: { $0.title == "Bookmarks" })?.submenu {
+                main.delegate?.menuNeedsUpdate?(main)
+                func down(_ items: [NSMenuItem], _ depth: Int) {
+                    for item in items where item.tag == 0x5EAC && !item.isSeparatorItem {
+                        menu.append(line(depth, item))
+                        if let sub = item.submenu {
+                            sub.delegate?.menuNeedsUpdate?(sub)
+                            down(sub.items, depth + 1)
+                        }
+                    }
+                }
+                down(main.items, 0)
+            }
+            func rows(_ nodes: [Bookmark], _ depth: Int) -> [[String: Any]] {
+                nodes.flatMap { node -> [[String: Any]] in
+                    [["depth": depth, "label": node.label, "folder": node.isFolder,
+                      "icon": !node.isFolder && Favicons.shared.cached(node.site ?? "") != nil]] + rows(node.children ?? [], depth + 1)
+                }
+            }
+            // "path": the button's list drawn there, every folder open, in
+            // the light, off every screen.
+            if let path = request["path"] as? String {
+                let all = Set(Bookmarks.folders(browser.bookmarks.roots).map(\.node.id))
+                let host = NSHostingView(rootView: BookmarkOutline(bookmarks: browser.bookmarks, expanded: .constant(all), open: { _ in }, openInNewTab: { _ in })
+                    .padding(6)
+                    .frame(width: 280)
+                    .background(Palette.ground))
+                host.appearance = NSAppearance(named: .aqua)
+                host.frame = NSRect(origin: .zero, size: host.fittingSize)
+                host.layoutSubtreeIfNeeded()
+                if let picture = host.bitmapImageRepForCachingDisplay(in: host.bounds) {
+                    host.cacheDisplay(in: host.bounds, to: picture)
+                    try? picture.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+                }
+            }
+            answer(["bar": bar, "folders": folders, "menu": menu, "list": rows(browser.bookmarks.roots, 0)])
+
         case "import":
             // Another browser's passwords, bookmarks and history, brought in
             // through the same calls the Welcome and the panels make. Only on
@@ -2443,7 +2505,7 @@ final class Bench {
 
         default:
             answer(["error": "unknown command “\(verb)”", "commands": [
-                "tabs", "open", "go", "close", "wait", "sleep", "select", "text", "eval", "click", "type", "submit", "shot", "probe", "key", "resize", "hit", "film", "window", "fullscreen", "snapshot", "dragrow", "group", "pages", "picture", "place", "field", "bookmark", "menu", "space", "strip", "column", "ui", "keyeq", "pull", "fold", "consent", "site", "little", "float", "tospace", "fill", "pin", "middle", "windows", "quit", "towindow", "news", "update", "import", "import-preview", "import-file", "remove-folder",
+                "tabs", "open", "go", "close", "wait", "sleep", "select", "text", "eval", "click", "type", "submit", "shot", "probe", "key", "resize", "hit", "film", "window", "fullscreen", "snapshot", "dragrow", "group", "pages", "picture", "place", "field", "bookmark", "marks", "menu", "space", "strip", "column", "ui", "keyeq", "pull", "fold", "consent", "site", "little", "float", "tospace", "fill", "pin", "middle", "windows", "quit", "towindow", "news", "update", "import", "import-preview", "import-file", "remove-folder",
             ]])
         }
     }
