@@ -439,6 +439,13 @@ final class Bench {
             guard let tab = find(request, in: browser) else { answer(missing(request)); return }
             browser.sleep(tab) { said in answer(["said": said, "asleep": tab.asleep]) }
 
+        case "openmark":
+            // A bookmark opened as the bar opens one. Only on a SEARCH_PROBE run.
+            guard Store.testing else { answer(["error": "openmark only works on a --test run"]); return }
+            guard let text = request["url"] as? String, let url = URL(string: text) else { answer(["error": "openmark needs a url"]); return }
+            browser.openBookmark(url)
+            answer(["active": browser.active?.id.uuidString ?? ""])
+
         case "pin":
             // Pin a tab, or unpin it with "off". Only on a SEARCH_PROBE run.
             guard Store.testing else { answer(["error": "pin only works on a --test run"]); return }
@@ -2551,7 +2558,7 @@ final class Bench {
 
         default:
             answer(["error": "unknown command “\(verb)”", "commands": [
-                "tabs", "open", "go", "close", "wait", "sleep", "select", "text", "eval", "click", "type", "submit", "shot", "probe", "key", "textcheck", "resize", "hit", "film", "window", "fullscreen", "snapshot", "dragrow", "group", "pages", "picture", "place", "field", "bookmark", "marks", "menu", "space", "strip", "column", "ui", "keyeq", "pull", "fold", "consent", "site", "little", "float", "tospace", "fill", "pin", "middle", "windows", "quit", "towindow", "news", "update", "import", "import-preview", "import-file", "remove-folder",
+                "tabs", "open", "go", "close", "wait", "sleep", "select", "text", "eval", "click", "type", "submit", "shot", "probe", "key", "textcheck", "resize", "hit", "film", "window", "fullscreen", "snapshot", "dragrow", "group", "pages", "picture", "place", "field", "bookmark", "marks", "menu", "space", "strip", "column", "ui", "keyeq", "pull", "fold", "consent", "site", "little", "float", "tospace", "fill", "pin", "middle", "windows", "quit", "towindow", "news", "update", "import", "import-preview", "import-file", "remove-folder", "openmark",
             ]])
         }
     }
