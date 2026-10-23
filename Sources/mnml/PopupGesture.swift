@@ -79,7 +79,14 @@ struct PopupGesture {
 
     static func origin(_ info: WKFrameInfo) -> String? {
         let origin = info.securityOrigin
-        return originKey(scheme: origin.protocol, host: origin.host, port: origin.port)
+        if let key = originKey(scheme: origin.protocol, host: origin.host, port: origin.port) { return key }
+        // A sandboxed frame has an opaque origin: no tuple, so its own click
+        // never matched the link it was on, and every target=_blank link in
+        // it did nothing (answers some AI chats draw in a sandbox). It is
+        // keyed by its own document instead, never matching a frame with a
+        // tuple, nor an opaque top-level page (that one goes by mainFrame).
+        guard !info.isMainFrame, let url = info.request.url?.absoluteString, !url.isEmpty else { return nil }
+        return "opaque " + url
     }
 
     static func originKey(scheme: String, host: String, port: Int) -> String? {
