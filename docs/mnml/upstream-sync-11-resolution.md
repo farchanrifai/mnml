@@ -41,3 +41,23 @@ Left out (didn't fit, or needed unported upstream work):
 - Features (next round): sleep policy, PDF export, copy links, Home page, pins going home or staying on their site, tabs closing themselves, dark pages, sites kept awake, 120 Hz, engine suggestions, Open With, reload from origin, the refused pop-up notice, pins in every space, ⌘T over the page, the switcher's keys and small windows, the extension side panel, and the sidebar/strip UI tweaks.
 
 Validation: `swift build` and `swift build --build-tests` pass. `swift test` runs 331 tests (DownloadLifecycleTests included) with 0 failures and 5 skipped. No hands-on QA yet.
+
+## Round 2
+
+Branch `sync-11-round-2`, from `main` after sync 11. The user asked for: the cheap features, both hand ports, and extensions seeing tab groups.
+
+- **Features, on in mnml:**
+  - Export as PDF (7d5dffb), in the command list.
+  - Reload From Origin in the reload button's menu (0027821; its `.shortcut` helper swapped for mnml's keys).
+  - The refused pop-up sign with Open and Always Allow (33b52e4), before the title in the column row and the strip pill.
+  - Search engine suggestions (8df2306), on by default with upstream's switch to turn them off. The rows go into mnml's own list; upstream's `placeOffers` (#534) is left out.
+  - Copy Addresses for picked tabs (430ce23): mnml already picks tabs with ⌘/⇧-click (`chosen`), so only the menu item came over, as "Copy N Addresses".
+- **21143e8, ported:** upstream's HostPipe logic on mnml's posix_spawn launcher, with a pid reaper instead of `Process`. The grace timers read an `Alive` box, so an ended pipe is freed (ExtensionNativeLifecycleTests). Upstream's HostPipeTests pass unchanged.
+- **281b5a7, ported:**
+  - #431: a link's small window opens alone, unless LinkRoutes sends the link to a space. The small window's copy, reload and zoom keys act on its own page.
+  - #549: ContentView holds its window weakly. mnml's unwatchKeys and Lights.forget already freed the rest.
+  - #554: window titles.
+  - Left out: small windows in the ⌃Tab switcher.
+- **Extension tab groups:** `tabs.group`/`ungroup`, `tabGroups.query`/`get`/`update` and `groupId` answer from mnml's groups. Moving a group is still refused.
+
+Validation: `swift test` runs 365 tests with 0 failures and 5 skipped. No hands-on QA yet.
