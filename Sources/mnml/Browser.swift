@@ -293,7 +293,7 @@ final class Browser: NSObject, ObservableObject {
 
     func destination(for typed: String) -> URL? {
         if let site = siteChip { return site.url(for: typed) }
-        if let url = Address.url(from: typed) { return url }
+        if let url = Address.file(from: typed) ?? Address.url(from: typed) { return url }
         if let (keyword, rest) = Keyword.match(typed, in: prefs.keywords),
            let url = Engine.url(for: rest, template: keyword.template) {
             return url

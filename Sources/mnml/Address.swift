@@ -10,6 +10,16 @@ enum Address {
     /// here rather than opening a blank tab.
     private static let ours: Set<String> = ["http", "https", "file", "about", "data"]
 
+    /// Only committed navigation checks the disk; suggestions and dropped text never do.
+    static func file(from typed: String) -> URL? {
+        let text = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard (text.hasPrefix("/") && !text.hasPrefix("//")) || text.hasPrefix("~/") else { return nil }
+        let path = (text as NSString).expandingTildeInPath
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: path),
+              attributes[.type] as? FileAttributeType == .typeRegular else { return nil }
+        return URL(fileURLWithPath: path)
+    }
+
     static func url(from typed: String) -> URL? {
         let text = typed.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !text.contains(" ") else { return nil }
