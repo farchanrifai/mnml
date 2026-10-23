@@ -51,6 +51,21 @@ struct TabGroup: Identifiable, Codable, Equatable {
 
     /// Dia's eight, in its order: none, green, blue, purple, amber, pink, red, rust.
     static let colourCount = 8
+
+    /// The number an extension knows a group by (chrome.tabGroups): from its
+    /// id, so the same every time it is asked, and never 0 or -1.
+    static func number(_ id: UUID) -> Int {
+        let u = id.uuid
+        let n = Int(u.0 & 0x7F) << 24 | Int(u.1) << 16 | Int(u.2) << 8 | Int(u.3)
+        return n == 0 ? 1 : n
+    }
+
+    /// Chrome's names for mnml's colours (see colourName), and back.
+    private static let chromeColours = ["grey", "green", "blue", "purple", "yellow", "pink", "red", "orange"]
+    static func chromeColour(_ colour: Int) -> String { chromeColours[max(0, min(colourCount - 1, colour))] }
+    static func colour(chrome name: String) -> Int? {
+        chromeColours.firstIndex(of: name) ?? (name == "cyan" ? 2 : nil)
+    }
 }
 
 enum GroupOrder {

@@ -3515,6 +3515,24 @@ enum ExtensionShims {
         }
     }
 
+    /// The groups an extension is shown: never one without a tab.
+    private static func listedGroups(_ browser: Browser) -> [TabGroup] {
+        browser.groups.filter { group in browser.tabs.contains { $0.group == group.id } }
+    }
+
+    private static func listedGroup(_ number: Any?, in browser: Browser) throws -> TabGroup {
+        guard let number = number as? Int,
+              let group = listedGroups(browser).first(where: { TabGroup.number($0.id) == number })
+        else { throw Unsupported(what: "No group with id: \(number.map { "\($0)" } ?? "none").") }
+        return group
+    }
+
+    /// A group as Chrome describes it.
+    private static func chromeGroup(_ group: TabGroup) -> [String: Any] {
+        ["id": TabGroup.number(group.id), "title": group.name, "collapsed": !group.open,
+         "color": TabGroup.chromeColour(group.colour), "windowId": 1, "shared": false]
+    }
+
     struct Unsupported: LocalizedError {
         let what: String
         var errorDescription: String? { what }
@@ -4246,14 +4264,58 @@ enum ExtensionShims {
                         "workArea": ["left": v.minX, "top": v.minY, "width": v.width, "height": v.height]] as [String: Any]
             }
 
-        // MARK: tab groups — none an extension can see (mnml's own aren't
-        // exposed yet): every tab answers -1, as in no group.
+        // MARK: tab groups
+        // mnml's own groups (Groups.swift), as Chrome describes them. Claude
+        // in Chrome works only in a group of its own: refused, it couldn't
+        // act on any tab. A group without a tab is never shown.
         case "tabs.groups":
-            return ((first as? [Int]) ?? []).map { _ in -1 }
+            let places: [Any] = first as? [Any] ?? []
+            return places.map { place -> Int in
+                guard let group = located(place, owner: owner)?.group else { return -1 }
+                return TabGroup.number(group)
+            }
         case "tabGroups.query":
-            return []
-        case "tabGroups.get", "tabGroups.update", "tabGroups.move":
-            throw Unsupported(what: "mnml has no tab groups")
+            let spec = first as? [String: Any] ?? [:]
+            return listedGroups(browser).filter { group in
+                (spec["title"] as? String).map { $0 == group.name } ?? true
+                    && (spec["collapsed"] as? Bool).map { $0 == !group.open } ?? true
+                    && (spec["color"] as? String).map { $0 == TabGroup.chromeColour(group.colour) } ?? true
+            }.map(chromeGroup)
+        case "tabGroups.get":
+            return chromeGroup(try listedGroup(first, in: browser))
+        case "tabGroups.update":
+            let group = try listedGroup(first, in: browser)
+            let props = args.dropFirst().first as? [String: Any] ?? [:]
+            if let title = props["title"] as? String { browser.rename(group.id, to: title) }
+            if let collapsed = props["collapsed"] as? Bool, collapsed == group.open { browser.toggleOpen(group.id) }
+            if let colour = (props["color"] as? String).flatMap(TabGroup.colour(chrome:)) { browser.setColour(group.id, colour) }
+            return chromeGroup(browser.group(group.id) ?? group)
+        case "tabGroups.move":
+            throw Unsupported(what: "mnml can't move a tab group for an extension")
+        case "tabs.group":
+            let places: [Any] = first as? [Any] ?? []
+            let tabs = places.compactMap { located($0, owner: owner) }
+            guard !tabs.isEmpty else { throw Unsupported(what: "No tabs to group") }
+            // A group is one window's, as in Chrome.
+            guard let home = owner.browser(of: tabs[0]), tabs.allSatisfy({ owner.browser(of: $0) === home }) else {
+                throw Unsupported(what: "Tabs from different windows can't share a group")
+            }
+            // Pinned squares are never in a group in mnml.
+            guard tabs.allSatisfy({ $0.pin == nil }) else { throw Unsupported(what: "Pinned tabs can't be grouped") }
+            if let number = args.dropFirst().first as? Int, number != -1 {
+                let group = try listedGroup(number, in: home)
+                home.add(tabs, to: group.id)
+                return number
+            }
+            // A new group, as its menu makes one; named by the Mac's model
+            // unless the extension names it first.
+            guard let made = home.makeGroup(of: tabs, fallbackName: "New Group") else { throw Unsupported(what: "No tabs to group") }
+            return TabGroup.number(made)
+        case "tabs.ungroup":
+            let places: [Any] = first as? [Any] ?? []
+            let tabs = places.compactMap { located($0, owner: owner) }
+            for tab in tabs { owner.browser(of: tab)?.ungroup([tab]) }
+            return nil
 
         // MARK: identity
         case "identity.launchWebAuthFlow":
