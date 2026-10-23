@@ -917,10 +917,20 @@ final class Extensions: NSObject, ObservableObject {
 
     // MARK: - updates
 
+    private(set) var updateClock: Timer?
+    private var updating: Set<String> = []
+
     /// Once a day, the store is asked whether anything installed from it has
     /// a newer version; if so it is fetched, checked and swapped in. One that
     /// asks for more than it was installed with is asked about first.
     func checkForUpdates() {
+        // A browser left open for days must keep checking, even if today's check is not due.
+        if updateClock == nil {
+            updateClock = Timer.scheduledTimer(withTimeInterval: 60 * 60, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.checkForUpdates() }
+            }
+            updateClock?.tolerance = 60 * 5
+        }
         let key = "extensions.checked"
         let last = Store.settings.object(forKey: key) as? Date ?? .distantPast
         guard Date().timeIntervalSince(last) > 60 * 60 * 20 else { return }
@@ -930,7 +940,10 @@ final class Extensions: NSObject, ObservableObject {
         }
     }
 
-    private func update(_ item: Installed) async {
+    func update(_ item: Installed) async {
+        // Permission approval can wait past the next check; its staging folder must stay its own.
+        guard updating.insert(item.id).inserted else { return }
+        defer { updating.remove(item.id) }
         var parts = URLComponents(string: "https://clients2.google.com/service/update2/crx")!
         parts.queryItems = [
             URLQueryItem(name: "response", value: "updatecheck"),
@@ -966,7 +979,7 @@ final class Extensions: NSObject, ObservableObject {
             // allowed when it was added or last asked about.
             let wants = Set(Extensions.grants(found, in: staged))
             if !wants.isSubset(of: Set(current.permissions)) {
-                guard await ask(install: "An update to \(item.name)", wants: Extensions.describe(found, in: staged), icon: found.icon(for: CGSize(width: 64, height: 64))) else {
+                guard await ask(install: "An update to \(item.name)", wants: Extensions.describe(found, in: staged), icon: found.icon(for: CGSize(width: 64, height: 64)), updating: true) else {
                     return
                 }
             }
@@ -1129,11 +1142,11 @@ final class Extensions: NSObject, ObservableObject {
         return out
     }
 
-    private func ask(install name: String, wants: [String], icon: NSImage?) async -> Bool {
+    func ask(install name: String, wants: [String], icon: NSImage?, updating: Bool = false) async -> Bool {
         await ask(
             "Add “\(name)” to mnml?",
             detail: wants.isEmpty ? "It doesn't ask for anything special." : "It will be able to:\n• " + wants.joined(separator: "\n• "),
-            icon: icon, yes: "Add Extension", no: "Cancel"
+            icon: icon, yes: "Add Extension", no: "Cancel", updating: updating
         )
     }
 
@@ -1163,7 +1176,7 @@ final class Extensions: NSObject, ObservableObject {
     /// run modally would stop the whole browser — pages, downloads, every
     /// other extension — for as long as it waits, and an extension can ask
     /// when nobody is looking.
-    private func ask(_ title: String, detail: String, icon: NSImage?, yes: String, no: String) async -> Bool {
+    private func ask(_ title: String, detail: String, icon: NSImage?, yes: String, no: String, updating: Bool = false) async -> Bool {
         let before = question
         let task = Task { @MainActor [weak self] () -> Bool in
             _ = await before?.value
@@ -1173,9 +1186,22 @@ final class Extensions: NSObject, ObservableObject {
             alert.messageText = title
             alert.informativeText = detail
             if let icon { alert.icon = icon }
-            alert.addButton(withTitle: yes)
-            alert.addButton(withTitle: no)
+            let confirm = alert.addButton(withTitle: yes)
+            let cancel = alert.addButton(withTitle: no)
+            var escape: Any?
+            if updating {
+                confirm.keyEquivalent = ""
+                cancel.keyEquivalent = "\r"
+                // Cancel keeps Escape too, as in Ask.sure(returnCancels:).
+                escape = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+                    guard event.window === alert.window, event.keyCode == 53 else { return event }
+                    cancel.performClick(nil)
+                    return nil
+                }
+            }
+            defer { if let escape { NSEvent.removeMonitor(escape) } }
             guard let window = NSApp.mainWindow ?? NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain }) else {
+                guard !updating else { return false }
                 return alert.runModal() == .alertFirstButtonReturn
             }
             return await withCheckedContinuation { done in
