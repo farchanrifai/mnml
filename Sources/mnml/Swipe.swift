@@ -83,7 +83,15 @@ enum Swipe {
         while (el) {
           var root = el === document.documentElement || el === document.body;
           var can, left, max;
-          if (root) {
+          var vv = window.visualViewport;
+          if (root && vv && vv.scale > 1.01) {
+            // Pinched in: what is on screen pans across the page even where
+            // the page itself can't scroll sideways (overflow-x: hidden), so
+            // that is taken until the edge, as in Safari.
+            can = true;
+            left = vv.pageLeft;
+            max = (rootCanScroll() ? document.documentElement.scrollWidth : document.documentElement.clientWidth) - vv.width;
+          } else if (root) {
             can = rootCanScroll();
             left = window.scrollX || 0;
             max = document.documentElement.scrollWidth - window.innerWidth;

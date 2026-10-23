@@ -1679,6 +1679,65 @@ final class Bench {
                 answer(["before": before, "after": tab.address?.absoluteString ?? ""])
             }
 
+        case "magnify":
+            // The trackpad's pinch, as WebKit ends it: the page's scale set
+            // around a point (in the view, from its top left), or read back
+            // with no scale given. Only on a SEARCH_PROBE run.
+            guard Store.testing else { answer(["error": "magnify only works on a --test run"]); return }
+            guard let tab = find(request, in: browser), let web = tab.built else { answer(missing(request)); return }
+            if let scale = request["scale"] as? Double {
+                let x = request["x"] as? Double ?? Double(web.bounds.midX)
+                let y = request["y"] as? Double ?? Double(web.bounds.midY)
+                web.setMagnification(CGFloat(scale), centeredAt: NSPoint(x: x, y: web.isFlipped ? y : Double(web.bounds.height) - y))
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                answer(["magnification": Double(web.magnification), "zoom": Double(web.pageZoom),
+                        "size": [Double(web.bounds.width), Double(web.bounds.height)]])
+            }
+
+        case "wheel":
+            // Two fingers on the trackpad over the page, any way: DX, DY
+            // points in STEPS events over MS milliseconds, with a trackpad's
+            // phases and, if asked, a glide after. Only on a SEARCH_PROBE run.
+            guard Store.testing else { answer(["error": "wheel only works on a --test run"]); return }
+            guard let tab = find(request, in: browser), let web = tab.built else { answer(missing(request)); return }
+            let dx = request["dx"] as? Double ?? 0, dy = request["dy"] as? Double ?? 0
+            let steps = max(2, request["steps"] as? Int ?? 10)
+            let ms = max(1, request["ms"] as? Double ?? 200)
+            let glide = request["glide"] as? Int ?? 0
+            let middle = web.convert(NSPoint(x: web.bounds.midX, y: web.bounds.midY), to: nil)
+            let over = CGPoint(x: middle.x, y: (NSScreen.screens.first?.frame.maxY ?? 0) - middle.y)
+            func send(_ phase: Int64, _ momentum: Int64, _ x: Double, _ y: Double) {
+                guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: Int32(y), wheel2: Int32(x), wheel3: 0) else { return }
+                cg.location = over
+                cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+                cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
+                cg.setIntegerValueField(.scrollWheelEventMomentumPhase, value: momentum)
+                cg.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: y)
+                cg.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: x)
+                cg.setIntegerValueField(.scrollWheelEventDeltaAxis1, value: Int64(y))
+                cg.setIntegerValueField(.scrollWheelEventDeltaAxis2, value: Int64(x))
+                if let event = NSEvent(cgEvent: cg) { web.scrollWheel(with: event) }
+            }
+            send(128, 0, 0, 0)
+            send(1, 0, 0, 0)
+            let each = ms / 1000 / Double(steps)
+            for n in 1...steps {
+                DispatchQueue.main.asyncAfter(deadline: .now() + each * Double(n)) {
+                    send(2, 0, dx / Double(steps), dy / Double(steps))
+                    if n == steps { send(4, 0, 0, 0) }
+                }
+            }
+            for n in 0..<glide {
+                DispatchQueue.main.asyncAfter(deadline: .now() + ms / 1000 + 0.016 * Double(n + 1)) {
+                    let k = pow(0.85, Double(n + 1))
+                    send(0, n == 0 ? 1 : (n == glide - 1 ? 3 : 2), dx / Double(steps) * k, dy / Double(steps) * k)
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + ms / 1000 + 0.016 * Double(glide) + 0.5) {
+                answer(["ok": true])
+            }
+
         case "place":
             // A tab put at another place in the row, as a drag would.
             guard let id = request["id"] as? String, let to = request["to"] as? Int,
@@ -2607,7 +2666,7 @@ final class Bench {
 
         default:
             answer(["error": "unknown command “\(verb)”", "commands": [
-                "tabs", "open", "go", "close", "wait", "sleep", "select", "text", "eval", "click", "type", "submit", "shot", "probe", "key", "textcheck", "resize", "hit", "film", "window", "fullscreen", "snapshot", "dragrow", "group", "pages", "picture", "place", "field", "bookmark", "marks", "menu", "space", "strip", "column", "ui", "keyeq", "pull", "fold", "consent", "site", "little", "float", "tospace", "fill", "pin", "middle", "windows", "quit", "towindow", "news", "update", "import", "import-preview", "import-file", "remove-folder", "openmark", "passwords",
+                "tabs", "open", "go", "close", "wait", "sleep", "select", "text", "eval", "click", "type", "submit", "shot", "probe", "key", "textcheck", "resize", "hit", "film", "window", "fullscreen", "snapshot", "dragrow", "group", "pages", "picture", "place", "field", "bookmark", "marks", "menu", "space", "strip", "column", "ui", "keyeq", "pull", "fold", "consent", "site", "little", "float", "tospace", "fill", "pin", "middle", "windows", "quit", "towindow", "news", "update", "import", "import-preview", "import-file", "remove-folder", "openmark", "passwords", "magnify", "wheel",
             ]])
         }
     }
