@@ -1588,6 +1588,15 @@ final class Browser: NSObject, ObservableObject {
         announce("Address copied")
     }
 
+    /// Several picked tabs' addresses, one to a line, in row order (upstream #454).
+    func copyAddresses(of picked: [Tab]) {
+        let links = picked.compactMap { $0.isBlank ? nil : $0.address?.absoluteString }
+        guard !links.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(links.joined(separator: "\n"), forType: .string)
+        announce(links.count == 1 ? "Address copied" : "\(links.count) addresses copied")
+    }
+
     /// For pasting into notes and messages that read Markdown: a title that
     /// links, not a bare address to explain in your own words.
     func copyMarkdownLink() {

@@ -1285,11 +1285,17 @@ struct TabMenu: View {
             browser.beginTabEdit(tab)
         }
         .disabled(tab.isBlank || tab.address == nil || tab.pin != nil)
-        Button("Copy Address") {
-            browser.select(tab)
-            browser.copyAddress()
+        // With several tabs picked (⌘- and ⇧-click), all their addresses.
+        let picked = browser.menuTargets(for: tab)
+        if picked.count > 1 {
+            Button("Copy \(picked.count) Addresses") { browser.copyAddresses(of: picked) }
+        } else {
+            Button("Copy Address") {
+                browser.select(tab)
+                browser.copyAddress()
+            }
+            .disabled(tab.isBlank)
         }
-        .disabled(tab.isBlank)
         Button("Copy as Markdown Link") {
             browser.select(tab)
             browser.copyMarkdownLink()
