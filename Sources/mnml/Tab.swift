@@ -28,7 +28,7 @@ enum Web {
     /// opened by a link inherits its opener's configuration, handlers
     /// included, and registering a name twice is a hard crash.
     @MainActor static func release(_ controller: WKUserContentController) {
-        for name in [ScrollRelay.name, VeilRelay.name, FormRelay.name, ImageRelay.name,
+        for name in [ScrollRelay.name, VeilRelay.name, FormRelay.name, ImageRelay.name, MediaKeys.name,
                      StoreRelay.name, PasskeyRelay.name, MiddleRelay.name, SelectionRelay.name, IconRelay.name, PopupGestureRelay.name] {
             controller.removeScriptMessageHandler(forName: name, contentWorld: world)
             controller.removeScriptMessageHandler(forName: name, contentWorld: .page)
@@ -523,6 +523,12 @@ final class Tab: ObservableObject, Identifiable {
     /// What's highlighted on the page right now, in whichever frame, for the
     /// chat's Selected Text chip (Ask.swift); nil when nothing is.
     @Published var picked: Picked?
+    private let media = MediaKeys()
+    /// Counting down once the page's sound stops, to give the media keys
+    /// back (see MediaKeys.swift). One at most.
+    private var quiet: Timer?
+    /// For the bench.
+    var hushing: Bool { quiet != nil }
     private let shop = StoreRelay()
     private let iconChanges = IconRelay()
     private let middles = MiddleRelay()
@@ -684,6 +690,7 @@ final class Tab: ObservableObject, Identifiable {
         controller.add(relay, contentWorld: Web.world, name: ScrollRelay.name)
         controller.add(veils_, contentWorld: Web.world, name: VeilRelay.name)
         controller.add(images, contentWorld: Web.world, name: ImageRelay.name)
+        controller.add(media, contentWorld: Web.world, name: MediaKeys.name)
         controller.add(shop, contentWorld: Web.world, name: StoreRelay.name)
         controller.add(iconChanges, contentWorld: Web.world, name: IconRelay.name)
         controller.add(forms, contentWorld: Web.world, name: FormRelay.name)
@@ -750,11 +757,12 @@ final class Tab: ObservableObject, Identifiable {
         veils_.tab = self
         forms.tab = self
         images.tab = self
+        media.tab = self
         shop.tab = self
         iconChanges.tab = self
         middles.tab = self
         ears.watch(web) { [weak self, weak web] on in
-            self?.noisy = on
+            self?.heard(on)
             // Playing: WebKit told to look at its video now, so leaving the
             // tab can hand it to picture-in-picture (SystemPiP.prepare).
             if on, let web { SystemPiP.prepare(web) }
@@ -825,6 +833,11 @@ final class Tab: ObservableObject, Identifiable {
         // as in the page around it.
         controller.addUserScript(
             WKUserScript(source: SelectionRelay.watch, injectionTime: .atDocumentEnd, forMainFrameOnly: false, in: Web.world)
+        )
+        // Every frame, in mnml's world: a paused video gives the media keys
+        // back (see MediaKeys.swift).
+        controller.addUserScript(
+            WKUserScript(source: MediaKeys.watch, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: Web.world)
         )
         // The store's "Add to mnml" only where mnml can add extensions.
         // Before macOS 15.4 it was drawn all the same, and pressing it did
@@ -1472,6 +1485,37 @@ final class Tab: ObservableObject, Identifiable {
         discard()
     }
 
+    /// The page's sound started or stopped. Stopped, after it had played,
+    /// one timer counts down; started again, or the page gone, it is dropped.
+    private func heard(_ on: Bool) {
+        let was = noisy
+        noisy = on
+        quiet?.invalidate()
+        quiet = nil
+        guard was, !on else { return }
+        quiet = Timer.scheduledTimer(withTimeInterval: MediaKeys.wait, repeats: false) { [weak self] _ in
+            MainActor.assumeIsolated { self?.hush() }
+        }
+    }
+
+    /// The page is going: its count and its frames with it.
+    func leaving() {
+        quiet?.invalidate()
+        quiet = nil
+        media.forget()
+    }
+
+    /// Quiet long enough: the paused media muted, in the page and in each
+    /// frame that played, so the Mac hands the media keys back.
+    private func hush() {
+        quiet = nil
+        guard !noisy, let built else { return }
+        built.evaluateJavaScript(MediaKeys.hush, in: nil, in: Web.world) { _ in }
+        for frame in media.frames {
+            built.evaluateJavaScript(MediaKeys.hush, in: frame, in: Web.world) { _ in }
+        }
+    }
+
     /// The view and everything listening to it, gone — timers, video,
     /// sockets, and the document WebKit would otherwise keep in its
     /// back-forward cache. The tab keeps its address; `web` builds again the
@@ -1481,6 +1525,9 @@ final class Tab: ObservableObject, Identifiable {
         popupGesture.clear()
         watch = []
         ears.stop()
+        quiet?.invalidate()
+        quiet = nil
+        media.forget()
         guard let web = built else { return }
         built = nil
         Passkeys.shared.forget(web)

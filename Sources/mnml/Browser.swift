@@ -4114,6 +4114,8 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
             tab.arm(hiding: curtain.css(on: host))
             // And the blocker, on or off for where it is going.
             Shield.shared.tune(webView.configuration.userContentController, for: host)
+            // And the frames that played, and the count to the media keys.
+            tab.leaving()
         }
 
         // chrome-extension: an extension's own pages — options, a side
