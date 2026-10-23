@@ -298,8 +298,15 @@ struct SideBar: View {
                                 guard let id else { return }
                                 withAnimation(Motion.glide) { proxy.scrollTo(id) }
                             }
+                            // A turn of the run loop later, as the row across
+                            // the top does it (TabBar.reveal): the folded
+                            // column comes out mid-animation, and asked at
+                            // once, before the rows had their height, the
+                            // scroll could be dropped and the tab you were on
+                            // left out of sight.
                             .onAppear {
-                                if let id = browser.activeID { proxy.scrollTo(id, anchor: .center) }
+                                guard let id = browser.activeID else { return }
+                                DispatchQueue.main.async { proxy.scrollTo(id, anchor: .center) }
                             }
                         }
                     }
