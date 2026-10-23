@@ -9,7 +9,7 @@ import XCTest
 @MainActor
 final class ExtensionFileAccessTests: XCTestCase {
     override class func setUp() {
-        setenv("SEARCH_PROBE", "sec-file-access-\(getpid())", 1)
+        setenv("MNML_PROBE", "sec-file-access-\(getpid())", 1)
         super.setUp()
     }
 

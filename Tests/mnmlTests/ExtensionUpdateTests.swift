@@ -7,7 +7,7 @@ import XCTest
 @MainActor
 final class ExtensionUpdateTests: XCTestCase {
     override class func setUp() {
-        setenv("SEARCH_PROBE", "extension-updates-\(getpid())", 1)
+        setenv("MNML_PROBE", "extension-updates-\(getpid())", 1)
         super.setUp()
     }
 

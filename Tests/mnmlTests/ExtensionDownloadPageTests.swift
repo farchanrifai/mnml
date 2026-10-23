@@ -8,7 +8,7 @@ import XCTest
 @MainActor
 final class ExtensionDownloadPageTests: XCTestCase {
     override class func setUp() {
-        setenv("SEARCH_PROBE", "sec-download-page-\(getpid())", 1)
+        setenv("MNML_PROBE", "sec-download-page-\(getpid())", 1)
         super.setUp()
     }
 

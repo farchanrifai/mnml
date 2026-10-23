@@ -6,7 +6,7 @@ import XCTest
 @MainActor
 final class PopupGestureRelayTests: XCTestCase {
     override class func setUp() {
-        setenv("SEARCH_PROBE", "popup-relay-\(getpid())", 1)
+        setenv("MNML_PROBE", "popup-relay-\(getpid())", 1)
         super.setUp()
     }
 
@@ -42,6 +42,4 @@ final class PopupGestureRelayTests: XCTestCase {
         XCTAssertTrue(PopupGestureRelay.tab(for: little.tab.web) === little.tab)
         XCTAssertTrue(NSApp.windows.allSatisfy { !$0.isVisible })
     }
-
-
 }
