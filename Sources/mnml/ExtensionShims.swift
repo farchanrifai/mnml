@@ -1056,8 +1056,11 @@ enum ExtensionShims {
       // an empty one — Tampermonkey's test.js — isn't fetched at all.
       // The static routing API of Chrome's service workers (install
       // event.addRoutes) — a speed-up, so nothing is lost without it.
-      if (worker && typeof root.InstallEvent === "function" && !InstallEvent.prototype.addRoutes) {
-        InstallEvent.prototype.addRoutes = () => Promise.resolve();
+      // WebKit's install event is a plain ExtendableEvent: there is no
+      // InstallEvent to give it to, and Stylus's install handler threw.
+      const Install = root.InstallEvent || root.ExtendableEvent;
+      if (worker && typeof Install === "function" && !Install.prototype.addRoutes) {
+        Install.prototype.addRoutes = () => Promise.resolve();
       }
       // clients.matchAll() in an extension's worker: Chrome lists the
       // extension's own pages that are open — its popup, its pages in tabs.
@@ -1137,7 +1140,32 @@ enum ExtensionShims {
         // used to wait.
         if (controller) {
           kept.add(container);
-          try { Object.defineProperty(container, "controller", { configurable: true, get: () => controller }); } catch (e) {}
+          let own = controller;
+          try { Object.defineProperty(container, "controller", { configurable: true, get: () => own }); } catch (e) {}
+          // A page that, told a worker controls it, loads a script of its
+          // own the extension doesn't ship counts on that worker's fetch
+          // handler to make it, as Chrome lets it: Stylus's popup writes in
+          // <script src="data?…"> for its first data. WebKit's worker never
+          // sees an extension page's requests, the script fails, and the
+          // page, sure it has its data, stopped there: a blank popup. Such a
+          // page is told no worker controls it, which sends it the way
+          // Chrome's pages go without one, and `ready` brings it the same
+          // stand-in to talk to the worker through. The failed script is
+          // parser-inserted, so this happens before the page's next one.
+          const shipped = new Set(__SEARCH_SCRIPTS__.map((p) => p.replace(/^-/, "")));
+          const registration = {
+            active: controller, installing: null, waiting: null, scope: location.origin + "/",
+            update() { return Promise.resolve(this); }, unregister: () => Promise.resolve(false),
+            addEventListener: () => {}, removeEventListener: () => {}, dispatchEvent: () => true,
+          };
+          if (typeof document !== "undefined") document.addEventListener("error", (e) => {
+            const s = e.target;
+            if (!own || !(s instanceof HTMLScriptElement) || !s.src) return;
+            let url; try { url = new URL(s.src); } catch (x) { return; }
+            if (url.origin !== location.origin || shipped.has(decodeURIComponent(url.pathname))) return;
+            own = null;
+            try { Object.defineProperty(container, "ready", { configurable: true, get: () => Promise.resolve(registration) }); } catch (x) {}
+          }, true);
         }
       }
       // WebKit runs an extension's worker on its web process's main thread,
