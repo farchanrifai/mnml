@@ -1541,6 +1541,9 @@ final class Tab: ObservableObject, Identifiable {
         web.searchName = nil
         web.onSearch = nil
         web.stopLoading()
+        // Detaching a view doesn't end capture while something still holds it.
+        web.setCameraCaptureState(.none, completionHandler: nil)
+        web.setMicrophoneCaptureState(.none, completionHandler: nil)
         web.navigationDelegate = nil
         web.uiDelegate = nil
         web.removeFromSuperview()
