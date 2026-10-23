@@ -519,11 +519,11 @@ final class Passkeys: NSObject {
         ["error": name, "message": message]
     }
 
-    static func assertionReply(id: Data, clientData: Data, authenticatorData: Data, signature: Data, user: Data, attachment: String) -> [String: Any] {
+    static func assertionReply(id: Data, clientData: Data, authenticatorData: Data, signature: Data, user: Data?, attachment: String) -> [String: Any] {
         [
             "kind": "get", "id": text(id), "clientDataJSON": text(clientData),
             "authenticatorData": text(authenticatorData), "signature": text(signature),
-            "userHandle": text(user), "attachment": attachment,
+            "userHandle": user.map(text) ?? NSNull(), "attachment": attachment,
         ]
     }
 
