@@ -1523,8 +1523,10 @@ final class Bench {
             // counted from 0. Only on a MNML_PROBE run: it would sign in.
             // Also the name the save question would keep ("offer"), and,
             // with "forget", every login this test world kept — its own
-            // label's, never another world's or the real one's.
+            // label's, never another world's or the real one's. "keep" is
+            // the save question's Save.
             guard Store.testing else { answer(["error": "accounts only works on a --test run"]); return }
+            if request["keep"] as? Bool == true { browser.keepOffer() }
             if request["forget"] as? Bool == true {
                 Vault.all().forEach { Vault.forget(host: $0.host, user: $0.user) }
                 browser.dropOffer()
