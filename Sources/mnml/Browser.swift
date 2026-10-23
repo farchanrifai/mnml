@@ -804,7 +804,7 @@ final class Browser: NSObject, ObservableObject {
             announce("The keychain refused it")
             return
         }
-        tab.fill(user: login.user, password: login.password) { [weak self] worked in
+        tab.fill(user: login.user, password: login.password, onlyOn: tab.pageAddress) { [weak self] worked in
             if !worked { self?.announce("Couldn't find the sign-in fields anymore") }
         }
         Vault.touch(login)
