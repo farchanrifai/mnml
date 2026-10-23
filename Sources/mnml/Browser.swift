@@ -4706,6 +4706,11 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         // page didn't load" over a download that had worked — clicked again,
         // it downloaded again.
         guard !(nsError.domain == "WebKitErrorDomain" && code == 102) else { return }
+        // Nor is a video or sound file opened as a page: WebKit's own player
+        // takes it over and ends the load with "plug-in handled load" (204),
+        // as in Safari, while the video plays. Answered as a failure, it
+        // covered the playing video with "The page didn't load".
+        guard !(nsError.domain == "WebKitErrorDomain" && code == 204) else { return }
         tab?.failure = message(for: code)
     }
 
