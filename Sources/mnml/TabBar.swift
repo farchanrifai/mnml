@@ -728,9 +728,9 @@ struct Helm: View {
                 .contextMenu {
                     if !tab.loading && !tab.isBlank {
                         Button("Reload Page") { browser.reload() }
-                            .shortcut("view.reload")
+                            .keyboardShortcut(browser.shortcuts.key(for: "view.reload")?.swiftUI)
                         Button("Reload Page From Origin") { browser.reload(fromOrigin: true) }
-                            .shortcut("view.reloadOrigin")
+                            .keyboardShortcut(browser.shortcuts.key(for: "view.reloadOrigin")?.swiftUI)
                     }
                 }
             }
