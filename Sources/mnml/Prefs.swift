@@ -236,6 +236,12 @@ final class Preferences: ObservableObject {
     @Published var lazyTabs: Bool {
         didSet { store.set(lazyTabs, forKey: "tabs.lazy") }
     }
+    /// Suggestions from the search engine under the address field, as you
+    /// type (see EngineSuggest.swift). On unless turned off: what is typed
+    /// is sent to the engine while it is typed, as in Chrome and Arc.
+    @Published var engineSuggests: Bool {
+        didSet { store.set(engineSuggests, forKey: "search.suggest") }
+    }
     /// The ad blocker. On unless turned off; there is nothing else to it.
     @Published var shielded: Bool {
         didSet { store.set(shielded, forKey: "shield") }
@@ -500,6 +506,7 @@ final class Preferences: ObservableObject {
         startsFresh = store.bool(forKey: Preferences.freshKey)
         searchesSites = store.bool(forKey: "search.sites")
         listsPins = store.bool(forKey: "pins.list")
+        engineSuggests = store.object(forKey: "search.suggest") as? Bool ?? true
         siteNotifications = store.object(forKey: "notifications.ask") as? Bool ?? true
         shielded = store.object(forKey: "shield") as? Bool ?? true
         let keeps = store.bool(forKey: "sites.keep")

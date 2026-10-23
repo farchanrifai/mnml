@@ -228,6 +228,10 @@ struct SettingsPanel: View {
                 .pickerStyle(.menu)
                 .fixedSize()
             }
+            Rule()
+            Line("Suggestions from your search engine", suggestDetail) {
+                Switch(on: $prefs.engineSuggests)
+            }
             if prefs.engine == .custom {
                 ZStack(alignment: .leading) {
                     if prefs.customEngine.isEmpty {
@@ -400,6 +404,15 @@ struct SettingsPanel: View {
             template: current.template.trimmingCharacters(in: .whitespacesAndNewlines)
         ))
         draft = nil
+    }
+
+    /// Said plainly: turned on, what you type leaves the Mac as you type it.
+    private var suggestDetail: String {
+        let name = prefs.engine.name(custom: prefs.customEngine)
+        guard EngineSuggest.endpoint(for: prefs.engine) != nil else {
+            return "Your engine's suggestions under the address field. A custom engine has none to give, so nothing is sent"
+        }
+        return "What you type in the address field is sent to \(name) as you type, and its suggestions show under it. Never from a private tab, and never an address"
     }
 
     private var searchDetail: String {

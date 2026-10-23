@@ -3721,6 +3721,11 @@ final class Browser: NSObject, ObservableObject {
     }
 
     private func guess() {
+        // Only a plain field asks the engine (see askEngine, at the end).
+        if summoning || siteChip != nil || typed.trimmingCharacters(in: .whitespaces).isEmpty {
+            suggester.stop()
+            engineWords = ("", [])
+        }
         guard !summoning else {
             offers = openPages(matching: typed)
             ending = nil
@@ -3793,6 +3798,66 @@ final class Browser: NSObject, ObservableObject {
         // A row that was picked stops being the right row the moment the
         // question changes.
         picked = nil
+        askEngine()
+    }
+
+    // MARK: - the engine's suggestions
+
+    /// Asks the engine for the words it would suggest, when Settings ›
+    /// General › Suggestions from your search engine is on and these words
+    /// may leave the Mac (EngineSuggest.sendable). What it said for the
+    /// words before stays, those that still fit, until it answers these:
+    /// rows that came and went with every key would be a list nobody could
+    /// read.
+    let suggester = EngineSuggester()
+    /// The engine's last words, and what they answered.
+    private var engineWords: (asked: String, words: [String]) = ("", [])
+
+    /// The question this field may ask the engine, or nil when it may not:
+    /// the switch off, a private tab, ⌘K, a site or a shortcut in charge,
+    /// or words that look like anything but a search.
+    func engineQuestion(for typed: String) -> URL? {
+        guard prefs.engineSuggests, !summoning, siteChip == nil, active?.shy != true,
+              EngineSuggest.sendable(typed),
+              Keyword.match(typed, in: prefs.keywords) == nil
+        else { return nil }
+        let words = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        return EngineSuggest.url(for: words, engine: prefs.engine, test: EngineSuggest.testEndpoint)
+    }
+
+    private func askEngine() {
+        guard let question = engineQuestion(for: typed) else {
+            suggester.stop()
+            engineWords = ("", [])
+            return
+        }
+        let words = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Until the answer: last time's words that still begin with these.
+        let lower = words.lowercased()
+        let places = Set(offers.map { $0.key.lowercased() })
+        let still = engineWords.words.filter {
+            $0.lowercased().hasPrefix(lower) && $0.lowercased() != lower && !places.contains($0.lowercased())
+        }
+        if !still.isEmpty { offers += engineOffers(still) }
+        suggester.ask(question, words: words) { [weak self] answer in
+            guard let self else { return }
+            // Typed on since, or the field gone: nothing to answer.
+            guard self.typed.trimmingCharacters(in: .whitespacesAndNewlines) == words,
+                  self.fieldShowing, self.engineQuestion(for: self.typed) != nil
+            else { return }
+            let mine = self.offers.filter { $0.kind != .suggested }
+            // A row of the engine's that the arrow keys are on stays put.
+            if let picked = self.picked, picked >= mine.count { return }
+            self.engineWords = (words, answer)
+            let places = Set(mine.map { $0.key.lowercased() })
+            self.offers = mine + self.engineOffers(answer.filter { !places.contains($0.lowercased()) })
+        }
+    }
+
+    private func engineOffers(_ words: [String]) -> [Suggestion] {
+        words.prefix(EngineSuggest.most).compactMap { word in
+            searchURL(for: word).map { Suggestion(key: word, title: "", url: $0, kind: .suggested) }
+        }
     }
 
     /// What is open, most recently looked at first, filtered by what has been

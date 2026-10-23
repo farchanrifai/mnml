@@ -22,6 +22,9 @@ struct Suggestion: Identifiable, Equatable {
         case known
         /// Not a place at all — words, and an engine to ask.
         case search
+        /// Words the engine itself suggested, from what was typed so far
+        /// (Settings › General › Suggestions from your search engine).
+        case suggested
         /// Not a place either: something the app itself does.
         case command(AddressCommand)
 
@@ -33,6 +36,7 @@ struct Suggestion: Identifiable, Equatable {
         if case .command(let action) = kind { return "command " + action.identity }
         if case .search = kind { return "search " + url.absoluteString }
         if let tab { return tab.uuidString }
+        if case .suggested = kind { return "suggested " + key }
         if case .visited = kind { return History.identity(for: url) }
         return key
     }
