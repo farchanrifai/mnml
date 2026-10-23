@@ -2433,6 +2433,20 @@ final class Bench {
                     "tabs": browser.members(of: g.id).map { String($0.id.uuidString.prefix(8)).lowercased() },
                 ] as [String: Any]
             }, "row": browser.tabs.map { String($0.id.uuidString.prefix(8)).lowercased() }])
+        case "pdf":
+            // The page on screen as File › Export as PDF… makes it, without
+            // a save panel. A test path only: a real browser never lets the
+            // bench write a file chosen behind its person's back.
+            guard Store.testing else { answer(["error": "pdf only works on a --test run"]); return }
+            guard let path = request["path"] as? String, !path.isEmpty else {
+                answer(["error": "pdf needs a path"])
+                return
+            }
+            guard let tab = browser.active else { answer(["error": "page wasn't exported"]); return }
+            let file = URL(fileURLWithPath: path)
+            browser.exportPDF(tab, to: file) { worked in
+                answer(worked ? ["saved": file.path] : ["error": "page wasn't exported"])
+            }
 
         case "update":
             // The updater, for a test run pointed at its own feed: `check`
@@ -2687,7 +2701,7 @@ final class Bench {
 
         default:
             answer(["error": "unknown command “\(verb)”", "commands": [
-                "tabs", "open", "go", "close", "wait", "sleep", "select", "text", "eval", "click", "type", "submit", "shot", "probe", "key", "textcheck", "resize", "hit", "film", "window", "fullscreen", "snapshot", "dragrow", "group", "pages", "picture", "place", "field", "bookmark", "marks", "menu", "space", "strip", "column", "ui", "keyeq", "pull", "fold", "consent", "site", "little", "float", "tospace", "fill", "pin", "middle", "windows", "quit", "towindow", "news", "update", "import", "import-preview", "import-file", "remove-folder", "openmark", "passwords", "magnify", "wheel", "nowplaying",
+                "tabs", "open", "go", "close", "wait", "sleep", "select", "text", "eval", "click", "type", "submit", "shot", "probe", "key", "textcheck", "resize", "hit", "film", "window", "fullscreen", "snapshot", "dragrow", "group", "pages", "picture", "place", "field", "bookmark", "marks", "menu", "space", "strip", "column", "ui", "keyeq", "pull", "fold", "consent", "site", "little", "float", "tospace", "fill", "pin", "middle", "windows", "quit", "towindow", "news", "update", "import", "import-preview", "import-file", "remove-folder", "openmark", "passwords", "magnify", "wheel", "nowplaying", "pdf",
             ]])
         }
     }

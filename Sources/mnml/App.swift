@@ -62,6 +62,8 @@ struct MnmlApp: App {
             CommandGroup(replacing: .printItem) {
                 Button("Share…") { browser.share() }
                     .disabled(browser.active?.isBlank ?? true)
+                item("file.exportPDF")
+                    .disabled(browser.active?.isBlank ?? true)
                 item("file.print")
                     .disabled(browser.active?.isBlank ?? true)
             }
