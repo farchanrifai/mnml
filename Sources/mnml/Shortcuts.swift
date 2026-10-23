@@ -30,9 +30,8 @@ struct KeyCombo: Codable, Hashable {
         // The top row by where it sits: on AZERTY and many other layouts it
         // types &, é, "… so ⌘1 has to be the key, not the character.
         let named = KeyCombo.names[event.keyCode] ?? ContentView.digits[event.keyCode].map(String.init)
-        guard let key = named ?? event.characters(byApplyingModifiers: [])?.lowercased() ?? event.charactersIgnoringModifiers?.lowercased(),
-              !key.isEmpty
-        else { return nil }
+        let key = named ?? event.shortcutKey
+        guard !key.isEmpty else { return nil }
         self.init(key, command: flags.contains(.command), shift: flags.contains(.shift),
                   option: flags.contains(.option), control: flags.contains(.control))
     }
