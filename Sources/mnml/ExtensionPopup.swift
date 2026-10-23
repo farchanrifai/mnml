@@ -205,26 +205,27 @@ final class ExtensionPopup: NSObject, WKUIDelegate, WKNavigationDelegate, NSPopo
     /// the height it names or spans. Nothing of it is left on the page.
     static let preferred = """
     () => {
-      const d = document.documentElement;
-      if (!d) return null;
+      const d = document.documentElement, v = document.compatMode === "BackCompat" ? document.body : d;
+      if (!v) return null;
       const m = window.__searchSizing || (window.__searchSizing = {});
       const saved = d.getAttribute("style");
       const back = () => saved === null ? d.removeAttribute("style") : d.setAttribute("style", saved);
       const box = d.getBoundingClientRect();
       // A width the page sets for itself shows as one the view doesn't
-      // have; one equal to the view is either filling it or the width it
-      // was given last time, remembered.
+      // have, excluding its scrollbar; one equal to the view is either
+      // filling it or the width it was given last time, remembered.
       let w;
-      if (Math.abs(box.width - innerWidth) > 1) w = m.w = box.width;
-      else if (m.w && Math.abs(m.w - innerWidth) <= 1) w = m.w;
+      if (Math.abs(box.width - v.clientWidth) > 1) w = m.w = box.width;
+      else if (m.w && Math.abs(m.w - v.clientWidth) <= 1) w = m.w;
       else {
         d.style.setProperty("width", "min-content", "important");
         const narrowest = d.getBoundingClientRect().width;
         back();
         w = narrowest >= 100 ? narrowest : Math.max(narrowest, d.scrollWidth);
       }
-      w = Math.min(800, Math.max(25, Math.ceil(w)));
-      d.style.setProperty("width", w + "px", "important");
+      const gutter = innerWidth - v.clientWidth;
+      w = Math.min(800, Math.max(25, Math.ceil(w + gutter)));
+      d.style.setProperty("width", (w - gutter) + "px", "important");
       let h = d.getBoundingClientRect().height;
       if (Math.abs(h - innerHeight) > 1) m.h = h;
       else if (m.h && Math.abs(m.h - innerHeight) <= 1) h = m.h;
@@ -234,7 +235,7 @@ final class ExtensionPopup: NSObject, WKUIDelegate, WKNavigationDelegate, NSPopo
         h = d.getBoundingClientRect().height;
       }
       back();
-      return [w, Math.min(600, Math.max(25, Math.ceil(h)))];
+      return [w, Math.min(600, Math.max(25, Math.ceil(h + innerHeight - v.clientHeight)))];
     }
     """
 
@@ -297,16 +298,16 @@ final class ExtensionPopup: NSObject, WKUIDelegate, WKNavigationDelegate, NSPopo
     /// Height: all it spans.
     static let reach = """
     ((key) => {
-      const d = document.documentElement;
-      if (!d) return null;
+      const d = document.documentElement, v = document.compatMode === "BackCompat" ? document.body : d;
+      if (!v) return null;
       if (key === "height") return d.scrollHeight;
-      const own = d.getBoundingClientRect().width;
-      if (own > innerWidth + 1) return own;
+      const own = d.getBoundingClientRect().width, gutter = innerWidth - v.clientWidth;
+      if (own > v.clientWidth + 1) return own + gutter;
       const saved = d.getAttribute("style");
       d.style.setProperty("width", "min-content", "important");
       const narrowest = d.getBoundingClientRect().width;
       saved === null ? d.removeAttribute("style") : d.setAttribute("style", saved);
-      return narrowest >= 100 ? narrowest : Math.max(narrowest, d.scrollWidth);
+      return (narrowest >= 100 ? narrowest : Math.max(narrowest, d.scrollWidth)) + gutter;
     })
     """
 
@@ -331,7 +332,7 @@ final class ExtensionPopup: NSObject, WKUIDelegate, WKNavigationDelegate, NSPopo
         if ticks > 24, ticks % 4 != 0 { return }
         // a width the page names for itself, remembered as the first measure does, is followed both ways:
         // Bitwarden's narrow setting shrinks it.
-        measure("[\(ExtensionPopup.reach)('width'), (() => { const d = document.documentElement; return d && d.scrollHeight > d.clientHeight ? d.scrollHeight : 0; })(), (() => { const m = window.__searchSizing || (window.__searchSizing = {}), w = document.documentElement.getBoundingClientRect().width; if (Math.abs(w - innerWidth) > 1) return m.w = w; return m.w && Math.abs(m.w - innerWidth) <= 1 ? m.w : 0; })()]") { popup, value, popover in
+        measure("[\(ExtensionPopup.reach)('width'), (() => { const d = document.documentElement; return d && d.scrollHeight > d.clientHeight ? d.scrollHeight : 0; })(), (() => { const m = window.__searchSizing || (window.__searchSizing = {}), d = document.documentElement, v = document.compatMode === 'BackCompat' ? document.body : d, w = d.getBoundingClientRect().width, gutter = innerWidth - v.clientWidth; if (Math.abs(w - v.clientWidth) > 1) return (m.w = w) + gutter; return m.w && Math.abs(m.w - v.clientWidth) <= 1 ? m.w + gutter : 0; })()]") { popup, value, popover in
             guard let pair = value as? [Double], pair.count == 3 else { return }
             let now = popover.contentSize
             let width = pair[2] > 0 ? max(25, pair[2].rounded(.up)) : max(now.width, pair[0])
