@@ -12,7 +12,7 @@ final class LightsPerformanceTests: XCTestCase {
         defer { Lights.forget(window); window.close() }
         var owner: Owner? = Owner()
         weak var observed = owner
-        Lights.keep(window, centreX: { Lights.centre.x }, moved: { [owner] in owner?.moves += 1 })
+        Lights.keep(window, centreX: { _ in Lights.centre.x }, moved: { [owner] in owner?.moves += 1 })
         owner = nil
         XCTAssertNotNil(observed)
         Lights.forget(window)
@@ -21,7 +21,7 @@ final class LightsPerformanceTests: XCTestCase {
         // Another view can take over the same retained AppKit window.
         var replacement: Owner? = Owner()
         weak var next = replacement
-        Lights.keep(window, centreX: { Lights.centre.x }, moved: { [replacement] in replacement?.moves += 1 })
+        Lights.keep(window, centreX: { _ in Lights.centre.x }, moved: { [replacement] in replacement?.moves += 1 })
         replacement = nil
         XCTAssertNotNil(next, "The replacement light controller must retain its callback")
         Lights.forget(window)

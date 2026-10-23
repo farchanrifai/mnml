@@ -311,10 +311,17 @@ struct PageFrame: Shape {
     }
 }
 
+private final class WeakWindow {
+    weak var window: NSWindow?
+}
+
 struct ContentView: View {
     @ObservedObject var browser: Browser
 
-    @State private var window: NSWindow?
+    /// Its window, held weakly: the window holds this view's state, and
+    /// held strongly back, a window closed for good was never freed.
+    @State private var held = WeakWindow()
+    private var window: NSWindow? { held.window }
     @State private var resting: RestingLights?
     /// The room the page leaves for the column and the strip, set without
     /// animation (see `make(room:after:)`); nil only before the window is up.
@@ -728,6 +735,15 @@ struct ContentView: View {
         }
     }
 
+    /// The window held, dressed and named for the page in front (see
+    /// WindowTitle.swift).
+    private var windowSetup: some View {
+        ZStack {
+            WindowSetup(ready: setUp)
+            if let tab = browser.active { WindowTitle(tab: tab, window: window).id(tab.id) }
+        }
+    }
+
     var body: some View {
         window_
             // The column folded away, and out again at the edge (see Fold.swift).
@@ -765,7 +781,7 @@ struct ContentView: View {
             // is pressed the page is on its way, and the field is not what
             // there is to watch.
             .animation(browser.fieldShowing ? Motion.settle : Motion.quick, value: browser.fieldShowing)
-            .background(WindowSetup { window = $0; dress($0) })
+            .background(windowSetup)
             .onChange(of: browser.prefs.sidebar) { _, _ in
                 DispatchQueue.main.async { Lights.refresh(window); measureLights() }
             }
@@ -1083,8 +1099,19 @@ struct ContentView: View {
         view.isHidden = NSApp.isActive
     }
 
+    /// The window, once there is one: held, dressed, and named for the page
+    /// in front so its name doesn't wait for the next change.
+    private func setUp(_ window: NSWindow) {
+        held.window = window
+        dress(window)
+        if let tab = browser.active { WindowTitle.set(tab, in: window) }
+    }
+
     private func dress(_ window: NSWindow) {
         browser.window = window
+        // Off screen at once, while a link's small window keeps the browser's
+        // windows away (see Browsers.keepAway).
+        Browsers.putAway()
         window.tabbingMode = .disallowed
         // Light or dark is the app's to say (Settings › Appearance); the
         // window only has to be the ground colour that goes with it.
@@ -1109,7 +1136,7 @@ struct ContentView: View {
         // height, in both modes, without a toolbar's rounder corners — see
         // Lights.swift. The column's first row is the strip's height too, so
         // its three doors sit on the lights' line.
-        Lights.keep(window, centreX: { Lights.centre.x }) { measureLights() }
+        Lights.keep(window, centreX: { _ in Lights.centre.x }) { measureLights() }
         DispatchQueue.main.async { measureLights() }
 
         // The traffic lights are drawn — measured, they paint themselves — but
@@ -1163,7 +1190,7 @@ struct ContentView: View {
             }
             return take(event) ? nil : event
         }
-        ContentView.keyHooks[ObjectIdentifier(browser)] = { event in take(event) ? nil : event }
+        ContentView.keyHooks[id] = { event in take(event) ? nil : event }
     }
 
     /// Each window's monitor retains its view callbacks. Remove both routes
