@@ -506,6 +506,9 @@ final class Tab: ObservableObject, Identifiable {
     /// The middle button was let go over a link. The browser opens it in a
     /// tab of its own beside this one, without leaving the page you are on.
     var onMiddleClick: ((Tab, URL) -> Void)?
+    /// A page on this Mac's link to another file, clicked: here, or in a
+    /// tab of its own for target="_blank" (see MiddleRelay).
+    var onFileLink: ((Tab, URL, Bool) -> Void)?
     /// Sent where this tab's view can't go: from an extension's page to the
     /// web or another extension, or from the web to an extension's page.
     /// WebKit keeps each kind of view to its own pages, so the tab has to be
@@ -1634,6 +1637,33 @@ final class MiddleRelay: NSObject, WKScriptMessageHandler {
           if (!e.defaultPrevented) window.webkit.messageHandlers.officeMiddle.postMessage({ href: href });
         }, 0);
       }, true);
+      // A page on this Mac linking to another file. WebKit lets a file page
+      // read only its own folder, and drops a click on a link out of it
+      // before Search is asked: the page stayed where it was, and only the
+      // address typed in opened it. Search opens it the way it opens a typed
+      // one. A plain click the page hasn't claimed, to a file, not a jump
+      // within the page and not a download.
+      if (location.protocol === 'file:') window.addEventListener('click', function (e) {
+        if (e.button !== 0 || !e.isTrusted || e.defaultPrevented) return;
+        if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return;
+        var a = anchor(e);
+        if (!a || a.hasAttribute('download')) return;
+        var target = (a.getAttribute('target') || '').toLowerCase();
+        if (['', '_self', '_top', '_parent', '_blank'].indexOf(target) < 0) return;
+        var href = a.href;
+        if (typeof href !== 'string' || href.indexOf('file:') !== 0) return;
+        if (href.split('#')[0] === location.href.split('#')[0]) return;
+        e.preventDefault();
+        window.webkit.messageHandlers.officeMiddle.postMessage({ file: href, blank: target === '_blank' });
+      }, false);
+      function anchor(e) {
+        var path = e.composedPath();
+        for (var i = 0; i < path.length; i++) {
+          var tag = path[i].tagName ? path[i].tagName.toLowerCase() : '';
+          if (tag === 'a' || tag === 'area') return path[i];
+        }
+        return null;
+      }
       function link(e) {
         // The path, not the parents: a link inside an open shadow root is
         // on it too. An <area> of an image map is a link, and so is an SVG
@@ -1659,6 +1689,21 @@ final class MiddleRelay: NSObject, WKScriptMessageHandler {
         _ controller: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
+        // A file page's link to another file (see watch): only from a file
+        // page's main frame, only to a file, which then gets the folder it
+        // would have had typed in, and no more (WKWebView.open).
+        if let body = message.body as? [String: Any], let file = body["file"] as? String {
+            guard message.frameInfo.isMainFrame,
+                  message.frameInfo.securityOrigin.protocol == "file",
+                  let url = URL(string: file), url.isFileURL
+            else { return }
+            let blank = body["blank"] as? Bool ?? false
+            MainActor.assumeIsolated { [weak self] in
+                guard let self, let tab, tab.address?.isFileURL == true else { return }
+                tab.onFileLink?(tab, url, blank)
+            }
+            return
+        }
         guard let body = message.body as? [String: Any],
               message.frameInfo.isMainFrame,
               let href = body["href"] as? String,
