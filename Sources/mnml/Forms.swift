@@ -166,8 +166,9 @@ final class FormRelay: NSObject, WKScriptMessageHandler {
         return r.width > 0 && r.height > 0;
       }
       function aside(el) {
-        var words = ((el.name || '') + ' ' + (el.id || '') + ' ' + (el.getAttribute('autocomplete') || '')).toLowerCase();
-        if (/(^|[\\s_-])q($|[\\s_-])|query|search|otp|otc|one-time|captcha|code|coupon|promo/.test(words)) return true;
+        var words = [el.name, el.id, el.getAttribute('autocomplete'), el.getAttribute('aria-label'),
+          el.getAttribute('placeholder')].join(' ').toLowerCase();
+        if (/(^|[\\s_-])(q|title)($|[\\s_-])|query|search|otp|otc|one-time|captcha|code|coupon|promo/.test(words)) return true;
         return !!(el.closest && el.closest('[role="search"]'));
       }
       function nameBox(el) {
