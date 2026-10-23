@@ -522,6 +522,10 @@ struct SettingsPanel: View {
                 }
                 Rule()
             }
+            Line("Page frame", "The margin and rounded corners around the page. Off, the page fills its area edge to edge.") {
+                Switch(on: $prefs.pageFramed)
+            }
+            Rule()
             // Only where WebKit can keep the page clear of the chrome: before
             // macOS 26 the switch would do nothing.
             if Under.possible {

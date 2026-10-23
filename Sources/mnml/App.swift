@@ -485,7 +485,7 @@ struct ContentView: View {
 
     /// Splits already have this margin; a video taking the screen has none.
     private var pageInset: CGFloat {
-        fullscreenTab == nil && browser.shownSplit == nil && browser.splitPicking == nil ? 6 : 0
+        fullscreenTab == nil && browser.shownSplit == nil && browser.splitPicking == nil && browser.prefs.pageFramed ? 6 : 0
     }
 
     private var pageCorner: CGFloat { pageInset > 0 ? SplitStage<EmptyView>.corner : 0 }

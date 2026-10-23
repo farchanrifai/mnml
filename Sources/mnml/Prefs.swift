@@ -186,6 +186,10 @@ final class Preferences: ObservableObject {
     @Published var pageUnder: Bool {
         didSet { store.set(pageUnder, forKey: "tabs.under") }
     }
+    /// The margin and rounded corners around the page. On unless turned off.
+    @Published var pageFramed: Bool {
+        didSet { store.set(pageFramed, forKey: "tabs.frame") }
+    }
     /// A colour washed over the column and the bar across the top, the
     /// material still showing through, as in Arc (Tint). Hex; empty, none.
     @Published var chromeTint: String {
@@ -481,6 +485,7 @@ final class Preferences: ObservableObject {
         frostedSidebar = frosted
         SideBar.frosted = frosted
         pageUnder = store.bool(forKey: "tabs.under")
+        pageFramed = store.object(forKey: "tabs.frame") as? Bool ?? true
         chromeTint = store.string(forKey: "tabs.tint") ?? ""
         chromeTintDark = store.string(forKey: "tabs.tint.dark") ?? Tint.same
         chromeTintStrength = store.object(forKey: "tabs.tint.strength") as? Double ?? Tint.strength
