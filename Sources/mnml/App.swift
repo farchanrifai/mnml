@@ -57,6 +57,7 @@ struct MnmlApp: App {
                 item("file.import")
                 Divider()
                 item("file.closeTab")
+                item("file.closeWindow")
             }
             CommandGroup(replacing: .printItem) {
                 Button("Share…") { browser.share() }

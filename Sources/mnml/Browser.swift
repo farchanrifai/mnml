@@ -2582,6 +2582,11 @@ final class Browser: NSObject, ObservableObject {
         else if let tab = active { close(tab) }
     }
 
+    /// ⇧⌘W: the whole window, its tabs with it, as the red button closes it.
+    func closeWindow() {
+        window?.performClose(nil)
+    }
+
     @discardableResult
     func closePanel() -> Bool {
         if archiveShowing { archiveShowing = false }

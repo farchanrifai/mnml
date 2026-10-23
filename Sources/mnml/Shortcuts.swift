@@ -183,6 +183,7 @@ struct Command: Identifiable {
                 return true
             },
             Command("file.closeTab", "Close Tab", .file, KeyCombo("w"), "Closes the front panel or tab.") { $0.closeFront() },
+            Command("file.closeWindow", "Close Window", .file, KeyCombo("w", shift: true), "Closes the window and its tabs, as the red button does.") { $0.closeWindow() },
             Command("file.print", "Print…", .file, KeyCombo("p"), "Prints the page.") { $0.printPage() },
             Command("file.import", "Bring Things Over…", .file, nil, "Imports bookmarks and browsing data.") { $0.bringingIn = "" },
 
