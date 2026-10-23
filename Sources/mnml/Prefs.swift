@@ -502,17 +502,25 @@ final class Preferences: ObservableObject {
         extensionsInPrivate = store.bool(forKey: "extensions.private")
         // Offered by default only in a build that can actually do them —
         // one with Apple's browser entitlement and its profile embedded. A
-        // choice made while they couldn't work is not a choice about them:
-        // the first run of a build that can offers them, whatever was set
-        // before; from then on the switch is the person's.
+        // choice made under the other kind of build is not a choice about
+        // this one: the first run of a build that can offers them, and the
+        // first run of one that can't — a release swapped for a build of your
+        // own — stops offering them, which would strand every sign-in on a
+        // passkey path that can only fail. From then on the switch is the
+        // person's. "passkeys.for" is the kind of build the switch was last
+        // set under; before it there was only "passkeys.entitled", which a
+        // build that couldn't wrote on its first run as well.
         let entitled = Preferences.entitledToPasskeys
         passkeysPossible = entitled
-        if entitled, !store.bool(forKey: "passkeys.entitled") {
-            passkeys = true
-            store.set(true, forKey: "passkeys")
+        let settledFor = store.object(forKey: "passkeys.for") as? Bool
+            ?? (entitled && store.bool(forKey: "passkeys.entitled") ? true : nil)
+        if settledFor != entitled {
+            passkeys = entitled
+            store.set(entitled, forKey: "passkeys")
         } else {
             passkeys = store.object(forKey: "passkeys") as? Bool ?? entitled
         }
+        store.set(entitled, forKey: "passkeys.for")
         store.set(entitled, forKey: "passkeys.entitled")
         // A test run downloads into its own folder: ~/Downloads would have
         // macOS stop it to ask for access, with a dialog on the screen of
