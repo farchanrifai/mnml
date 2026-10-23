@@ -4467,7 +4467,7 @@ enum ExtensionAuth {
 
     /// The view and its watcher for one non-interactive flow.
     @MainActor
-    final class Quiet: NSObject, WKNavigationDelegate {
+    final class Quiet: NSObject, WKNavigationDelegate, WKUIDelegate {
         /// The longest a flow may run out of sight, whatever it asks.
         static let longest: TimeInterval = 60
 
@@ -4496,9 +4496,20 @@ enum ExtensionAuth {
             config.processPool = Web.pool
             config.applicationNameForUserAgent = Web.userAgentName
             config.preferences.javaScriptCanOpenWindowsAutomatically = false
+            // No sound or video from nowhere: nobody can click here.
+            config.mediaTypesRequiringUserActionForPlayback = .all
+            // WebKit's own passkey operation is never opened (see Passkeys.swift):
+            // the page is told there are none, as with passkeys off.
+            config.userContentController.addUserScript(
+                WKUserScript(source: FormRelay.withoutPasskeys, injectionTime: .atDocumentStart, forMainFrameOnly: false, in: .page)
+            )
             // In no window, ever: there is nothing to show.
             let view = WKWebView(frame: CGRect(x: 0, y: 0, width: 800, height: 600), configuration: config)
             view.navigationDelegate = self
+            // Without a UI delegate WebKit puts up its own question for the
+            // camera, the microphone or the screen; here every one is no.
+            view.uiDelegate = self
+            Muter.set(true, on: view)
             self.view = view
             timer = Timer.scheduledTimer(withTimeInterval: limit, repeats: false) { [weak self] _ in
                 MainActor.assumeIsolated { self?.end(.failure(Quiet.failure("User interaction required."))) }
@@ -4514,12 +4525,22 @@ enum ExtensionAuth {
             return true
         }
 
+        /// Any other chromiumapp.org address — another extension's, or this
+        /// one's over http — never loads: what it carries (a code, a token)
+        /// would go out over the network instead of to nobody.
+        private static func chromiumapp(_ url: URL?) -> Bool {
+            guard let host = url?.host()?.lowercased() else { return false }
+            let bare = host.hasSuffix(".") ? String(host.dropLast()) : host
+            return bare == "chromiumapp.org" || bare.hasSuffix(".chromiumapp.org")
+        }
+
         func end(_ result: Result<URL, Error>) {
             guard let finish else { return }
             self.finish = nil
             timer?.invalidate(); timer = nil
             if let view {
                 view.navigationDelegate = nil
+                view.uiDelegate = nil
                 view.stopLoading()
             }
             view = nil
@@ -4530,6 +4551,11 @@ enum ExtensionAuth {
                      decisionHandler: @escaping @MainActor (WKNavigationActionPolicy) -> Void) {
             let main = action.targetFrame?.isMainFrame ?? true
             if main, answer(action.request.url) { return decisionHandler(.cancel) }
+            if Self.chromiumapp(action.request.url) {
+                decisionHandler(.cancel)
+                if main { end(.failure(Quiet.failure("Authorization page could not be loaded."))) }
+                return
+            }
             let scheme = action.request.url?.scheme?.lowercased() ?? ""
             let fine = main ? ["http", "https"] : ["http", "https", "about", "data", "blob"]
             guard !action.shouldPerformDownload, action.targetFrame != nil, fine.contains(scheme) else {
@@ -4544,7 +4570,71 @@ enum ExtensionAuth {
         }
 
         func webView(_ webView: WKWebView, didReceiveServerRedirectForProvisionalNavigation navigation: WKNavigation!) {
-            if answer(webView.url) { webView.stopLoading() }
+            if answer(webView.url) { webView.stopLoading(); return }
+            if Self.chromiumapp(webView.url) {
+                webView.stopLoading()
+                end(.failure(Quiet.failure("Authorization page could not be loaded.")))
+            }
+        }
+
+        // A site asking who you are, or holding out a client certificate,
+        // gets no answer here: that is interaction. Only the certificate
+        // check goes on as usual (and fails the load if it fails).
+        func webView(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,
+                     completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+            if challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust {
+                completionHandler(.performDefaultHandling, nil)
+            } else {
+                completionHandler(.rejectProtectionSpace, nil)
+            }
+        }
+
+        // MARK: nothing to show, nothing to ask
+
+        func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
+                     for action: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? { nil }
+
+        func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
+                     initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping () -> Void) {
+            completionHandler()
+        }
+
+        func webView(_ webView: WKWebView, runJavaScriptConfirmPanelWithMessage message: String,
+                     initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (Bool) -> Void) {
+            completionHandler(false)
+        }
+
+        func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?,
+                     initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping (String?) -> Void) {
+            completionHandler(nil)
+        }
+
+        func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,
+                     initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {
+            completionHandler(nil)
+        }
+
+        func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+                     initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
+                     decisionHandler: @escaping (WKPermissionDecision) -> Void) {
+            decisionHandler(.deny)
+        }
+
+        @objc(_webView:requestDisplayCapturePermissionForOrigin:initiatedByFrame:withSystemAudio:decisionHandler:)
+        func displayCapture(_ web: WKWebView, origin: WKSecurityOrigin, frame: WKFrameInfo, systemAudio: Bool,
+                            decisionHandler: @escaping (Int) -> Void) {
+            decisionHandler(0)
+        }
+
+        @objc(_webView:requestGeolocationPermissionForOrigin:initiatedByFrame:decisionHandler:)
+        func location(_ webView: WKWebView, origin: WKSecurityOrigin, frame: WKFrameInfo,
+                      decisionHandler: @escaping (WKPermissionDecision) -> Void) {
+            decisionHandler(.deny)
+        }
+
+        @objc(_webView:requestNotificationPermissionForSecurityOrigin:decisionHandler:)
+        func notifications(_ webView: WKWebView, origin: WKSecurityOrigin, decisionHandler: @escaping (Bool) -> Void) {
+            decisionHandler(false)
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
