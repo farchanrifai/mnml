@@ -85,6 +85,10 @@ final class TabCaptureTests: XCTestCase {
         guard configuration.preferences.responds(to: NSSelectorFromString("_setMockCaptureDevicesEnabled:")) else {
             throw XCTSkip("WebKit mock capture devices are unavailable")
         }
+        // Upstream's Web.configuration turns these on for test runs
+        // (ExtensionCapture.mockDevices); mnml doesn't, so the test does.
+        mock("_setMockCaptureDevicesEnabled:", true, in: configuration.preferences)
+        mock("_setGetUserMediaRequiresFocus:", false, in: configuration.preferences)
         let tab = Tab(shy: true, configuration: configuration)
         browser.prepare(tab)
         browser.insert(tab, at: browser.tabs.count)
@@ -141,4 +145,12 @@ private final class CapturePermission: NSObject, WKUIDelegate {
                  decisionHandler: @escaping (WKPermissionDecision) -> Void) {
         decisionHandler(.grant)
     }
+}
+
+/// One of WebKit's preferences it doesn't make public.
+private func mock(_ name: String, _ on: Bool, in preferences: WKPreferences) {
+    let selector = NSSelectorFromString(name)
+    guard preferences.responds(to: selector), let method = class_getMethodImplementation(type(of: preferences), selector) else { return }
+    typealias Set = @convention(c) (AnyObject, Selector, Bool) -> Void
+    unsafeBitCast(method, to: Set.self)(preferences, selector, on)
 }
