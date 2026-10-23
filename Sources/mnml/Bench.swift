@@ -1310,6 +1310,44 @@ final class Bench {
             browser.cancelFileImport()
             answer(["cancelling": browser.fileImport?.cancelling ?? false])
 
+        case "textcheck":
+            // Text replacement, smart quotes and smart dashes: what the Mac
+            // says, what the page's view says, and Edit › Substitutions as it
+            // would open, with its ticks. toggle NAME: the menu's own action,
+            // which writes WebKit's default in the app's standard domain —
+            // the real mnml's, for a probe of the real app — so only in a
+            // copy under a bundle id of its own (Tests/text_replacement.py).
+            guard Store.testing else { answer(["error": "textcheck only works on a --test run"]); return }
+            let web = find(request, in: browser)?.built ?? browser.active?.built
+            if let name = request["toggle"] as? String {
+                guard Store.ownContainer else {
+                    answer(["error": "textcheck toggle only works in a copy under its own bundle id — it would switch the real Search's setting"])
+                    return
+                }
+                guard let kind = Substitution(rawValue: name) else { answer(["error": "toggle quotes|dashes|replacement"]); return }
+                browser.toggleSubstitution(kind, in: web)
+            }
+            // The menu bar is drawn again a moment after the browser changes.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                var mac: [String: Bool] = [:], page: [String: Bool] = [:], kept: [String: Any] = [:]
+                let domain = UserDefaults.standard.persistentDomain(forName: Bundle.main.bundleIdentifier ?? "") ?? [:]
+                for kind in Substitution.allCases {
+                    mac[kind.rawValue] = kind.mac
+                    page[kind.rawValue] = kind.isOn(in: web)
+                    kept[kind.rawValue] = domain[kind.key] ?? NSNull()
+                }
+                var items: [[String: Any]] = []
+                if let edit = NSApp.mainMenu?.items.first(where: { $0.title == "Edit" })?.submenu {
+                    edit.delegate?.menuNeedsUpdate?(edit)
+                    if let sub = edit.items.first(where: { $0.title == "Substitutions" })?.submenu {
+                        sub.delegate?.menuNeedsUpdate?(sub)
+                        items = sub.items.filter { !$0.isSeparatorItem && !$0.isHidden }
+                            .map { ["title": $0.title, "on": $0.state == .on] }
+                    }
+                }
+                answer(["mac": mac, "page": page, "kept": kept, "menu": items, "web": web != nil])
+            }
+
         case "menu":
             // The Bookmarks menu as it is about to open: the menu bar
             // told it is being tracked, SwiftUI's own update run on it, its
@@ -2505,7 +2543,7 @@ final class Bench {
 
         default:
             answer(["error": "unknown command “\(verb)”", "commands": [
-                "tabs", "open", "go", "close", "wait", "sleep", "select", "text", "eval", "click", "type", "submit", "shot", "probe", "key", "resize", "hit", "film", "window", "fullscreen", "snapshot", "dragrow", "group", "pages", "picture", "place", "field", "bookmark", "marks", "menu", "space", "strip", "column", "ui", "keyeq", "pull", "fold", "consent", "site", "little", "float", "tospace", "fill", "pin", "middle", "windows", "quit", "towindow", "news", "update", "import", "import-preview", "import-file", "remove-folder",
+                "tabs", "open", "go", "close", "wait", "sleep", "select", "text", "eval", "click", "type", "submit", "shot", "probe", "key", "textcheck", "resize", "hit", "film", "window", "fullscreen", "snapshot", "dragrow", "group", "pages", "picture", "place", "field", "bookmark", "marks", "menu", "space", "strip", "column", "ui", "keyeq", "pull", "fold", "consent", "site", "little", "float", "tospace", "fill", "pin", "middle", "windows", "quit", "towindow", "news", "update", "import", "import-preview", "import-file", "remove-folder",
             ]])
         }
     }

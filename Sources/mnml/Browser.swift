@@ -2058,6 +2058,21 @@ final class Browser: NSObject, ObservableObject {
             .store(in: &bag)
     }
 
+    /// Edit › Substitutions: whether one is on in pages. WebKit keeps a
+    /// single answer for every page, so the tab in front's view speaks for
+    /// all of them.
+    func substitutes(_ kind: Substitution) -> Bool {
+        kind.isOn(in: active?.built)
+    }
+
+    /// Edit › Substitutions: one switched for every page. Sent to the page's
+    /// view rather than to whatever has the keyboard, so the address field
+    /// having the caret doesn't make it switch only that field.
+    func toggleSubstitution(_ kind: Substitution, in web: WKWebView? = nil) {
+        kind.toggle(in: web ?? active?.built ?? (tabs + parkedTabs).lazy.compactMap(\.built).first)
+        objectWillChange.send()
+    }
+
     private func relook() {
         Favicons.shared.relook(tabs.filter { !$0.asleep })
     }
