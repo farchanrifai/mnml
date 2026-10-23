@@ -40,6 +40,44 @@ final class PopupGestureTests: XCTestCase {
         XCTAssertFalse(permission.take(origin: "https://example.com:443", now: 12.1))
     }
 
+    func testOneClickOneTabWhicheverOpensFirst() {
+        // The page's window.open first (Gmail's handler), then ⌘-click's own tab.
+        var permission = PopupGesture()
+        let made = UUID()
+        permission.record(origin: "same", kind: "input", now: 10)
+        permission.record(origin: "same", kind: "click", now: 10.05)
+        XCTAssertTrue(permission.take(origin: "same", now: 10.1))
+        permission.opened(made)
+        XCTAssertEqual(permission.claim(now: 10.2), made)
+
+        // ⌘-click's own tab first: the page's window.open after it is refused.
+        permission.record(origin: "same", kind: "input", now: 20)
+        XCTAssertNil(permission.claim(now: 20.1))
+        XCTAssertFalse(permission.take(origin: "same", now: 20.2))
+
+        // A window from an earlier click is not this click's.
+        permission.record(origin: "same", kind: "input", now: 30)
+        XCTAssertTrue(permission.take(origin: "same", now: 30.1))
+        permission.opened(made)
+        permission.record(origin: "same", kind: "input", now: 31)
+        XCTAssertNil(permission.claim(now: 31.1))
+        XCTAssertFalse(permission.take(origin: "same", now: 31.2))
+
+        // Nor one from before the page changed (clear keeps the count going).
+        permission.record(origin: "same", kind: "input", now: 40)
+        XCTAssertTrue(permission.take(origin: "same", now: 40.1))
+        permission.opened(made)
+        permission.clear()
+        permission.record(origin: "same", kind: "input", now: 41)
+        XCTAssertNil(permission.claim(now: 41.1))
+
+        // No recent interaction: Search's own tab opens, nothing is spent.
+        var idle = PopupGesture()
+        XCTAssertNil(idle.claim(now: 50))
+        idle.record(origin: "same", kind: "input", now: 50)
+        XCTAssertNil(idle.claim(now: 56))
+    }
+
     func testClickDoesNotRearmConsumedMousedown() {
         var permission = PopupGesture()
         permission.record(origin: "same", kind: "input", now: 10)

@@ -533,14 +533,26 @@ final class Bench {
                         default: break
                         }
                     }
-                    for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-                        guard let event = NSEvent.mouseEvent(
+                    // "button": "middle" clicks with the middle button.
+                    let middle = request["button"] as? String == "middle"
+                    let types: [NSEvent.EventType] = middle ? [.otherMouseDown, .otherMouseUp] : [.leftMouseDown, .leftMouseUp]
+                    for type in types {
+                        guard var event = NSEvent.mouseEvent(
                             with: type, location: spot, modifierFlags: held,
                             timestamp: ProcessInfo.processInfo.systemUptime,
                             windowNumber: window.windowNumber, context: nil,
-                            eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0
+                            eventNumber: 0, clickCount: 1, pressure: type == types[0] ? 1 : 0
                         ) else { continue }
-                        if type == .leftMouseDown { view.mouseDown(with: event) } else { view.mouseUp(with: event) }
+                        if middle, let raw = event.cgEvent {
+                            raw.setIntegerValueField(.mouseEventButtonNumber, value: 2)
+                            if let again = NSEvent(cgEvent: raw) { event = again }
+                        }
+                        switch type {
+                        case .leftMouseDown: view.mouseDown(with: event)
+                        case .otherMouseDown: view.otherMouseDown(with: event)
+                        case .otherMouseUp: view.otherMouseUp(with: event)
+                        default: view.mouseUp(with: event)
+                        }
                     }
                     answer(["ok": true, "at": point.map { Int($0) }])
                 }

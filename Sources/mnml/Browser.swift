@@ -3562,7 +3562,7 @@ final class Browser: NSObject, ObservableObject {
         // The middle button on a link opens it beside the tab you are on, as
         // it does in every other browser (see MiddleRelay).
         // From a private tab, the new one is private too, as for ⌘-click.
-        tab.onMiddleClick = { [weak self] tab, url in self?.open(url, foreground: false, from: tab, mayWait: true) }
+        tab.onMiddleClick = { [weak self] tab, url in self?.openClicked(url, foreground: false, from: tab, view: tab.built) }
         tab.onCross = { [weak self] tab, url in self?.replace(tab, going: url) }
 
         // The caret in a sign-in box: the accounts kept for this site hang
@@ -4085,12 +4085,12 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
            ["http", "https"].contains(scheme) {
             let flags = action.modifierFlags
             if flags.contains(.command) {
-                let opened = open(url, foreground: flags.contains(.shift), from: tab(for: webView), mayWait: true)
+                let opened = openClicked(url, foreground: flags.contains(.shift), from: tab(for: webView), view: webView)
                 // With Settings › Tabs › Group links you ⌘-click: the page
                 // and the link, named by the Mac's model when available and
                 // by the page's site otherwise. A page
                 // already in a group has the link join it (see open).
-                if prefs.groupsLinks, let source = tab(for: webView), source.pin == nil, source.group == nil {
+                if prefs.groupsLinks, let opened, let source = tab(for: webView), source.pin == nil, source.group == nil {
                     let site = source.address?.host()?.replacingOccurrences(of: "www.", with: "")
                     makeGroup(of: [source, opened], fallbackName: site ?? source.label)
                 }
@@ -4232,6 +4232,7 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         tab.popup = windowFeatures.width != nil || windowFeatures.height != nil
             || windowFeatures.toolbarsVisibility?.boolValue == false
         prepare(tab)
+        opener.popupGesture.opened(tab.id)
         // A pinned tab is a place kept, not a start of more tabs: its links
         // that ask for a new one open in a peek over it (Peek.swift). A
         // pop-up that asked for a size of its own — a sign-in — stays one.
@@ -4255,6 +4256,23 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         // request into it itself when the action carries one.
         if let url = action.request.url { tab.setAddressOptimistically(url) }
         return tab.web
+    }
+
+    /// A link clicked open in a tab by mnml itself (⌘-click, the middle
+    /// button): one click, one tab. When the page's own script already
+    /// opened a window for that click, it is the tab — put where the click
+    /// asked, behind unless ⇧ was held — and no second one opens. Otherwise
+    /// the click is spent, and a window.open after it gets nothing.
+    @discardableResult
+    private func openClicked(_ url: URL, foreground: Bool, from source: Tab?, view: WKWebView?) -> Tab? {
+        let opener = view.flatMap { popupTab(for: $0) }
+        if let made = opener?.popupGesture.claim(), let tab = tabs.first(where: { $0.id == made }) {
+            if !foreground, activeID == tab.id, let source, tabs.contains(where: { $0.id == source.id }) {
+                activeID = source.id
+            }
+            return tab
+        }
+        return open(url, foreground: foreground, from: source, mayWait: true)
     }
 
     /// Anything the window can't show is something to keep instead.
