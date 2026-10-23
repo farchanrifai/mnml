@@ -3979,7 +3979,8 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
             if policy == .allow, action.targetFrame?.isMainFrame ?? true, let url = action.request.url {
                 webView.customUserAgent = Web.userAgent(for: url)
                 let shy = self?.tab(for: webView)?.shy == true || !webView.configuration.websiteDataStore.isPersistent
-                Autoplay.apply(to: preferences, for: url, shy: shy)
+                Autoplay.apply(to: preferences, for: url, shy: shy,
+                               made: webView.configuration.mediaTypesRequiringUserActionForPlayback)
             }
             decisionHandler(policy, preferences)
         }
@@ -4228,6 +4229,9 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         // right-click on a picture on X, after following a link out of it,
         // did nothing at all. Each tab gets a controller of its own.
         configuration.userContentController = WKUserContentController()
+        // The opener's copy is what its view was made with, maybe before
+        // Settings › Videos wait for a click last moved.
+        configuration.mediaTypesRequiringUserActionForPlayback = Web.playback
         let tab = Tab(shy: opener.shy, configuration: configuration)
         tab.popup = windowFeatures.width != nil || windowFeatures.height != nil
             || windowFeatures.toolbarsVisibility?.boolValue == false

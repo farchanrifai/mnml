@@ -358,7 +358,7 @@ struct SettingsPanel: View {
                 Switch(on: $prefs.floatFlicks)
             }
             Rule()
-            Line("Videos wait for a click", "Videos don't start by themselves, even without sound; they play when you press play. Tabs already open follow once closed and opened again, or after they've slept") {
+            Line("Videos wait for a click", "Videos don't start by themselves, even without sound; they play when you press play. Tabs already open follow from their next page, or once reloaded") {
                 Switch(on: $prefs.waitsForPlay)
             }
             Rule()

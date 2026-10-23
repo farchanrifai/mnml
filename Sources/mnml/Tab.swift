@@ -220,14 +220,30 @@ enum Autoplay {
         }
     }
 
-    /// For a page about to load at `url`: allowed to play, or left alone.
-    static func apply(to preferences: WKWebpagePreferences, for url: URL, shy: Bool) {
-        guard !shy, let host = url.host(), allowed(host),
-              !Store.settings.bool(forKey: Preferences.waitsKey) else { return }
+    /// For a page about to load at `url`, in a view made with `made`:
+    /// allowed to play, held to what Settings › Videos wait for a click says
+    /// now, or left alone. WebKit fixes `made` when the view is made, so a
+    /// tab open before the switch moved — and a link opened from it, with a
+    /// copy of its configuration — kept the old answer until it slept: with
+    /// the switch off again, its videos still waited for a click. The page's
+    /// own policy says what the switch says instead, from its next load.
+    static func apply(to preferences: WKWebpagePreferences, for url: URL, shy: Bool,
+                      made: WKAudiovisualMediaTypes) {
+        let waits = Store.settings.bool(forKey: Preferences.waitsKey)
+        let policy: Int
+        if !waits, !shy, let host = url.host(), allowed(host) {
+            policy = 1
+        } else if waits, !made.contains(.video) {
+            policy = 3
+        } else if !waits, made.contains(.video) {
+            policy = 2
+        } else {
+            return
+        }
         let set = NSSelectorFromString("_setAutoplayPolicy:")
         guard preferences.responds(to: set) else { return }
         typealias Setter = @convention(c) (AnyObject, Selector, Int) -> Void
-        unsafeBitCast(preferences.method(for: set), to: Setter.self)(preferences, set, 1)
+        unsafeBitCast(preferences.method(for: set), to: Setter.self)(preferences, set, policy)
     }
 }
 
@@ -1137,7 +1153,8 @@ final class Tab: ObservableObject, Identifiable {
 
     /// Settings › Videos wait for a click, changed: the page's next view
     /// is made the new way. One already made keeps what it was made with —
-    /// WebKit fixes it then — until the tab closes or sleeps.
+    /// WebKit fixes it then — and its next page follows through its own
+    /// autoplay policy (see Autoplay.apply).
     func playbackChanged() {
         configuration.mediaTypesRequiringUserActionForPlayback = Web.playback
     }
