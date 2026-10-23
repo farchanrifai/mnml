@@ -4281,6 +4281,30 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
             decisionHandler(.download)
             return
         }
+        // A text file already on this Mac that WebKit has no type for — a
+        // hosts file, a .yaml, a Dockerfile — is shown as text, as in Safari
+        // and Chrome, rather than copied into Downloads (#525). And one it
+        // does show as text is read as UTF-8: WebKit took a file's text for
+        // Windows-1252, and every accent in it came out as two letters.
+        // Read off the main thread, a file on a slow share included; the
+        // decision waits for it, and the window doesn't.
+        let plain = response.response.mimeType?.lowercased() == "text/plain"
+        if !response.canShowMIMEType || plain, response.isForMainFrame,
+           let url = response.response.url, url.isFileURL {
+            let showable = response.canShowMIMEType
+            Task.detached(priority: .userInitiated) {
+                let text = LocalText.contents(of: url)
+                await MainActor.run {
+                    guard let text else {
+                        decisionHandler(showable ? .allow : .download)
+                        return
+                    }
+                    decisionHandler(.cancel)
+                    webView.load(text, mimeType: "text/plain", characterEncodingName: "utf-8", baseURL: url)
+                }
+            }
+            return
+        }
         decisionHandler(response.canShowMIMEType ? .allow : .download)
     }
 
