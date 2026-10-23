@@ -881,7 +881,7 @@ final class Browser: NSObject, ObservableObject {
         let many = count == 1 ? "1 password" : "\(count) passwords"
         Ask.sure(
             count == 1 ? "Remove 1 Password?" : "Remove \(count) Passwords?",
-            detail: "They're taken out of your keychain. Only the passwords Search keeps are removed: password managers, other apps and other browsers keep theirs. This can't be undone.",
+            detail: "They're taken out of your keychain. Only the passwords mnml keeps are removed: password managers, other apps and other browsers keep theirs. This can't be undone.",
             confirm: "Remove",
             returnCancels: true
         ) { [weak self] in

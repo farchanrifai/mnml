@@ -5,7 +5,7 @@ import WebKit
 /// Replacements ("omw" → "On my way!"), smart quotes and smart dashes, in
 /// Edit › Substitutions. Text replacement follows the Mac's own setting
 /// (System Settings › Keyboard › Text Input). Smart quotes and dashes start
-/// off, as they always have in Search: in a browser they are wrong in every
+/// off, as they always have in mnml: in a browser they are wrong in every
 /// code field and wanted in few. The menu turns any of them on or off.
 ///
 /// WebKit's text checker reads its switches once, from the app's standard

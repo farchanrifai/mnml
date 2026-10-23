@@ -1382,7 +1382,7 @@ final class Bench {
             let web = find(request, in: browser)?.built ?? browser.active?.built
             if let name = request["toggle"] as? String {
                 guard Store.ownContainer else {
-                    answer(["error": "textcheck toggle only works in a copy under its own bundle id — it would switch the real Search's setting"])
+                    answer(["error": "textcheck toggle only works in a copy under its own bundle id — it would switch the real mnml's setting"])
                     return
                 }
                 guard let kind = Substitution(rawValue: name) else { answer(["error": "toggle quotes|dashes|replacement"]); return }

@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 import XCTest
-@testable import Search
+@testable import mnml
 
 @available(macOS 15.4, *)
 @MainActor

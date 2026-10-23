@@ -1,6 +1,6 @@
 import JavaScriptCore
 import XCTest
-@testable import Search
+@testable import mnml
 
 final class PopupGestureTests: XCTestCase {
     func testLongLivedMenuPreservesFrameAndOneWindowLimit() {
@@ -71,7 +71,7 @@ final class PopupGestureTests: XCTestCase {
         permission.record(origin: "same", kind: "input", now: 41)
         XCTAssertNil(permission.claim(now: 41.1))
 
-        // No recent interaction: Search's own tab opens, nothing is spent.
+        // No recent interaction: mnml's own tab opens, nothing is spent.
         var idle = PopupGesture()
         XCTAssertNil(idle.claim(now: 50))
         idle.record(origin: "same", kind: "input", now: 50)

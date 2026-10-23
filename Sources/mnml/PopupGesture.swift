@@ -55,7 +55,7 @@ struct PopupGesture {
         made = (serial, tab)
     }
 
-    /// A tab Search opens itself for a click — ⌘-click, the middle button.
+    /// A tab mnml opens itself for a click — ⌘-click, the middle button.
     /// One click makes one tab: a page that also calls window.open from the
     /// same click (Gmail's links do, beside their own target=_blank) gets no
     /// second one, whichever comes first. Returns the tab the page's window

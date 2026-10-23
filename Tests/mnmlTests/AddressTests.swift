@@ -2,7 +2,7 @@ import AppKit
 import Darwin
 import Foundation
 import XCTest
-@testable import Search
+@testable import mnml
 
 final class AddressTests: XCTestCase {
     func testExistingPathsKeepTheirLiteralNames() throws {

@@ -7,7 +7,7 @@ trap 'rm -rf "$build_dir"' EXIT HUP INT TERM
 
 swiftc \
   -swift-version 5 \
-  "$repo_root/Sources/Search/Address.swift" \
+  "$repo_root/Sources/mnml/Address.swift" \
   "$repo_root/Tests/AddressRegression/main.swift" \
   -o "$build_dir/address-regression"
 

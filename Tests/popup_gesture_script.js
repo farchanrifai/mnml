@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const source = fs.readFileSync(path.join(__dirname, '../Sources/Search/PopupGesture.swift'), 'utf8');
+const source = fs.readFileSync(path.join(__dirname, '../Sources/mnml/PopupGesture.swift'), 'utf8');
 const script = source.match(/static let script = """\n([\s\S]*?)\n    """/)[1];
 const listeners = new Map();
 const sent = [];

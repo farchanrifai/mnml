@@ -1,7 +1,7 @@
 import AppKit
 import WebKit
 import XCTest
-@testable import Search
+@testable import mnml
 
 @MainActor
 final class PopupGestureRelayTests: XCTestCase {

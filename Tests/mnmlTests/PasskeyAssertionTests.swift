@@ -1,6 +1,6 @@
 import AuthenticationServices
 import XCTest
-@testable import Search
+@testable import mnml
 
 @MainActor
 final class PasskeyAssertionTests: XCTestCase {

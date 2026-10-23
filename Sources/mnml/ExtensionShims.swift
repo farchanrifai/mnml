@@ -193,7 +193,7 @@ enum ExtensionShims {
     /// they exist ("Cannot access 'd' before initialization"). Vimium C's
     /// options page lists five, the second awaiting its translations, and
     /// stayed blank. Inside one module's imports WebKit does wait, so the
-    /// tags become one, in a file of Search's beside the page (named with
+    /// tags become one, in a file of mnml's beside the page (named with
     /// `search-` like the shim). The modules themselves are not touched. Only
     /// plain tags: one marked async, or a src that isn't the package's own
     /// file, leaves the page as it is.
@@ -235,7 +235,7 @@ enum ExtensionShims {
             return "import \"\(spec.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\""))\";"
         }
         do {
-            try ("// Search: this page's module scripts, in their order (ExtensionShims.chainModules).\n" + imports.joined(separator: "\n") + "\n")
+            try ("// mnml: this page's module scripts, in their order (ExtensionShims.chainModules).\n" + imports.joined(separator: "\n") + "\n")
                 .write(to: directory.appendingPathComponent(name), atomically: true, encoding: .utf8)
         } catch { return nil }
         // The first tag, its other attributes kept (blocking="render"), now
@@ -4594,7 +4594,7 @@ enum ExtensionAuth {
         static let longest: TimeInterval = 60
 
         static func failure(_ why: String) -> Error {
-            NSError(domain: "Search", code: 1, userInfo: [NSLocalizedDescriptionKey: why])
+            NSError(domain: "mnml", code: 1, userInfo: [NSLocalizedDescriptionKey: why])
         }
 
         let extensionID: String
