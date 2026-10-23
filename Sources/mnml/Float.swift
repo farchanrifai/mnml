@@ -937,6 +937,9 @@ enum Isolate {
         'left:0 !important; top:0 !important; right:0 !important; bottom:0 !important;',
         'width:100vw !important; height:100vh !important;',
         'max-width:none !important; max-height:none !important;',
+        // The player's own box and clipping must not cut off the floating picture.
+        'min-width:0 !important; min-height:0 !important; margin:0 !important; padding:0 !important; border:0 !important;',
+        'clip-path:none !important; mask:none !important; -webkit-mask:none !important;',
         // Players such as Netflix center the element with a translation.
         // With our top/left at zero, that moves it out of the floating window.
         'transform:none !important; translate:none !important; rotate:none !important; scale:none !important;',
