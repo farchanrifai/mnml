@@ -44,6 +44,14 @@ struct PopupGesture {
         return true
     }
 
+    /// Whether a refused window came from an interaction that already
+    /// had its one: a second window for the same click, or a page's own
+    /// beside the tab Search opened for a ⌘-click (see claim()). That one
+    /// is the duplicate one click must not make, not a pop-up to offer.
+    func spent(now: TimeInterval = ProcessInfo.processInfo.systemUptime) -> Bool {
+        recorded && consumed && now >= time && now - time <= 5
+    }
+
     mutating func clear() {
         let serial = serial
         self = PopupGesture()

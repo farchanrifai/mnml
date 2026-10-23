@@ -1111,6 +1111,8 @@ struct SideRow: View {
                         .font(.system(size: 9))
                         .foregroundStyle(colour.opacity(0.7))
                 }
+                // A window the page asked for was refused (BlockedPopups).
+                PopupSign(browser: browser, tab: tab, colour: colour)
                 // The title has the rest of the row and fades out at its end,
                 // as in Dia, rather than giving up room to a cross that isn't
                 // there; the cross, the ring or the speaker is laid over the
@@ -1174,6 +1176,7 @@ struct SideRow: View {
         .padding(.trailing, editing ? 10 : 7)
         .frame(height: 32)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .animation(Motion.quick, value: tab.blockedPopups.isEmpty)
         .background { ground }
         .modifier(Shake(travel: shake))
         .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))

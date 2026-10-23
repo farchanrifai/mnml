@@ -890,6 +890,8 @@ private struct TabPill: View {
                         .font(.system(size: 9))
                         .foregroundStyle(colour.opacity(0.7))
                 }
+                // A window the page asked for was refused (BlockedPopups).
+                PopupSign(browser: browser, tab: tab, colour: colour)
                 Text(tab.label)
                     .font(.system(size: 12.5))
                     .lineLimit(1)
@@ -948,6 +950,7 @@ private struct TabPill: View {
         .padding(.vertical, 6)
         .frame(width: span, alignment: .leading)
         .animation(Motion.quick, value: speaker)
+        .animation(Motion.quick, value: tab.blockedPopups.isEmpty)
     }
 
     @ViewBuilder

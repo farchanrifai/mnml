@@ -4285,8 +4285,20 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         for action: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        guard let opener = popupTab(for: webView),
-              opener.popupGesture.take(origin: PopupGesture.origin(action.sourceFrame), mainFrame: action.sourceFrame.isMainFrame) else { return nil }
+        guard let opener = popupTab(for: webView) else { return nil }
+        let clicked = opener.popupGesture.take(origin: PopupGesture.origin(action.sourceFrame), mainFrame: action.sourceFrame.isMainFrame)
+        if !clicked {
+            // A second window for a click that already had its one: the
+            // duplicate one click must not make, said nowhere.
+            if opener.popupGesture.spent() { return nil }
+            // No click just before: refused, and the tab says so (see
+            // BlockedPopups.swift), unless you allowed pop-ups from this site
+            // and it is the site's own page or frame asking.
+            guard popupsAllowed(opener, from: action.sourceFrame, top: opener.committed ?? webView.url) else {
+                opener.noteBlocked(action.request.url)
+                return nil
+            }
+        }
         let from = opener.id
         // WebKit's copy of the opener's configuration still holds the
         // opener's user content controller — its scripts and its message
@@ -4302,7 +4314,7 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
         tab.popup = windowFeatures.width != nil || windowFeatures.height != nil
             || windowFeatures.toolbarsVisibility?.boolValue == false
         prepare(tab)
-        opener.popupGesture.opened(tab.id)
+        if clicked { opener.popupGesture.opened(tab.id) }
         // A pinned tab is a place kept, not a start of more tabs: its links
         // that ask for a new one open in a peek over it (Peek.swift). A
         // pop-up that asked for a size of its own — a sign-in — stays one.

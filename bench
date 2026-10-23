@@ -72,6 +72,9 @@
                                        test run: the tab groups; a tab into a new group, into one by name,
                                        or out of its group; a group folded or opened
     ./bench tospace ID N               test run: Move to Space, the tab to the Nth space
+    ./bench popups ID [open N|allow]   the windows a tab's page was refused and its site; test run: open the
+                                       Nth newest as the sign would, or Always Allow its site
+    ./bench popups sites | remove SITE the sites allowed to open pop-ups; test run: remove one
     ./bench field TEXT [type] [go]     test run: TEXT pasted into the address field (type: a key at a time),
                                        each timed until the window has caught up; go: then Return, timed
                                        until the page is loading
@@ -358,6 +361,16 @@ def main(argv):
         elif len(args) >= 2 and args[1] == "new": request["id"], request["new"], request["name"] = args[0], True, " ".join(args[2:])
         elif len(args) >= 2: request["id"], request["name"] = args[0], " ".join(args[1:])
         elif args: sys.exit("usage: bench group [ID new [NAME] | ID NAME | ID none | fold NAME]")
+    elif verb == "popups":
+        if not args: sys.exit("usage: bench popups ID [open N|allow] | sites | remove SITE")
+        if args[0] == "sites": request["action"] = "sites"
+        elif args[0] == "remove" and len(args) == 2: request["action"], request["site"] = "remove", args[1]
+        else:
+            request["id"] = args[0]
+            if len(args) >= 2 and args[1] == "open": request["action"], request["index"] = "open", int(args[2]) if len(args) > 2 else 0
+            elif len(args) == 2 and args[1] == "allow": request["action"] = "allow"
+            elif len(args) == 1: request["action"] = "state"
+            else: sys.exit("usage: bench popups ID [open N|allow] | sites | remove SITE")
     elif verb == "tospace":
         if len(args) != 2: sys.exit("usage: bench tospace ID N")
         request["id"], request["index"] = args[0], int(args[1])

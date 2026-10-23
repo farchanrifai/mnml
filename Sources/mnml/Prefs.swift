@@ -140,6 +140,12 @@ final class Preferences: ObservableObject {
     @Published var keywords: [Keyword] {
         didSet { store.set((try? JSONEncoder().encode(keywords)) ?? Data(), forKey: "search.keywords") }
     }
+    /// Sites whose pages may open windows without a click just before
+    /// (BlockedPopups.swift), each a registrable domain. Empty until you
+    /// choose Always Allow on one; Settings › Privacy lists them.
+    @Published var popupSites: Set<String> {
+        didSet { store.set(Array(popupSites).sorted(), forKey: "privacy.popupSites") }
+    }
     /// Whether background tabs are put to sleep automatically.
     @Published var sleepsTabs: Bool {
         didSet { store.set(sleepsTabs, forKey: "tabs.sleep") }
@@ -471,6 +477,7 @@ final class Preferences: ObservableObject {
         customEngine = store.string(forKey: "search.custom") ?? ""
         keywords = store.data(forKey: "search.keywords")
             .flatMap { try? JSONDecoder().decode([Keyword].self, from: $0) } ?? []
+        popupSites = Set(store.stringArray(forKey: "privacy.popupSites") ?? [])
         sleepsTabs = store.object(forKey: "tabs.sleep") as? Bool ?? true
         archivesTabs = store.bool(forKey: "tabs.archive")
         archivePeriod = ArchivePeriod.read(from: store)

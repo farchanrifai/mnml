@@ -322,6 +322,8 @@ final class Tab: ObservableObject, Identifiable {
 
     func didCommit() {
         popupGesture.clear()
+        // What the old page was refused went with it.
+        if !blockedPopups.isEmpty { blockedPopups = [] }
         // A new document: whatever the old one waited for under its field
         // went with it.
         if let built { Passkeys.shared.forget(built) }
@@ -539,6 +541,13 @@ final class Tab: ObservableObject, Identifiable {
     private let iconChanges = IconRelay()
     private let middles = MiddleRelay()
     var popupGesture = PopupGesture()
+    /// Windows this page asked for and was refused, newest last, a few at
+    /// most: the quiet sign beside its title offers them (BlockedPopups.swift).
+    /// Gone with the page.
+    @Published var blockedPopups: [BlockedPopup] = []
+    /// A private tab's own Always Allow: only for as long as the tab, never
+    /// written anywhere, as its Keep This Site Awake.
+    var popupSites: Set<String> = []
     private let passkeyRelay = PasskeyRelay()
     private let hovered = HoveredLink()
     private let ears = AudioWatch()
@@ -1537,6 +1546,7 @@ final class Tab: ObservableObject, Identifiable {
     private func discard() {
         loadGeneration &+= 1
         popupGesture.clear()
+        if !blockedPopups.isEmpty { blockedPopups = [] }
         watch = []
         ears.stop()
         quiet?.invalidate()
