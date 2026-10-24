@@ -2,15 +2,9 @@ import AppKit
 import SwiftUI
 import WebKit
 
-// The page under the column and the strip, as Safari 26 has it. Under the
-// column, the page sits beside it and SwiftUI's background extension fills
-// the column's strip from the page's edge (Bleed, in Stage.swift). Under the
-// strip across the top, WebKit is told how much is covered: it starts the
-// page below it and lets it scroll up beneath, where Liquid Glass (TopGlass)
-// blurs it. See docs/mnml/page-under-chrome.md.
-//
-// Off unless asked for (Settings › Tabs). Off, or on a Mac whose WebKit
-// can't be told, the page sits beside the chrome as it always has.
+// Helpers for chrome over a page: telling WebKit how much of a page is
+// covered (cover/clear), and the blurred glass that sits over one
+// (TopGlass, BackdropBlur).
 
 enum Under {
     private static let insetsSetter = NSSelectorFromString("setObscuredContentInsets:")

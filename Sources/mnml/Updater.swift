@@ -23,7 +23,7 @@ import Security
 // `.old` bundle it set aside.
 //
 // build.sh writes the file (build/appcast.json) at the same time as the DMG
-// and the ZIP; publish.sh puts all three where `feed` points.
+// and the ZIP; all three go wherever `feed` points.
 
 @MainActor
 final class Updater: ObservableObject {
@@ -215,7 +215,7 @@ final class Updater: ObservableObject {
                     if Store.testing { Updater.diskVerdict = "verified" } else { NSWorkspace.shared.open(dmg) }
                 case .failure(let error):
                     Updater.diskVerdict = "refused: \(error)"
-                    say?("That download didn't check out — get Search from officecommun.com/search")
+                    say?("That download didn't check out — build mnml again from github.com/farchanrifai/mnml")
                 }
             }
         }

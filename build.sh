@@ -17,9 +17,8 @@
 # Same shape as the one next door: SwiftPM builds the executable, and a macOS
 # app bundle is just a folder with a plist and the binary in the right place.
 #
-# The three files keep the same names from release to release, so the site
-# links to them once and the updater reads one address forever. ./publish.sh
-# copies them into the site.
+# The three files keep the same names from release to release, so a site
+# links to them once and the updater reads one address forever.
 #
 # "dmg" lays the disk image's window out with dmgbuild, installed into .build
 # on first use (Python 3 and a network, once).
@@ -378,4 +377,4 @@ for FILE in "$DMG" "$ZIP"; do
 done
 xcrun stapler staple "$DMG"
 write_appcast
-echo "shipped: $DMG, $ZIP, build/appcast.json and its signed ZIP — ./publish.sh <folder> puts them on the site"
+echo "shipped: $DMG, $ZIP, build/appcast.json and its signed ZIP"
