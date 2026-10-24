@@ -100,6 +100,11 @@ extension Browser {
         if window?.attachedSheet != nil { return "a dialog is open" }
         if active?.opener == tab.id { return "the page on screen came from it" }
         guard let web = tab.built else { return nil }
+        // Releasing a page while WebKit's fullscreen callbacks are pending
+        // can crash its window controller. Protect the early page signal
+        // as well as WebKit's entry, fullscreen, and exit states. This check
+        // is repeated after the form check and snapshot, before discard.
+        if tab.immersed || web.fullscreenState != .notInFullscreen { return "full screen" }
         if web.cameraCaptureState != .none || web.microphoneCaptureState != .none { return "on a call" }
         if downloading.contains(where: { $0.webView === web }) { return "downloading" }
         return nil
