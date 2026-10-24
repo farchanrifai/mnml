@@ -30,8 +30,11 @@ final class Links: NSObject, NSApplicationDelegate {
     /// closed for good, whose tabs would go (see Browsers.closing).
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         // Scripted probes must be able to finish unattended. The installed
-        // browser and the daily-use Test copy still ask before quitting.
-        if !terminationPending && (!Store.testing || Store.testCopy) {
+        // browser and the daily-use Test copy still ask before quitting —
+        // a quit you asked for, not one sent from outside (build.sh, a
+        // logout or restart), which nobody is there to answer.
+        let sent = NSAppleEventManager.shared().currentAppleEvent?.eventID == kAEQuitApplication
+        if !terminationPending && !sent && (!Store.testing || Store.testCopy) {
             let alert = NSAlert()
             alert.messageText = "Quit mnml?"
             alert.informativeText = "Your tabs will be saved for next time."
