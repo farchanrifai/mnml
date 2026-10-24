@@ -182,20 +182,9 @@ struct TabBar: View {
         .onDrop(of: [.url, .text], isTargeted: $landing) { providers in
             browser.take(providers)
         }
-        // The Mac's sidebar material, as the column has it (Frosted).
-        .background {
-            Group {
-                if browser.prefs.frostedSidebar {
-                    Group {
-                        if browser.pageUnder { TopGlass() } else { Frosted(blending: .behindWindow) }
-                    }
-                    .overlay { if landing { SideBar.hoverFill } }
-                } else {
-                    landing ? Palette.hover : Color.clear
-                }
-            }
-            .overlay { TintWash(browser: browser, prefs: browser.prefs) }
-        }
+        // The window's ground, as the column has it (WindowGround); its own
+        // glass only out over the page.
+        .background { ChromeGround(browser: browser, landing: landing) }
         .animation(Motion.quick, value: landing)
         .animation(browser.prefs.slidesHighlight ? Motion.glide : nil, value: browser.activeID)
         // The row makes room for the field on the same spring as everything

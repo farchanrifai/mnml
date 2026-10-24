@@ -165,17 +165,9 @@ struct SideBar: View {
         // Rows on their way to or from another space stay in the column.
         .clipped()
         .onAppear { SpaceSwipe.shared.start(for: browser) }
-        .background {
-            Group {
-                if prefs.frostedSidebar {
-                    Frosted(blending: browser.pageUnder ? Under.blending : .behindWindow)
-                        .overlay { if landing { SideBar.hoverFill } }
-                } else {
-                    landing ? Palette.hover : Palette.ground
-                }
-            }
-            .overlay { TintWash(browser: browser, prefs: prefs) }
-        }
+        // The window's ground, one with the strip's and the frame's
+        // (WindowGround); its own only out over the page.
+        .background { ChromeGround(browser: browser, landing: landing) }
         // No line down the column's edge, as in Arc: the column's own ground
         // or material is edge enough.
         .overlay(alignment: .trailing) { edge }

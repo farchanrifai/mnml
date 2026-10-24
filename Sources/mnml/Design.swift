@@ -158,6 +158,15 @@ enum Motion {
         reduced ? nil : .spring(response: 0.34, dampingFraction: 0.82)
     }
 
+    /// The column, the strip and the panels beside the page coming and
+    /// going, and the page's card with them: one spring, no overshoot.
+    static var chrome: Animation? {
+        reduced ? nil : .spring(response: 0.3, dampingFraction: 1)
+    }
+    /// When that spring has come to rest, near enough to lay the page out
+    /// at its own size again (ContentView.holdPage).
+    static let chromeSettle: TimeInterval = 0.38
+
     static var settle: Animation? {
         reduced ? nil : .spring(response: 0.30, dampingFraction: 0.86)
     }
@@ -250,6 +259,78 @@ struct Frosted: NSViewRepresentable {
     func updateNSView(_ view: NSVisualEffectView, context: Context) {
         view.material = material
         view.blendingMode = blending
+    }
+}
+
+/// The window's one ground, as in Dia: a single material from edge to edge,
+/// and the space's tint once over it, so the column, the strip, the frame
+/// round the page and the panels beside it read as one surface with no
+/// seams where they meet. Each of them is clear in the window (ChromeGround).
+struct WindowGround: View {
+    @ObservedObject var browser: Browser
+    @ObservedObject var prefs: Preferences
+
+    var body: some View {
+        Group {
+            if prefs.frostedSidebar { Frosted(blending: .behindWindow) } else { Palette.ground }
+        }
+        .overlay { TintWash(browser: browser, prefs: prefs) }
+    }
+}
+
+/// The floating-card layout, as in Dia and Arc: the page — and the chat or
+/// an extension’s panel beside it — each a card lying on the window's
+/// material, this far in from its neighbours, with these corners and this
+/// shadow (Settings › Tabs › Page frame).
+enum PageCard {
+    static let gap: CGFloat = 8
+    static let corner: CGFloat = 10
+    // ponytail: tuned by eye against Dia; adjust by feel.
+    static let shadow = Color.black.opacity(0.16)
+    static let shadowRadius: CGFloat = 10
+    static let shadowY: CGFloat = 2
+}
+
+extension View {
+    /// A panel as a card beside the page: its own solid ground, rounded,
+    /// lifted by the card's shadow.
+    func card() -> some View {
+        self
+            .clipShape(RoundedRectangle(cornerRadius: PageCard.corner, style: .continuous))
+            .background {
+                RoundedRectangle(cornerRadius: PageCard.corner, style: .continuous)
+                    .fill(Palette.ground)
+                    .shadow(color: PageCard.shadow, radius: PageCard.shadowRadius, y: PageCard.shadowY)
+            }
+    }
+}
+
+extension EnvironmentValues {
+    /// Chrome out over the page rather than in its place in the window — the
+    /// folded column and strip sliding out (Fold.swift) — which has no
+    /// window ground under it and brings its own.
+    @Entry var chromeOverPage = false
+}
+
+/// What a piece of chrome stands on. In the window: nothing, the window's
+/// ground (WindowGround) showing through. Folded out over the page
+/// (Fold.swift), the material and tint come along.
+struct ChromeGround: View {
+    @ObservedObject var browser: Browser
+    /// The column's drop target lit, a link dragged over it.
+    var landing = false
+    @Environment(\.chromeOverPage) private var folded
+
+    var body: some View {
+        let frosted = browser.prefs.frostedSidebar
+        ZStack {
+            if folded {
+                if frosted { Frosted(blending: .behindWindow) } else { Palette.ground }
+                TintWash(browser: browser, prefs: browser.prefs)
+            }
+            if landing { frosted ? SideBar.hoverFill : Palette.hover }
+        }
+        .allowsHitTesting(false)
     }
 }
 

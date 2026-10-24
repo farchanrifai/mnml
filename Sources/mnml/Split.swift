@@ -309,10 +309,10 @@ struct SplitStage<Pane: View>: View {
     let split: Split
     let pane: (Tab) -> Pane
 
-    static var corner: CGFloat { 10 }
+    static var corner: CGFloat { PageCard.corner }
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: PageCard.gap) {
             ForEach([split.left, split.right], id: \.self) { id in
                 if let tab = browser.tab(id) {
                     let front = id == browser.activeID
@@ -326,7 +326,7 @@ struct SplitStage<Pane: View>: View {
                 }
             }
         }
-        .padding(6)
+        .padding(PageCard.gap)
         .animation(Motion.quick, value: browser.activeID)
     }
 }
@@ -340,14 +340,14 @@ struct SplitPickStage<Pane: View>: View {
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: SplitStage<EmptyView>.corner, style: .continuous)
-        HStack(spacing: 6) {
+        HStack(spacing: PageCard.gap) {
             if pick.side == .right { picker(shape) }
             pane()
                 .clipShape(shape)
                 .overlay(shape.strokeBorder(Palette.ink.opacity(0.35), lineWidth: 1.5).allowsHitTesting(false))
             if pick.side == .left { picker(shape) }
         }
-        .padding(6)
+        .padding(PageCard.gap)
     }
 
     private func picker(_ shape: RoundedRectangle) -> some View {

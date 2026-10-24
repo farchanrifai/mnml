@@ -294,23 +294,6 @@ private final class CursorGroundView: NSView {
     }
 }
 
-/// A material rim whose hole follows the current animated viewport bounds.
-struct PageFrame: Shape {
-    var inset: CGFloat
-    var corner: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        let thickness = min(inset, max(0, min(rect.width, rect.height) / 2))
-        let hole = rect.insetBy(dx: thickness, dy: thickness)
-        return Path { path in
-            path.addRect(rect)
-            if hole.width > 0, hole.height > 0 {
-                path.addPath(RoundedRectangle(cornerRadius: corner, style: .continuous).path(in: hole))
-            }
-        }
-    }
-}
-
 private final class WeakWindow {
     weak var window: NSWindow?
 }
@@ -323,15 +306,20 @@ struct ContentView: View {
     @State private var held = WeakWindow()
     private var window: NSWindow? { held.window }
     @State private var resting: RestingLights?
-    /// The room the page leaves for the column and the strip, set without
-    /// animation (see `make(room:after:)`); nil only before the window is up.
-    @State private var room: CGSize?
-    @State private var roomTicket = 0
-    /// The column or the chat panel sliding in or out, with the page laid
-    /// out again on each of its frames: the page's mirrored edge (Bleed) is
-    /// off meanwhile, or it showed inside the page along its left side.
-    @State private var sliding = false
-    @State private var slideTicket = 0
+    /// The page's own size, set apart from its card's (see `holdPage`):
+    /// the card's final size, and which of its sides the page keeps to
+    /// while the card moves; and the window's size, which it comes from.
+    @State private var hold: CGSize?
+    /// The tab whose chat beside the page is built and kept (see window_).
+    @State private var chatKept: Tab.ID?
+    @State private var pinTrailing = false
+    @State private var windowSize: CGSize = .zero
+    /// The column and the panel beside the page are built off the window,
+    /// unseen, and only on the next frame slide in. Built and slid in one
+    /// go, the slide's clock started while the view was still being made —
+    /// the chat's first frame came a third of the way in.
+    @State private var columnIn = true
+    @State private var sideIn = true
 
 
     /// The window: room at the top, one stage for the page, and the row when
@@ -363,25 +351,17 @@ struct ContentView: View {
             fullscreenWatch
             // Black while a page has the screen, so the frame of our own window
             // that survives the transition is not a white band across the top.
-            (fullscreenTab != nil ? Color.black : Palette.ground)
+            if fullscreenTab != nil { Color.black } else { WindowGround(browser: browser, prefs: browser.prefs) }
 
-            // One stage, always. It starts beside the column and under the
-            // strip, not behind them — a page sliding beneath floating chrome
-            // is a browser showing off, and it costs a compositing pass.
+            // The page, a card lying on the window's material (WindowGround),
+            // as in Dia and Arc: in from the column, the strip and the chat by
+            // the card's gap, rounded, lifted by its shadow.
             //
-            // When the column or the strip comes or goes, the page slides with
-            // it and is resized once, not on every frame of the slide: laid out
-            // again thirty times a second, the page juddered along its right
-            // edge and overshot the window with the spring (see `room`).
-            //
-            // Unless the page is to run under them, as in Safari (Under.swift):
-            // then it is the window's size, still, and told how much of it
-            // they cover instead.
-            //
-            // Beside them, its width follows the column on every frame of the
-            // slide (column-slide), as the chat panel's does; the strip's
-            // height is still resized once. ChatGPT's picture-over-the-page
-            // slide was tried too (d249ef0): see docs/mnml/sidebar-slide.md.
+            // When any of them comes or goes, the card glides on the chrome's
+            // spring — its frame and its shadow, cheap to move on every frame
+            // — while the page inside it is laid out once (`hold`). The page
+            // itself resized on every frame juddered and flashed white at its
+            // edge as WebKit caught up (docs/mnml/sidebar-slide.md).
             stage
                 .overlay {
                     if let image = browser.spacePageImage {
@@ -389,21 +369,16 @@ struct ContentView: View {
                             Image(nsImage: image).resizable()
                                 .frame(width: box.size.width, height: box.size.height)
                         }
-                        .padding(covered)
+                        .clipShape(RoundedRectangle(cornerRadius: pageCorner, style: .continuous))
                         .opacity(browser.spacePageOpacity)
                         .allowsHitTesting(false)
                     }
                 }
+                .background { if pageInset > 0 { cardFace } }
                 .padding(pageInset)
-                .overlay {
-                    if pageInset > 0 { pageBorder.padding(covered) }
-                }
-                .padding(.leading, under ? 0 : chrome.width)
-                // This tab's chat, beside the page (AskPanel.swift), followed
-                // frame by frame like the column.
-                .padding(.trailing, browser.askRoom)
-                .padding(.top, beside.height)
-                .offset(y: under ? 0 : chrome.height - roomed.height)
+                .padding(.leading, chrome.width)
+                .padding(.trailing, sideRoom)
+                .padding(.top, chrome.height)
 
             // The column of tabs, in the way that has one. It takes the full
             // height, so the traffic lights sit in its own corner rather than
@@ -411,7 +386,8 @@ struct ContentView: View {
             if sidebar {
                 SideBar(browser: browser, prefs: browser.prefs)
                     .frame(maxHeight: .infinity, alignment: .top)
-                    .transition(.move(edge: .leading))
+                    .offset(x: columnIn ? 0 : -browser.prefs.sideWidth)
+                    .transition(.asymmetric(insertion: .identity, removal: .move(edge: .leading)))
                     // Kept over the page as it comes and goes: a view on its
                     // way in or out of a ZStack is otherwise drawn at the back,
                     // under the window's ground, and the ground showed as a dark
@@ -428,31 +404,50 @@ struct ContentView: View {
             if #available(macOS 15.4, *), let tab = browser.active, let id = browser.docked[tab.id] {
                 ExtensionSidePanel(browser: browser, prefs: browser.prefs, tab: tab, extensionID: id)
                     .id(tab.id)
+                    .modifier(SideCard(on: pageInset > 0))
                     .padding(.top, chrome.height)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                    .transition(.offset(x: browser.prefs.askWidth))
+                    .offset(x: sideIn ? 0 : sideAway)
+                    .transition(.asymmetric(insertion: .identity, removal: .offset(x: sideAway)))
                     .zIndex(2)
             }
 
-            if browser.askShowing, let tab = browser.active {
+            // The chat beside the page: built the first time, then kept out
+            // of sight past the window's edge while closed, so ⌘E slides it
+            // straight in. Built afresh each time, it held the slide back by
+            // a tenth of a second.
+            // ponytail: one kept panel, the active tab's; its updates run
+            // while closed too.
+            if let tab = browser.active, browser.askMode(for: tab) == .side,
+               browser.askShowing || browser.chats[tab.id] != nil {
+                let shown = browser.askShowing
+                AskPanel(browser: browser, tab: tab, chat: browser.chat(for: tab), prefs: browser.prefs, mode: .side, shown: shown)
+                    .id(tab.id)
+                    .modifier(SideCard(on: pageInset > 0))
+                    .padding(.top, chrome.height)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+                    // By its own width: .move measured the full-width frame
+                    // around it, so it came from a window's width away —
+                    // late in, early out, the gap beside the page dark.
+                    .offset(x: shown && sideIn ? 0 : sideAway)
+                    .allowsHitTesting(shown)
+                    .accessibilityHidden(!shown)
+                    .onAppear { chatKept = tab.id }
+                    .zIndex(2) // as the column, above
+            }
+
+            if browser.askShowing, let tab = browser.active, browser.askMode(for: tab) != .side {
                 let mode = browser.askMode(for: tab)
                 let panel = AskPanel(browser: browser, tab: tab, chat: browser.chat(for: tab), prefs: browser.prefs, mode: mode)
                     .id(tab.id)
                 switch mode {
                 case .side:
-                    panel
-                        .padding(.top, chrome.height)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-                        // By its own width: .move measured the full-width frame
-                        // around it, so it came from a window's width away —
-                        // late in, early out, the gap beside the page dark.
-                        .transition(.offset(x: browser.prefs.askWidth))
-                        .zIndex(2) // as the column, above
+                    EmptyView()
                 case .full:
                     // Over the page's room: the column and the strip stay.
                     panel
-                        .padding(pageInset)
-                        .overlay { if pageInset > 0 { pageBorder } }
+                        .card()
+                        .padding(PageCard.gap)
                         .padding(.leading, chrome.width)
                         .padding(.top, chrome.height)
                         .transition(.opacity)
@@ -477,29 +472,135 @@ struct ContentView: View {
             }
         }
         .ignoresSafeArea()
-        .animation(Motion.glide, value: browser.prefs.sidebar)
-        .animation(Motion.reduced ? nil : .spring(response: 0.34, dampingFraction: 1), value: browser.askShowing)
-        .animation(Motion.reduced ? nil : .spring(response: 0.34, dampingFraction: 1), value: browser.active.flatMap { browser.docked[$0.id] })
+        // One spring for everything that moves the card, with no overshoot:
+        // a card swinging past its place would show past its page.
+        .animation(Motion.chrome, value: browser.prefs.sidebar)
+        .animation(Motion.chrome, value: barShown)
+        .animation(Motion.chrome, value: browser.askShowing)
+        .animation(Motion.chrome, value: browser.active.flatMap { browser.docked[$0.id] })
         .animation(Motion.reduced ? nil : .easeOut(duration: 0.12), value: fullscreenTab?.id)
-        .onAppear { if room == nil { room = chrome } }
-        .onChange(of: chrome) { old, new in make(room: new, after: old) }
+        .background {
+            GeometryReader { box in
+                Color.clear
+                    .onAppear { windowSize = box.size }
+                    .onChange(of: box.size) { _, size in
+                        windowSize = size
+                        // The window's edge dragged: the page follows it live.
+                        hold = nil
+                    }
+            }
+        }
+        .onChange(of: cardRoom) { old, new in holdPage(from: old, to: new) }
+        .onAppear {
+            columnIn = sidebar
+            sideIn = browser.askRoom > 0
+        }
+        .onChange(of: sidebar) { _, on in arrive(on, .column) }
+        .onChange(of: browser.askRoom > 0) { _, on in arrive(on, .side) }
+    }
+
+    /// How far off the window's edge the panel beside the page waits.
+    private var sideAway: CGFloat { browser.prefs.askWidth + PageCard.gap * 2 }
+
+    /// The page's room on the right: the panel's, once it is on its way in.
+    private var sideRoom: CGFloat { sideIn ? browser.askRoom : 0 }
+
+    /// Chrome asked for: built where it waits this frame, slid in from the
+    /// next on the chrome's spring, the card making room with it. Going, it
+    /// leaves at once (its removal slides it out); nothing is built for that.
+    private func arrive(_ on: Bool, _ piece: Arriving) {
+        var still = Transaction()
+        still.disablesAnimations = true
+        withTransaction(still) { set(piece, false) }
+        guard on else { return }
+        // The screen up to speed before the slide starts.
+        FullSpeed.hold(window, for: Motion.chromeSettle + 0.3)
+        // The page laid out at the size it is about to have, while the
+        // piece is built out of sight; the slide starts once WebKit has
+        // drawn it so, and nothing about the page changes while it runs.
+        var target = cardRoom
+        if piece == .column { target.leading = browser.prefs.sideWidth } else { target.trailing = browser.askRoom }
+        let size = cardSize(target)
+        if !Motion.reduced, size.width > 0, size.height > 0 { settle(size, pinTrailing: piece == .column) }
+        // The chat already built and waiting: it slides at once.
+        if piece == .side, chatKept == browser.active?.id {
+            withAnimation(Motion.chrome) { set(piece, true) }
+            return
+        }
+        var gone = false
+        let go = {
+            guard !gone else { return }
+            gone = true
+            guard piece == .column ? sidebar : browser.askRoom > 0 else { return }
+            withAnimation(Motion.chrome) { set(piece, true) }
+        }
+        DispatchQueue.main.async {
+            guard let page = browser.active?.built, page.window != nil else { return go() }
+            Drawn.after(page, go)
+            // Never long: a page that is slow to draw slides as it is.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: go)
+        }
+    }
+
+    private enum Arriving { case column, side }
+
+    private func set(_ piece: Arriving, _ value: Bool) {
+        if piece == .column { columnIn = value } else { sideIn = value }
+    }
+
+    /// What decides the card's size, besides the window's.
+    private struct CardRoom: Equatable {
+        var leading: CGFloat, trailing: CGFloat, top: CGFloat, inset: CGFloat
+    }
+
+    private var cardRoom: CardRoom {
+        CardRoom(leading: chrome.width, trailing: sideRoom, top: chrome.height, inset: pageInset)
+    }
+
+    private func cardSize(_ room: CardRoom) -> CGSize {
+        CGSize(width: max(0, windowSize.width - room.leading - room.trailing - room.inset * 2),
+               height: max(0, windowSize.height - room.top - room.inset * 2))
+    }
+
+    /// The column, the strip or a panel coming or going: the page takes
+    /// the card's final size at once and keeps to the card's side that
+    /// stays put, while the side that moves glides in over it or out to
+    /// show more of it — one layout, before anything moves (see `arrive`),
+    /// never during or after. Laid out after the slide instead, the page
+    /// held the window up for a tenth of a second at a time while WebKit
+    /// drew it anew (90–200 ms frames after ⌘E in full screen).
+    private func holdPage(from old: CardRoom, to new: CardRoom) {
+        let size = cardSize(new)
+        guard !Motion.reduced, old != new, size.width > 0, size.height > 0 else {
+            hold = nil
+            return
+        }
+        settle(size, pinTrailing: new.leading != old.leading && new.trailing == old.trailing)
+        FullSpeed.hold(window, for: Motion.chromeSettle + 0.1)
+    }
+
+    private func settle(_ size: CGSize, pinTrailing trailing: Bool) {
+        var still = Transaction()
+        still.disablesAnimations = true
+        withTransaction(still) {
+            pinTrailing = trailing
+            hold = size
+        }
     }
 
     @ViewBuilder
     private var stage: some View {
         if let pick = browser.splitPicking, let tab = browser.tab(pick.tab) {
-            SplitPickStage(browser: browser, pick: pick) { pane(tab, corner: SplitStage<EmptyView>.corner, under: EdgeInsets()) }
-                .background { frameGround }
+            SplitPickStage(browser: browser, pick: pick) { pane(tab, corner: SplitStage<EmptyView>.corner) }
         } else if let split = browser.shownSplit {
-            SplitStage(browser: browser, split: split) { pane($0, corner: SplitStage<EmptyView>.corner, under: EdgeInsets()) }
-                .background { if fullscreenTab == nil { frameGround } }
+            SplitStage(browser: browser, split: split) { pane($0, corner: SplitStage<EmptyView>.corner) }
                 .overlay {
                     if browser.prefs.showsLinks { LinkBubble(status: browser.linkStatus) }
                 }
         } else if let tab = browser.active {
-            pane(tab, corner: pageCorner, under: covered)
+            pane(tab, corner: pageCorner, hold: hold, pinTrailing: pinTrailing)
                 .overlay {
-                    if browser.prefs.showsLinks { LinkBubble(status: browser.linkStatus).padding(covered) }
+                    if browser.prefs.showsLinks { LinkBubble(status: browser.linkStatus) }
                 }
         } else {
             Palette.ground
@@ -508,59 +609,34 @@ struct ContentView: View {
 
     /// Splits already have this margin; a video taking the screen has none.
     private var pageInset: CGFloat {
-        fullscreenTab == nil && browser.shownSplit == nil && browser.splitPicking == nil && browser.prefs.pageFramed ? 6 : 0
+        fullscreenTab == nil && browser.shownSplit == nil && browser.splitPicking == nil ? PageCard.gap : 0
     }
 
-    private var pageCorner: CGFloat { pageInset > 0 ? SplitStage<EmptyView>.corner : 0 }
+    private var pageCorner: CGFloat { pageInset > 0 ? PageCard.corner : 0 }
 
-    /// The same material and space tint as the sidebar, around every pane.
-    private var frameGround: some View {
-        Group {
-            if browser.prefs.frostedSidebar {
-                Frosted(blending: browser.pageUnder ? Under.blending : .behindWindow)
-            } else {
-                Palette.ground
-            }
-        }
-        .overlay { TintWash(browser: browser, prefs: browser.prefs) }
-    }
-
-    /// Shape geometry follows the animated bounds rather than a captured
-    /// GeometryReader size, which could leave a moving edge inside the page.
-    private var pageBorder: some View {
-        frameGround
-            .overlay {
-                // Only the shadow is drawn; a filled face leaves a dark
-                // antialias fringe where the rim mask cuts it away.
-                Canvas { context, size in
-                    guard size.width > pageInset * 2, size.height > pageInset * 2 else { return }
-                    let rect = CGRect(origin: .zero, size: size).insetBy(dx: pageInset, dy: pageInset)
-                    context.addFilter(.shadow(color: .black.opacity(0.12), radius: 3, x: 0, y: 1, options: .shadowOnly))
-                    context.fill(RoundedRectangle(cornerRadius: pageCorner, style: .continuous).path(in: rect), with: .color(.black))
-                }
-            }
-            .mask { PageFrame(inset: pageInset, corner: pageCorner).fill(style: FillStyle(eoFill: true)) }
+    /// Under the page: the card's face, which only its shadow shows past.
+    private var cardFace: some View {
+        RoundedRectangle(cornerRadius: pageCorner, style: .continuous)
+            .fill(Palette.ground)
+            .shadow(color: PageCard.shadow, radius: PageCard.shadowRadius, y: PageCard.shadowY)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
 
     /// One page, with what floats over it: find, and the accounts a field
-    /// offers — both clear of the chrome the page may run under.
-    private func pane(_ tab: Tab, corner: CGFloat = 0, under: EdgeInsets) -> some View {
-        Page(tab: tab, corner: corner, under: under, bleeds: !sliding)
+    /// offers.
+    private func pane(_ tab: Tab, corner: CGFloat = 0, hold: CGSize? = nil, pinTrailing: Bool = false) -> some View {
+        Page(tab: tab, corner: corner, hold: hold, pinTrailing: pinTrailing)
             .overlay(alignment: .topTrailing) {
                 if browser.finding, tab.id == browser.pageTarget?.id {
                     FindBar(browser: browser)
                         .transition(.move(edge: .top).combined(with: .opacity))
-                        .padding(.top, under.top)
                 }
             }
             .overlay(alignment: .topLeading) {
                 if let asked = browser.suggesting, asked.tab == tab.id {
                     AccountList(browser: browser, asked: asked)
                         .transition(.opacity)
-                        .padding(.leading, under.leading)
-                        .padding(.top, under.top)
                 }
             }
             .animation(Motion.quick, value: browser.suggesting)
@@ -569,7 +645,7 @@ struct ContentView: View {
     /// What the column and the strip take from the page right now: animated
     /// as they come and go.
     private var chrome: CGSize {
-        CGSize(width: sidebar ? browser.prefs.sideWidth : 0, height: band + (barShown ? BookmarksBar.height : 0))
+        CGSize(width: sidebar && columnIn ? browser.prefs.sideWidth : 0, height: band + (barShown ? BookmarksBar.height : 0))
     }
 
     /// The bookmarks bar is up: asked for, there are bookmarks, and the tabs
@@ -577,55 +653,6 @@ struct ContentView: View {
     private var barShown: Bool {
         browser.prefs.bookmarksBar && !browser.bookmarks.isEmpty && !browser.folded
             && fullscreenTab == nil
-    }
-
-    /// The room the page is laid out to leave them, which is not animated.
-    private var roomed: CGSize { room ?? chrome }
-
-    /// The page runs under the column and the strip (Under.swift).
-    private var under: Bool { browser.pageUnder }
-
-    /// The room the stage leaves beside the chrome: none, with the page
-    /// running under it.
-    private var beside: CGSize { under ? .zero : roomed }
-
-    /// How much of the page the chrome covers, with the page under it. The
-    /// room, not the chrome: it changes when the room does, once a slide,
-    /// never on its frames — each change lays the page out again. So the
-    /// column going away uncovers the page at once and it reflows as the
-    /// column slides off it; the column arriving slides over the page as it
-    /// is, which moves its content clear once the slide is over.
-    private var covered: EdgeInsets {
-        // The column's width as it animates, as beside it (column-slide):
-        // the page lays out again on each frame of the slide, its mirrored
-        // edge off meanwhile (`sliding`).
-        under ? EdgeInsets(top: roomed.height, leading: chrome.width, bottom: 0, trailing: 0) : EdgeInsets()
-    }
-
-    /// Chrome going away gives the page its room at once, the page sliding
-    /// out from under it at its new size. Chrome arriving slides over a page
-    /// still at its old size, which gives up the room once the slide is over.
-    /// A column being dragged wider or narrower is followed as it goes.
-    /// (Beside the column, the page's width follows `chrome` instead; this
-    /// room is its height, and what the page under the chrome is told.)
-    private func make(room new: CGSize, after old: CGSize) {
-        let now = roomed
-        let arriving = (old.width == 0 && new.width > 0, old.height == 0 && new.height > 0)
-        var at = now
-        if !arriving.0 { at.width = new.width }
-        if !arriving.1 { at.height = new.height }
-        roomTicket += 1
-        var still = Transaction()
-        still.disablesAnimations = true
-        // With Reduce Motion on, nothing slides: the page takes its new room
-        // with the chrome, not after a slide that isn't there.
-        withTransaction(still) { room = Motion.reduced ? new : at }
-        guard !Motion.reduced, arriving.0 || arriving.1 else { return }
-        let ticket = roomTicket
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.42) {
-            guard ticket == roomTicket else { return }
-            withTransaction(still) { room = chrome }
-        }
     }
 
     /// Everything that rises from the bottom edge to say one thing.
@@ -755,7 +782,7 @@ struct ContentView: View {
                 PeekLayer(browser: browser)
                     .padding(pageInset)
                     .padding(.leading, chrome.width)
-                    .padding(.trailing, browser.askRoom)
+                    .padding(.trailing, sideRoom)
                     .padding(.top, chrome.height)
                     // From the window's own top edge, as the page is:
                     // the title bar's band is page too.
@@ -766,7 +793,7 @@ struct ContentView: View {
                 SplitDropLayer(browser: browser)
                     .padding(pageInset)
                     .padding(.leading, chrome.width)
-                    .padding(.trailing, browser.askRoom)
+                    .padding(.trailing, sideRoom)
                     .padding(.top, chrome.height)
                     .ignoresSafeArea()
             }
@@ -822,8 +849,6 @@ struct ContentView: View {
                 }
             }
             .onChange(of: browser.activeID) { _, _ in handBack() }
-            .onChange(of: browser.askRoom) { _, _ in slide() }
-            .onChange(of: chrome.width) { _, _ in slide() }
             .animation(Motion.settle, value: browser.recalling)
             .animation(Motion.settle, value: browser.hoarding)
             .animation(Motion.settle, value: browser.tuning)
@@ -849,21 +874,6 @@ struct ContentView: View {
             Browsers.watchFrames()
         }
         .onDisappear { Self.unwatchKeys(for: browser) }
-    }
-
-    /// The mirrored edge off for the length of a slide (see `sliding`).
-    private func slide() {
-        guard browser.pageUnder else { return }
-        slideTicket += 1
-        guard !Motion.reduced else { sliding = false; return }
-        let ticket = slideTicket
-        // On the slide's own spring: switching the copy off lays the page out
-        // again, and done without one, the strip under the column jumped to
-        // its end at once, ahead of the column gliding in.
-        withAnimation(Motion.glide) { sliding = true }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-            if ticket == slideTicket { sliding = false }
-        }
     }
 
     /// Give the keyboard back to the page once the field is done with it.
@@ -1653,5 +1663,54 @@ private struct UpdateMenuItem: View {
             Button(updater.fetchingDisk ? "Downloading Update…" : "Download Update…") { updater.openDisk() }
                 .disabled(updater.fetchingDisk)
         }
+    }
+}
+
+/// A panel beside the page — the chat, an extension's — as a card of its
+/// own when the page is one: the gap above, below and at the window's
+/// edge, the page's own margin on the other side (see Browser.askRoom).
+private struct SideCard: ViewModifier {
+    let on: Bool
+
+    func body(content: Content) -> some View {
+        if on {
+            content.card().padding([.top, .bottom, .trailing], PageCard.gap)
+        } else {
+            content
+        }
+    }
+}
+
+/// The screen at full speed for the length of a slide. ProMotion lets a
+/// screen idle at a low refresh rate while nothing on it moves, and in full
+/// screen, where the window goes almost straight to the display, the
+/// chrome's first frames came at that rate and stuttered — never while the
+/// screen was being recorded, which keeps it compositing at a steady rate.
+/// A display link asking for 120 frames a second holds it there; it lets go
+/// on its own once the slide is over.
+@MainActor
+final class FullSpeed: NSObject {
+    private static var held: [ObjectIdentifier: FullSpeed] = [:]
+    private var link: CADisplayLink?
+    private var until = Date.distantPast
+
+    static func hold(_ window: NSWindow?, for seconds: TimeInterval) {
+        guard let window, !Motion.reduced else { return }
+        let key = ObjectIdentifier(window)
+        let speed = held[key] ?? FullSpeed()
+        held[key] = speed
+        speed.until = max(speed.until, Date().addingTimeInterval(seconds))
+        guard speed.link == nil else { return }
+        let link = window.displayLink(target: speed, selector: #selector(tick(_:)))
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
+        link.add(to: .main, forMode: .common)
+        speed.link = link
+    }
+
+    @objc private func tick(_ link: CADisplayLink) {
+        guard Date() >= until else { return }
+        link.invalidate()
+        self.link = nil
+        Self.held = Self.held.filter { $0.value !== self }
     }
 }

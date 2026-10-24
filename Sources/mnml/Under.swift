@@ -67,17 +67,6 @@ enum Under {
     }
 }
 
-extension Browser {
-    /// The page runs under the column and the strip right now. Only with
-    /// the see-through material — under a flat colour there'd be nothing to
-    /// see — and not for a split, whose pages sit on cards with a margin of
-    /// their own and never meet the chrome's edge.
-    var pageUnder: Bool {
-        prefs.pageUnder && prefs.frostedSidebar && Under.possible
-            && shownSplit == nil && splitPicking == nil
-    }
-}
-
 /// The chrome across the top when the page runs beneath it: the page, blurred
 /// as it scrolls under, and tinted with the window's ground so the page's
 /// colour comes through rather than its detail.

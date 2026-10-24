@@ -535,18 +535,6 @@ struct SettingsPanel: View {
                 }
                 Rule()
             }
-            Line("Page frame", "The margin and rounded corners around the page. Off, the page fills its area edge to edge.") {
-                Switch(on: $prefs.pageFramed)
-            }
-            Rule()
-            // Only where WebKit can keep the page clear of the chrome: before
-            // macOS 26 the switch would do nothing.
-            if Under.possible {
-                Line("Page under the sidebar", "The page runs on beneath the sidebar, or the bar across the top, its colours showing through the Mac window material as you scroll, as in Safari. Needs the material") {
-                    Switch(on: $prefs.pageUnder)
-                }
-                Rule()
-            }
             Line("Auto Archive", "Keep unused loose tabs in Archive. Pins, groups, splits, private pages and active work stay open.") {
                 Switch(on: $prefs.archivesTabs)
             }

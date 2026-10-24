@@ -100,19 +100,14 @@ struct ExtensionSidePanel: View {
             .padding(.leading, 14)
             .padding(.trailing, 10)
             .frame(height: Metrics.strip)
-            PanelPage(web: SidePanels.shared.page(for: tab.id))
+            PanelPage(web: SidePanels.shared.page(for: tab.id), corner: PageCard.corner)
         }
         .frame(width: prefs.askWidth)
         .frame(maxHeight: .infinity)
-        .background {
-            if prefs.frostedSidebar {
-                Frosted(blending: browser.pageUnder ? Under.blending : .behindWindow)
-            } else {
-                Palette.ground
-            }
-        }
+        .background { Palette.ground }
         .overlay(alignment: .leading) {
-            Rectangle().fill(Palette.hairline).frame(width: 1)
+            // A card has its gap for an edge.
+            Color.clear.frame(width: 1)
                 .overlay { WidthGrip { prefs.askWidth = min(640, max(280, prefs.askWidth - $0)) } }
         }
     }
@@ -121,10 +116,17 @@ struct ExtensionSidePanel: View {
 /// The panel's web view, put in place and kept there.
 private struct PanelPage: NSViewRepresentable {
     let web: WKWebView?
+    /// The card's lower corners: a web view isn't clipped by SwiftUI's shape.
+    var corner: CGFloat = 0
 
     func makeNSView(context: Context) -> NSView { NSView() }
 
     func updateNSView(_ holder: NSView, context: Context) {
+        holder.wantsLayer = true
+        holder.layer?.cornerRadius = corner
+        holder.layer?.cornerCurve = .continuous
+        holder.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+        holder.layer?.masksToBounds = corner > 0
         guard let web else { return holder.subviews.forEach { $0.removeFromSuperview() } }
         guard web.superview !== holder else { return }
         holder.subviews.forEach { $0.removeFromSuperview() }

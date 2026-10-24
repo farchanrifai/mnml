@@ -14,6 +14,9 @@ struct AskPanel: View {
     @ObservedObject private var writeApprovals = ConnectionWriteApprovals.shared
 
     let mode: AskMode
+    /// Beside the page, the panel is kept while closed (ContentView): not
+    /// shown, it waits out of sight without the keys.
+    var shown = true
     /// Floating: the card dragged by its top, and let go (true).
     var dragged: ((DragGesture.Value, Bool) -> Void)?
 
@@ -66,6 +69,7 @@ struct AskPanel: View {
                     thread
                 }
             }
+            
             .frame(maxHeight: .infinity)
             // The @ menu, rising from the box into the room above it.
             .overlay(alignment: .bottom) {
@@ -85,11 +89,12 @@ struct AskPanel: View {
         .frame(maxHeight: .infinity)
         .background {
             if mode == .float {
-                RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Palette.ground)
+                // Frosted over the page, as the strip's glass is (TopGlass).
+                TopGlass()
+                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .shadow(color: .black.opacity(0.28), radius: 24, y: 10)
-            } else if browser.prefs.frostedSidebar {
-                Frosted()
             } else {
+                // A card, as the page is (PageCard).
                 Palette.ground
             }
         }
@@ -119,13 +124,9 @@ struct AskPanel: View {
             }
         }
         .onDisappear { browser.askFocused = false }
-        .onAppear {
-            chat.bindConnections(to: browser.spaceID)
-            guard browser.askTyping else { return }
-            browser.askTyping = false
-            // A beat later: on the frame it's added, the page still holds
-            // the keys and the box isn't in the window to take them.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { typing = true }
+        .onAppear { if shown { arrived() } }
+        .onChange(of: shown) { _, on in
+            if on { arrived() } else { typing = false }
         }
         .task(id: prefs.askProvider) {
             keyLoaded = false
@@ -140,6 +141,15 @@ struct AskPanel: View {
     }
 
     // MARK: - top
+
+    private func arrived() {
+        chat.bindConnections(to: browser.spaceID)
+        guard browser.askTyping else { return }
+        browser.askTyping = false
+        // A beat later: on the frame it's added, the page still holds
+        // the keys and the box isn't in the window to take them.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { typing = true }
+    }
 
     private var header: some View {
         VStack(spacing: 2) {

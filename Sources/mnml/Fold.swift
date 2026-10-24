@@ -45,12 +45,14 @@ extension Browser {
     /// ⌘S. The column, or the strip across the top, out of the way, or back.
     func toggleFold() {
         peeking = false
-        withAnimation(Motion.glide) { folded.toggle() }
+        FullSpeed.hold(window, for: Motion.chromeSettle + 0.1)
+        withAnimation(Motion.chrome) { folded.toggle() }
     }
 
     /// The folded column out over the page, or back in.
     func peek(_ out: Bool) {
-        withAnimation(Motion.glide) { peeking = out }
+        FullSpeed.hold(window, for: Motion.chromeSettle + 0.1)
+        withAnimation(Motion.chrome) { peeking = out }
     }
 }
 
@@ -111,6 +113,7 @@ struct Fold: View {
                 // tabs, and the shadow fell from every title and icon rather
                 // than from the row's edge.
                 TabBar(browser: browser)
+                    .environment(\.chromeOverPage, true)
                     .transition(.move(edge: .top)
                         .combined(with: .casting(FoldShadow(y: 4, behind: true))))
             }
@@ -118,6 +121,7 @@ struct Fold: View {
                 Color.clear.frame(width: 0)
                 if folding, prefs.sidebar, browser.peeking {
                     SideBar(browser: browser, prefs: prefs)
+                        .environment(\.chromeOverPage, true)
                         .transition(.move(edge: onRight ? .trailing : .leading)
                             .combined(with: .casting(FoldShadow(x: onRight ? -4 : 4))))
                 }

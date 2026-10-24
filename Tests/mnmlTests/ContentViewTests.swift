@@ -1,6 +1,7 @@
 import XCTest
 import AppKit
 import SwiftUI
+import WebKit
 @testable import mnml
 
 @MainActor
@@ -11,13 +12,12 @@ final class ContentViewTests: XCTestCase {
         browser.welcoming = false
         browser.editing = false
         let prefs = browser.prefs
-        let previous = (prefs.sidebar, prefs.pageUnder, prefs.frostedSidebar, prefs.bookmarksBar, prefs.askMode)
+        let previous = (prefs.sidebar, prefs.frostedSidebar, prefs.bookmarksBar, prefs.askMode)
         defer {
             prefs.sidebar = previous.0
-            prefs.pageUnder = previous.1
-            prefs.frostedSidebar = previous.2
-            prefs.bookmarksBar = previous.3
-            prefs.askMode = previous.4
+            prefs.frostedSidebar = previous.1
+            prefs.bookmarksBar = previous.2
+            prefs.askMode = previous.3
         }
         browser.prefs.bookmarksBar = false
         browser.prefs.askMode = .side
@@ -28,12 +28,10 @@ final class ContentViewTests: XCTestCase {
         window.isReleasedWhenClosed = false
         defer { browser.closeAll(); window.close() }
 
-        for (sidebar, under, immersive, chat) in [(true, false, false, false), (false, false, false, false),
-                                                 (true, true, false, false), (false, true, false, false),
-                                                 (true, true, false, true), (true, false, true, false)] {
+        for (sidebar, immersive, chat) in [(true, false, false), (false, false, false),
+                                           (true, false, true), (true, true, false)] {
             browser.prefs.sidebar = sidebar
             browser.prefs.frostedSidebar = true
-            browser.prefs.pageUnder = under
             browser.folded = false
             browser.chatting = chat ? [tab.id] : []
             tab.immersed = immersive
@@ -47,12 +45,12 @@ final class ContentViewTests: XCTestCase {
             let frame = stage.convert(stage.bounds, to: host)
             let chromeWidth = sidebar && !immersive ? browser.prefs.sideWidth : 0
             let chromeHeight = !sidebar && !immersive ? Metrics.strip : 0
-            let inset: CGFloat = immersive ? 0 : 6
+            let inset: CGFloat = immersive ? 0 : PageCard.gap
             XCTAssertEqual(frame.minX, chromeWidth + inset, accuracy: 0.5)
             XCTAssertEqual(frame.width, host.bounds.width - chromeWidth - browser.askRoom - inset * 2, accuracy: 0.5)
-            let visibleTop = (host.isFlipped ? frame.minY : host.bounds.maxY - frame.maxY) + stage.under.top
+            let visibleTop = host.isFlipped ? frame.minY : host.bounds.maxY - frame.maxY
             XCTAssertEqual(visibleTop, chromeHeight + inset, accuracy: 0.5)
-            let visibleHeight = frame.height - stage.under.top
+            let visibleHeight = frame.height
             XCTAssertEqual(visibleHeight, host.bounds.height - chromeHeight - inset * 2, accuracy: 0.5)
             XCTAssertEqual(stage.layer?.cornerRadius, immersive ? 0 : 10)
             XCTAssertEqual(browser.pageFrame.width, host.bounds.width - chromeWidth - browser.askRoom - inset * 2, accuracy: 0.5)
@@ -73,9 +71,9 @@ final class ContentViewTests: XCTestCase {
         host.layoutSubtreeIfNeeded()
         let stage = try XCTUnwrap(findStage(in: host))
         let frame = stage.convert(stage.bounds, to: host)
-        XCTAssertEqual(frame.minX, prefs.sideWidth + 6, accuracy: 0.5)
-        XCTAssertEqual(frame.width, (host.bounds.width - prefs.sideWidth - 18) / 2, accuracy: 0.5)
-        XCTAssertEqual(frame.height, host.bounds.height - 12, accuracy: 0.5)
+        XCTAssertEqual(frame.minX, prefs.sideWidth + PageCard.gap, accuracy: 0.5)
+        XCTAssertEqual(frame.width, (host.bounds.width - prefs.sideWidth - PageCard.gap * 3) / 2, accuracy: 0.5)
+        XCTAssertEqual(frame.height, host.bounds.height - PageCard.gap * 2, accuracy: 0.5)
     }
 
     private func findStage(in view: NSView) -> StageView? {
@@ -83,18 +81,44 @@ final class ContentViewTests: XCTestCase {
         return view.subviews.lazy.compactMap { self.findStage(in: $0) }.first
     }
 
-    func testPageFrameMaskTracksViewportWidthWithoutAnInteriorEdge() {
-        let rim = PageFrame(inset: 6, corner: 10)
-        for width: CGFloat in [320, 481.5, 584, 799.75, 800] {
-            let rect = CGRect(x: 17, y: 9, width: width, height: 600)
-            let path = rim.path(in: rect)
-            XCTAssertTrue(path.contains(CGPoint(x: rect.maxX - 3, y: rect.midY), eoFill: true))
-            XCTAssertFalse(path.contains(CGPoint(x: rect.maxX - 7, y: rect.midY), eoFill: true))
-            XCTAssertTrue(path.contains(CGPoint(x: rect.minX + 3, y: rect.midY), eoFill: true))
-            XCTAssertFalse(path.contains(CGPoint(x: rect.midX, y: rect.midY), eoFill: true))
-            XCTAssertTrue(path.contains(CGPoint(x: rect.minX + 6, y: rect.minY + 6), eoFill: true))
-            XCTAssertFalse(path.contains(CGPoint(x: rect.maxX + 1, y: rect.midY), eoFill: true))
+    /// A held page keeps its size, pinned to the card's top-left corner, as
+    /// the card moves; let go, it is the card's size again.
+    func testHeldPageKeepsItsSizeWhileTheStageMoves() {
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 900, height: 700),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let stage = StageView(frame: NSRect(x: 0, y: 0, width: 600, height: 500))
+        window.contentView?.addSubview(stage)
+        let page = NSView()
+        stage.show(page)
+        stage.hold = CGSize(width: 800, height: 520)
+        for width: CGFloat in [600, 650, 720, 800] {
+            stage.frame.size = CGSize(width: width, height: 500)
+            stage.layoutSubtreeIfNeeded()
+            XCTAssertEqual(page.frame.size, CGSize(width: 800, height: 520))
+            XCTAssertEqual(page.frame.maxY, stage.bounds.maxY, "pinned to the top")
+            XCTAssertEqual(page.frame.minX, 0)
         }
+        stage.hold = nil
+        stage.layoutSubtreeIfNeeded()
+        XCTAssertEqual(page.frame, stage.bounds)
+    }
+
+    /// WebKit keeps the block until the page has drawn, and calls it then.
+    func testDrawnCallsBackOnceThePageHasDrawn() async {
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 400, height: 300),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let web = WKWebView(frame: window.contentView!.bounds)
+        window.contentView?.addSubview(web)
+        window.orderBack(nil)
+        web.loadHTMLString("<p>drawn</p>", baseURL: nil)
+        let drawn = expectation(description: "drawn")
+        Drawn.after(web) { drawn.fulfill() }
+        web.frame.size.width = 300
+        await fulfillment(of: [drawn], timeout: 5)
     }
 
     func testQueuedFocusHandoffRespectsNewFieldAndPanel() async {

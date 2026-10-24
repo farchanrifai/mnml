@@ -17,10 +17,9 @@ struct Page: View {
     /// running under them (Under.swift). What is said over the page stays
     /// clear of them.
     var under = EdgeInsets()
-    /// The page's edge copied under the column (Bleed); off for a moment
-    /// while the chat panel slides, when the copy showed inside the page.
-    var bleeds = true
-    @State private var fading = false
+    /// The page's own size while its card is on the move (see StageView.hold).
+    var hold: CGSize? = nil
+    var pinTrailing = false
 
     var body: some View {
         ZStack {
@@ -31,41 +30,8 @@ struct Page: View {
             // before and after the float changes nothing SwiftUI can see, so
             // the stage was never told to take it back when it landed, and
             // the tab stayed empty. Nothing, then the page, is a change.
-            // Under the column, the page is placed beside it and the strip
-            // filled from the page's own edge (Bleed); under the strip across
-            // the top, WebKit keeps the page's top clear and lets it scroll
-            // up beneath (Under.swift).
             WebStage(page: tab.isBlank || tab.asleep || tab.floating ? nil : tab.web, corner: corner,
-                     under: EdgeInsets(top: under.top, leading: 0, bottom: under.bottom, trailing: under.trailing))
-                .modifier(Bleed(leading: under.leading, on: bleeds))
-
-            if under.leading > 0 {
-                // The copy of the page under the column, faded into the
-                // window's own ground away from the page: the column takes
-                // the page's colour along its edge, as Safari's does, rather
-                // than all the way across.
-                LinearGradient(stops: [.init(color: Palette.ground.opacity(Bleed.far), location: 0),
-                                       .init(color: Palette.ground.opacity(Bleed.far), location: max(0, 1 - Bleed.reach / under.leading)),
-                                       .init(color: Palette.ground.opacity(0), location: 1)],
-                               startPoint: .leading, endPoint: .trailing)
-                    .frame(width: under.leading)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                    .allowsHitTesting(false)
-                // The copy can only be on or off: coming back after a slide it
-                // fades in from under the ground instead of popping in.
-                // Only once the slide is over: over it during the slide, it
-                // was a dark panel of its own.
-                Palette.ground
-                    .frame(width: under.leading)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                    .opacity(fading ? 1 : 0)
-                    .allowsHitTesting(false)
-                    .onChange(of: bleeds) { _, on in
-                        guard on else { return }
-                        fading = true
-                        DispatchQueue.main.async { withAnimation(Motion.reduced ? nil : .easeOut(duration: 0.3)) { fading = false } }
-                    }
-            }
+                     under: under, hold: hold, pinTrailing: pinTrailing)
 
             if let cover = tab.cover {
                 // The page as it was left, while it is rebuilt underneath —
@@ -262,41 +228,12 @@ private struct HistoryList: View {
     }
 }
 
-/// The one place a page is allowed to be. Tabs hand their web view over when
-/// they become the live one and get it back untouched when they don't — no
-/// reload, no lost scroll position, no forgotten form.
-/// The column's strip, filled from the page's edge: SwiftUI's background
-/// extension (macOS 26), the page placed in the room the column leaves and a
-/// mirrored, blurred copy of its edge run in under the column, live as it
-/// scrolls and plays. SwiftUI's own, not AppKit's NSBackgroundExtensionView:
-/// hosted inside mnml's SwiftUI, that one drew its copy of the page over the
-/// page instead of beside it (docs/mnml/page-under-chrome.md).
-private struct Bleed: ViewModifier {
-    let leading: CGFloat
-    var on = true
-
-    /// How far into the column the page's colour reaches from its edge.
-    // ponytail: one width for every column width; tune by feel.
-    static let reach: CGFloat = 84
-    /// How much of the ground covers the copy beyond `reach`: a trace of the
-    /// page, blurred, across the rest of the column.
-    static let far: Double = 1.0
-
-    func body(content: Content) -> some View {
-        if #available(macOS 26, *) {
-            content
-                .backgroundExtensionEffect(isEnabled: on)
-                .safeAreaPadding(.leading, leading)
-        } else {
-            content
-        }
-    }
-}
-
 struct WebStage: NSViewRepresentable {
     let page: NSView?
     var corner: CGFloat = 0
     var under = EdgeInsets()
+    var hold: CGSize? = nil
+    var pinTrailing = false
 
     // The hosted page's previous bounds are not an ideal size for this layout.
     // Accept the offered room so a window can shrink around its browser chrome.
@@ -314,7 +251,12 @@ struct WebStage: NSViewRepresentable {
         view.wantsLayer = true
         view.layer?.cornerRadius = corner
         view.layer?.cornerCurve = .continuous
-        view.layer?.masksToBounds = corner > 0
+        // Held, the page and its card differ for a moment: the page cut to
+        // the card, and the card's ground the page's own colour.
+        view.layer?.masksToBounds = corner > 0 || hold != nil
+        view.layer?.backgroundColor = hold == nil ? nil : (page as? WKWebView)?.underPageBackgroundColor.cgColor
+        view.hold = hold
+        view.pinTrailing = pinTrailing
         view.under = NSEdgeInsets(top: under.top, left: under.leading, bottom: under.bottom, right: under.trailing)
         view.show(page)
     }
@@ -340,6 +282,42 @@ final class StageView: NSView {
     /// taking it back off laid a background YouTube out again, and again
     /// on the way back.
     var under = NSEdgeInsets()
+
+    /// The page's own size, apart from the card's (ContentView.hold): the
+    /// card — this stage, rounded and cutting the page to it — is cheap to
+    /// move on every frame of the window's spring; the page, which WebKit
+    /// lays out again whenever its size changes, is not. Held, it has the
+    /// card's final size from before the card moves, kept to the card's top
+    /// and to the side that stays put; the moving side glides over it, or
+    /// away to show it, and between them, for the moment there is any,
+    /// the page's own colour. Nil: the page is the stage's size, as while
+    /// the window's edge is dragged.
+    var hold: CGSize? {
+        didSet { if hold != oldValue { needsLayout = true } }
+    }
+    /// Kept to the stage's right edge rather than its left: the column, on
+    /// the left, is what moves.
+    var pinTrailing = false {
+        didSet { if pinTrailing != oldValue { needsLayout = true } }
+    }
+
+    /// The page where it goes: moved, when only its place changed — a size
+    /// set again, even the same one, can have WebKit lay it out anew.
+    private func place(_ page: NSView) {
+        let frame = pageFrame
+        if page.frame.size == frame.size {
+            if page.frame.origin != frame.origin { page.setFrameOrigin(frame.origin) }
+        } else {
+            page.frame = frame
+        }
+    }
+
+    /// Where the page goes in this stage.
+    private var pageFrame: NSRect {
+        guard let hold else { return bounds }
+        return NSRect(x: pinTrailing ? bounds.width - hold.width : 0, y: bounds.height - hold.height,
+                      width: hold.width, height: hold.height)
+    }
 
     /// A page kept in the window, unseen, a moment after its tab was left:
     /// its video is on its way into macOS's picture-in-picture, and WebKit
@@ -475,7 +453,7 @@ final class StageView: NSView {
             Self.docks.removeObject(forKey: wanted)
             // Full size, which WebKit, with its inspector back, cuts down to
             // make room for it again at the stage's size now.
-            if wanted.frame != bounds { wanted.frame = bounds }
+            place(wanted)
             // A web view coming back into a window sometimes keeps the last
             // picture it had — which, after a while out of one, is nothing.
             // Asking it to draw again is cheap and is what brings it back.
@@ -486,9 +464,7 @@ final class StageView: NSView {
         // With the inspector docked, WebKit lays the page and it out side by
         // side as this view changes size; setting the page's frame here would
         // cover the inspector.
-        if wanted.frame != bounds, !(docked && subviews.contains(where: Self.isInspector)) {
-            wanted.frame = bounds
-        }
+        if !(docked && subviews.contains(where: Self.isInspector)) { place(wanted) }
         if let web = wanted as? WKWebView { Under.cover(web, under) }
     }
 
@@ -719,4 +695,21 @@ final class RestingLights: NSView {
     /// Never in the way of a click: the real buttons are underneath, and they
     /// come back the moment the app does.
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+/// WebKit's own word that a page has drawn what it was last told — its
+/// next frame on screen. Private, so asked for by name; where it isn't,
+/// straight away.
+enum Drawn {
+    private static let next = NSSelectorFromString("_doAfterNextPresentationUpdate:")
+
+    static func after(_ page: NSView, _ then: @escaping () -> Void) {
+        guard let page = page as? WKWebView, page.responds(to: next) else { return then() }
+        typealias Call = @convention(c) (AnyObject, Selector, AnyObject) -> Void
+        // An escaping block, as an object: WebKit keeps it until the page
+        // has drawn. Handed over as a closure literal, Swift took it for a
+        // non-escaping one and stopped the app when WebKit kept it.
+        let block: @convention(block) () -> Void = { DispatchQueue.main.async(execute: then) }
+        unsafeBitCast(page.method(for: next), to: Call.self)(page, next, block as AnyObject)
+    }
 }

@@ -625,9 +625,11 @@ extension Browser {
     /// The room the chat takes from the page's right: only beside it.
     var askRoom: CGFloat {
         guard let tab = active else { return 0 }
-        if docked[tab.id] != nil { return prefs.askWidth }
+        // A card's gap at the window's edge too (SideCard).
+        let gap = PageCard.gap
+        if docked[tab.id] != nil { return prefs.askWidth + gap }
         guard askShowing, askMode(for: tab) == .side else { return 0 }
-        return prefs.askWidth
+        return prefs.askWidth + gap
     }
 }
 
