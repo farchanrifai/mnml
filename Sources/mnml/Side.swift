@@ -61,16 +61,35 @@ struct SideBar: View {
     // their own, so they lighten a group's colour as they do the column —
     // a flat grey all but vanished over a group, and in the dark.
     //
-    // Over the Mac's material in light mode — a mid grey where a dark desktop
-    // shows through — the ink all but vanished: there it is stronger. The
-    // flat colours made for a white column (Palette.hover, .faint, .wash)
-    // are solid, and over the material stood out as white blocks or went
-    // unseen; in the column and the strip these stand in for them.
-    static var liveFill: Color { fill(0.10, light: 0.14) }
-    static var hoverFill: Color { fill(0.06, light: 0.07) }
-    static var pinFill: Color { fill(0.07, light: 0.08) }
-    static var pinHoverFill: Color { fill(0.10, light: 0.12) }
-    static var pinLiveFill: Color { fill(0.15, light: 0.18) }
+    // Over the material in light mode (pale, under Veiled) the live tab
+    // and the pinned squares are white, raised off the ground as Dia's
+    // are; a darker grey there read as dirt. Hover stays a breath of ink.
+    // The flat colours made for a white column (Palette.hover, .faint,
+    // .wash) are solid, and over the material stood out as white blocks or
+    // went unseen; in the column and the strip these stand in for them.
+    static var liveFill: Color { fill(0.10, light: .white.withAlphaComponent(0.95)) }
+    static var hoverFill: Color { fill(0.06, light: .black.withAlphaComponent(0.05)) }
+    static var pinFill: Color { fill(0.07, light: .white.withAlphaComponent(0.75)) }
+    static var pinHoverFill: Color { fill(0.10, light: .white.withAlphaComponent(0.95)) }
+    static var pinLiveFill: Color { fill(0.15, light: .white) }
+    /// The live tab's and live pin's lift off the pale ground in light mode,
+    /// as Dia's; nothing in the dark, where they are lighter than it.
+    static var lift: Color {
+        guard frosted else { return .clear }
+        return Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                ? .clear : NSColor.black.withAlphaComponent(0.10)
+        })
+    }
+    /// A pinned square's edge in light mode: white on a pale ground needs
+    /// one to read as a square at all.
+    static var pinEdge: Color {
+        guard frosted else { return .clear }
+        return Color(nsColor: NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+                ? .clear : NSColor.black.withAlphaComponent(0.06)
+        })
+    }
     /// Quiet text, as New tab's.
     static var faintText: Color { frosted ? Palette.ink.opacity(0.42) : Palette.faint }
 
@@ -78,12 +97,12 @@ struct SideBar: View {
     /// Tabs), kept here by Preferences for the fills to ask.
     static var frosted = true
 
-    private static func fill(_ ink: Double, light: Double) -> Color {
+    private static func fill(_ ink: Double, light: NSColor) -> Color {
         guard frosted else { return Palette.ink.opacity(ink) }
         return Color(nsColor: NSColor(name: nil) { appearance in
             appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
                 ? NSColor.white.withAlphaComponent(ink)
-                : NSColor.black.withAlphaComponent(light)
+                : light
         })
     }
     /// The narrowest a pinned square gets before a row takes one fewer.
@@ -1002,10 +1021,15 @@ private struct PinSquare: View {
                 // pin barely showed among the others).
                 RoundedRectangle(cornerRadius: scale * 9 / 34, style: .continuous)
                     .fill(SideBar.pinLiveFill)
+                    .shadow(color: SideBar.lift, radius: 1.5, y: 0.5)
                     .matchedGeometryEffect(id: "live", in: pill)
             } else {
                 RoundedRectangle(cornerRadius: scale * 9 / 34, style: .continuous)
                     .fill(hovering ? SideBar.pinHoverFill : SideBar.pinFill)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: scale * 9 / 34, style: .continuous)
+                            .strokeBorder(SideBar.pinEdge, lineWidth: 1)
+                    }
             }
         }
         .contentShape(RoundedRectangle(cornerRadius: scale * 9 / 34, style: .continuous))
@@ -1229,6 +1253,7 @@ struct SideRow: View {
                 }
             }
             .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .shadow(color: SideBar.lift, radius: 1.5, y: 0.5)
             .matchedGeometryEffect(id: "live", in: pill)
         } else if browser.chosen.contains(tab.id) {
             RoundedRectangle(cornerRadius: 9, style: .continuous)

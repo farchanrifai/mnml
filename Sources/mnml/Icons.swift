@@ -374,7 +374,10 @@ struct Mark: View {
                     )
             }
         }
-        .opacity(dim ? 0.45 : 1)
+        // Asleep: its colour drained more than faded, so it still reads
+        // on a pale ground, where a fade to half washed it out.
+        .saturation(dim ? 0.15 : 1)
+        .opacity(dim ? 0.7 : 1)
         .transition(.opacity)
         .animation(Motion.quick, value: icon == nil)
     }

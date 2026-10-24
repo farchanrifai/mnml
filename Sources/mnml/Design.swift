@@ -247,18 +247,69 @@ struct Frosted: NSViewRepresentable {
     /// The desktop behind the window, or, with the page running under the
     /// chrome (Under.swift), the page beneath it.
     var blending: NSVisualEffectView.BlendingMode = .behindWindow
+    /// White over it in light mode (Veiled).
+    var veiled = false
 
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = material
-        view.blendingMode = blending
-        view.state = .followsWindowActiveState
-        return view
+    func makeNSView(context: Context) -> NSView {
+        let glass = NSVisualEffectView()
+        glass.state = .followsWindowActiveState
+        guard veiled else { return glass }
+        let veiled = Veiled()
+        glass.frame = veiled.bounds
+        glass.autoresizingMask = [.width, .height]
+        veiled.addSubview(glass)
+        return veiled
     }
 
-    func updateNSView(_ view: NSVisualEffectView, context: Context) {
-        view.material = material
-        view.blendingMode = blending
+    func updateNSView(_ view: NSView, context: Context) {
+        let glass = view as? NSVisualEffectView ?? view.subviews.first as? NSVisualEffectView
+        glass?.material = material
+        glass?.blendingMode = blending
+    }
+}
+
+/// The window's material with white over it in light mode: on its own it
+/// went a muddy mid grey wherever a dark desktop showed through, and the
+/// column's text, squares and highlights sank into it. Veiled, it is a pale
+/// ground with a breath of the desktop, as Dia's is. The white lies beside
+/// the material rather than in it: inside, the material's vibrancy blended
+/// it away, as it did a SwiftUI colour laid over it.
+final class Veiled: NSView {
+    // ponytail: tuned by eye over a dark desktop; adjust by feel.
+    static let strength: CGFloat = 0.62
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    // Over the material: a sublayer above the subview's.
+    private lazy var veil: CALayer = {
+        let veil = CALayer()
+        veil.zPosition = 1
+        layer?.addSublayer(veil)
+        return veil
+    }()
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        veil.frame = bounds
+        paint()
+        CATransaction.commit()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        paint()
+    }
+
+    private func paint() {
+        let light = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) != .darkAqua
+        veil.backgroundColor = NSColor.white.withAlphaComponent(light ? Self.strength : 0).cgColor
     }
 }
 
@@ -272,7 +323,7 @@ struct WindowGround: View {
 
     var body: some View {
         Group {
-            if prefs.frostedSidebar { Frosted(blending: .behindWindow) } else { Palette.ground }
+            if prefs.frostedSidebar { Frosted(blending: .behindWindow, veiled: true) } else { Palette.ground }
         }
         .overlay { TintWash(browser: browser, prefs: prefs) }
     }
@@ -325,7 +376,7 @@ struct ChromeGround: View {
         let frosted = browser.prefs.frostedSidebar
         ZStack {
             if folded {
-                if frosted { Frosted(blending: .behindWindow) } else { Palette.ground }
+                if frosted { Frosted(blending: .behindWindow, veiled: true) } else { Palette.ground }
                 TintWash(browser: browser, prefs: browser.prefs)
             }
             if landing { frosted ? SideBar.hoverFill : Palette.hover }
