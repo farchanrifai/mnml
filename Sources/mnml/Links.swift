@@ -42,12 +42,12 @@ final class Links: NSObject, NSApplicationDelegate {
             alert.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
             guard alert.runModal() == .alertFirstButtonReturn else { return .terminateCancel }
         }
-        let waiting = MainActor.assumeIsolated {
-            Browsers.quitting = true
-            return Browser.cancelAllFileImports()
-        }
+        let waiting = MainActor.assumeIsolated { Browser.cancelAllFileImports() }
         guard waiting else {
             terminationPending = false
+            // Only once the quit goes ahead: while it waits on an import,
+            // a window closed is closed for good.
+            MainActor.assumeIsolated { Browsers.quitting = true }
             return .terminateNow
         }
         if !terminationPending {
