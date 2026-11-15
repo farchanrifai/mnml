@@ -1545,6 +1545,7 @@ final class Tab: ObservableObject, Identifiable {
     /// next time anyone asks for it.
     private func discard() {
         loadGeneration &+= 1
+        sent = nil
         popupGesture.clear()
         if !blockedPopups.isEmpty { blockedPopups = [] }
         watch = []
@@ -1565,9 +1566,11 @@ final class Tab: ObservableObject, Identifiable {
         web.searchName = nil
         web.onSearch = nil
         web.stopLoading()
-        // Detaching a view doesn't end capture while something still holds it.
-        // Empty handlers, never nil: some WebKit builds (macOS 14 and 15) call
+        // Detaching a view doesn't end capture or playback while something
+        // still holds it (upstream #943). Empty handlers, never nil: some WebKit builds (macOS 14 and 15) call
         // the handler without checking it, and closing a tab crashed (upstream #1031).
+        web.setAllMediaPlaybackSuspended(true) {}
+        web.closeAllMediaPresentations {}
         web.setCameraCaptureState(.none) {}
         web.setMicrophoneCaptureState(.none) {}
         web.navigationDelegate = nil
