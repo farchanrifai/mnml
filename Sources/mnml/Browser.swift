@@ -4103,6 +4103,31 @@ final class Browser: NSObject, ObservableObject {
 // MARK: - WebKit
 
 extension Browser: WKNavigationDelegate, WKUIDelegate {
+    /// Where the window is, for a page asking `window.outerWidth`,
+    /// `outerHeight`, `screenX` and `screenY`. Unanswered, WebKit says a
+    /// window of no size, and Google Docs took `outerWidth / innerWidth` for
+    /// the zoom: from 0, a quarter, and drew at a quarter of the screen's
+    /// sharpness (upstream #827). Answered as tall as the window but only as
+    /// wide as the page: with the sidebar counted, `outerWidth - innerWidth`
+    /// passed 160, which Discord reads as DevTools open and signs you out
+    /// (upstream #916).
+    @objc(_webView:getWindowFrameWithCompletionHandler:)
+    func webView(_ webView: WKWebView, getWindowFrameWithCompletionHandler done: @escaping (CGRect) -> Void) {
+        done(windowFrame(for: webView))
+    }
+
+    /// The page's own width at its own place across, with the window's
+    /// height; a page kept out of the window (a tab behind) reads the one in
+    /// front's.
+    func windowFrame(for webView: WKWebView) -> CGRect {
+        let shown: WKWebView? = webView.window != nil ? webView
+            : (active?.built?.window != nil ? active?.built : nil)
+        guard let shown, let frame = shown.window?.frame else { return window?.frame ?? .zero }
+        let page = shown.convert(shown.bounds, to: nil)
+        guard page.width > 0 else { return frame }
+        return CGRect(x: frame.minX + page.minX, y: frame.minY, width: page.width, height: frame.height)
+    }
+
     /// Every navigation is decided in `decide` below; this form of the
     /// question also hands over the page's preferences, the only place a
     /// site allowed to play sound by itself can say so (see Autoplay). Only
