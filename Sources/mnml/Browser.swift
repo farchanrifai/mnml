@@ -4229,7 +4229,9 @@ extension Browser: WKNavigationDelegate, WKUIDelegate {
            ["http", "https"].contains(scheme) {
             let flags = action.modifierFlags
             if flags.contains(.command) {
-                let opened = openClicked(url, foreground: flags.contains(.shift), from: tab(for: webView), view: webView)
+                // From popupTab, not tab(for:): a peek or a small window is not in
+                // the row, and a link from a private one must open private too.
+                let opened = openClicked(url, foreground: flags.contains(.shift), from: popupTab(for: webView), view: webView)
                 // With Settings › Tabs › Group links you ⌘-click: the page
                 // and the link, named by the Mac's model when available and
                 // by the page's site otherwise. A page
@@ -4989,7 +4991,13 @@ extension Browser: WKDownloadDelegate {
         guard let data, let file = whereToSave(suggestedFilename ?? "") else { return }
         do {
             try data.write(to: file)
-            saved(file, from: originatingURL)
+            // A private page's file is named once and listed nowhere, as in
+            // `downloadDidFinish`: the list is written to disk and outlives it.
+            if webView.configuration.websiteDataStore.isPersistent, anyTab(for: webView)?.shy != true {
+                saved(file, from: originatingURL)
+            } else {
+                announce("Saved \(file.lastPathComponent)")
+            }
         } catch {
             announce("Download failed")
         }
