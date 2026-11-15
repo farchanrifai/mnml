@@ -2861,6 +2861,18 @@ enum ExtensionShims {
           p.then((r) => callback(r), (e) => withLastError(e, callback));
         });
       }
+      // Rules built: WebKit compiled every one of them in the app, and what
+      // it took is given back (Trim.swift).
+      const built = () => { try { native("memory.rulesBuilt", []).catch(() => {}); } catch (x) {} };
+      if (dnr && typeof dnr.updateEnabledRulesets === "function") {
+        const enable = dnr.updateEnabledRulesets.bind(dnr);
+        put(dnr, "updateEnabledRulesets", (options, callback) => {
+          const p = enable(options);
+          p.then(built, () => {});
+          if (typeof callback !== "function") return p;
+          p.then(() => callback(), (e) => withLastError(e, callback));
+        });
+      }
       if (dnr) for (const name of ["updateSessionRules", "updateDynamicRules"]) {
         if (typeof dnr[name] !== "function") continue;
         const original = dnr[name].bind(dnr);
@@ -2907,6 +2919,7 @@ enum ExtensionShims {
             }
           };
           const p = ready.then(() => attempt(options, 100));
+          p.then(built, () => {});
           // In a test run, an update that still fails is said, not only
           // handed back to an extension that may drop it.
           if (__MNML_VERBOSE__) p.catch((e) => { try { native("debug.error", ["declarativeNetRequest: " + name + " failed — " + (e && e.message)]).catch(() => {}); } catch (x) {} });
@@ -4054,6 +4067,9 @@ enum ExtensionShims {
         // MARK: what went wrong inside
         case "debug.error":
             owner.noteError(first as? String ?? "?", for: id)
+            return nil
+        case "memory.rulesBuilt":
+            Trim.rulesBuilt()
             return nil
 
         // MARK: its own pages, for clients.matchAll() (see the shim)

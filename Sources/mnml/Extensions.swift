@@ -201,6 +201,8 @@ final class Extensions: NSObject, ObservableObject {
                     }
                 }
                 markStarted()
+                // Their rules, built as they loaded (Trim.swift).
+                Trim.rulesBuilt()
                 checkForUpdates()
             }
         }
