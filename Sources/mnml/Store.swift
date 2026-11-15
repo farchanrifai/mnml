@@ -54,7 +54,9 @@ enum Store {
     /// between probes the way the real one does. Wiping the test store is
     /// then as safe as wiping its folder.
     static var websites: WKWebsiteDataStore {
-        guard testing, !ownContainer else { return .default() }
+        // A named world on the test copy (MNML_PROBE=<name> on mnml Test)
+        // gets its own too: the copy's default store holds the copy's sign-ins.
+        guard testing, !ownContainer || (testCopy && world != "copy") else { return .default() }
         return WKWebsiteDataStore(forIdentifier: probeStore(1))
     }
 
