@@ -3426,6 +3426,43 @@ enum ExtensionShims {
           set(event, "hasListeners", () => listeners.size > 0);
           return port;
         };
+        // Every port, the extension's own or a website's content script's:
+        // its onMessage and onDisconnect listeners are handed the port its
+        // end was given (by onConnect, or by connect), as in Chrome. WebKit
+        // hands them another object for the same port, without what the
+        // extension kept on it: Vimium C keeps its state for each tab on the
+        // port onConnect gave ('port.s') and reads it back off the one its
+        // listener gets, so every key a page sent its worker threw there
+        // (`n.b` of undefined) and no key did anything (Sridhar, 1.0.7).
+        // Only the extension's own ports were handed theirs before, through
+        // `number`.
+        const pinned = new WeakSet();
+        const pin = (port, view) => {
+          if (!port || typeof port !== "object" || pinned.has(port)) return;
+          pinned.add(port);
+          for (const name of ["onMessage", "onDisconnect"]) {
+            const event = port[name];
+            if (!event || typeof event.addListener !== "function") continue;
+            const add = event.addListener, remove = event.removeListener;
+            const given = new Map();
+            const at = name === "onMessage" ? 1 : 0;
+            set(port, name, event);
+            set(event, "addListener", (f) => {
+              if (typeof f !== "function") return add.call(event, f);
+              if (given.has(f)) return;
+              const w = (...args) => { args[at] = view; return f(...args); };
+              given.set(f, w);
+              add.call(event, w);
+            });
+            set(event, "removeListener", (f) => {
+              const w = given.get(f);
+              given.delete(f);
+              try { remove.call(event, w || f); } catch (e) {}
+            });
+            set(event, "hasListener", (f) => given.has(f));
+            set(event, "hasListeners", () => given.size > 0);
+          }
+        };
         const connect = runtime.connect;
         // Only a port to the extension itself, and never a content script's:
         // another extension would hear the numbered wrapper, not the message,
@@ -3434,7 +3471,9 @@ enum ExtensionShims {
         // its messages from the extension.
         put(runtime, "connect", (...args) => {
           const port = connect.apply(runtime, args);
-          return inContent || (typeof args[0] === "string" && args[0] !== runtime.id) ? port : number(port);
+          const kept = inContent || (typeof args[0] === "string" && args[0] !== runtime.id) ? port : number(port);
+          pin(kept, kept);
+          return kept;
         });
         const onConnect = runtime.onConnect;
         const add = onConnect.addListener, remove = onConnect.removeListener, has = onConnect.hasListener;
@@ -3450,6 +3489,7 @@ enum ExtensionShims {
               port = fromOwn(port) ? number(port) : port;
               // WebKit makes a port's sender afresh at each look, over
               // anything set on the port: the port is seen through a proxy.
+              const target = port;
               if (sender !== given) {
                 port = new Proxy(port, { get: (target, key) => {
                   if (key === "sender") return sender;
@@ -3457,6 +3497,7 @@ enum ExtensionShims {
                   return typeof value === "function" ? value.bind(target) : value;
                 } });
               }
+              pin(target, port);
               return listener(port);
             };
             wrapped.set(listener, w);
