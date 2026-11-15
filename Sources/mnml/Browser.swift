@@ -1745,6 +1745,10 @@ final class Browser: NSObject, ObservableObject {
     var shut = false
     /// Its window is there to be seen — on screen, or behind a hidden app.
     var isOpen: Bool { window != nil && !shut }
+    /// Its window closed for good, with others open (see closeAll): it
+    /// writes nothing from here on. A write still waiting found its row
+    /// empty, and told every other window it had no pins (upstream #750).
+    private(set) var retired = false
     /// The extension a popup window was opened for (windows.create with
     /// type "popup"), or nil for a browser window. Such a window is small,
     /// the page under a thin line with its site; it is never saved, never
@@ -2139,6 +2143,7 @@ final class Browser: NSObject, ObservableObject {
     }
 
     func writeSession(now: Bool = false) {
+        guard !retired else { return }
         // The pins as they are here, for the other windows (see Pins.swift).
         Pins.set(spaceID, pinDefs(tabs), from: self)
         writeRow(spaceID, session(tabs, active: activeID, groups: groups), now: now)
@@ -2195,6 +2200,7 @@ final class Browser: NSObject, ObservableObject {
 
     /// Another window changed a space's pins: this window's row there follows.
     func pinsChanged(in space: UUID) {
+        guard !retired else { return }
         if space == spaceID {
             // Drawn again even when only a pin's letter or name changed.
             objectWillChange.send()
@@ -2388,6 +2394,7 @@ final class Browser: NSObject, ObservableObject {
 
     /// Its window closed for good, with others open: every page let go.
     func closeAll() {
+        retired = true
         chats.values.forEach { $0.stop() }
         ContentView.unwatchKeys(for: self)
         if let window {
