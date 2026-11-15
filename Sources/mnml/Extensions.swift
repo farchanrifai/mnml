@@ -1115,8 +1115,13 @@ final class Extensions: NSObject, ObservableObject {
     static func asksForNative(_ context: WKWebExtensionContext) -> Bool {
         let folder = Extensions.folder(for: context.uniqueIdentifier)
         let added = Set((try? JSONSerialization.jsonObject(with: Data(contentsOf: folder.appendingPathComponent(".search-added")))) as? [String] ?? [])
+        // An optional one is read from the manifest, not WebKit's
+        // optionalPermissions: a permission in both lists is only required to
+        // WebKit, and prepare writes nativeMessaging into permissions, so an
+        // extension that asked for it optionally was refused for good (upstream #751).
+        let optional = Set(((context.webExtension.manifest["optional_permissions"] as? [Any]) ?? []).compactMap { $0 as? String })
         return nativeDeclared(required: context.webExtension.requestedPermissions.contains(.nativeMessaging),
-                              optional: context.webExtension.optionalPermissions.contains(.nativeMessaging), added: added)
+                              optional: optional.contains("nativeMessaging"), added: added)
     }
 
     static func nativeDeclared(required: Bool, optional: Bool, added: Set<String>) -> Bool {
