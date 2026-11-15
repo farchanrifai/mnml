@@ -2431,8 +2431,10 @@ final class Browser: NSObject, ObservableObject {
             // A sleeping tab holds its address in `pending`; asking for
             // it there too means a pin can never be written out of
             // existence by whatever its web view happens to be showing.
+            // A web page or a local file (upstream #713): a file tab came
+            // back missing after quitting.
             guard let url = tab.pending ?? tab.address,
-                  url.scheme?.hasPrefix("http") == true
+                  url.scheme?.hasPrefix("http") == true || url.isFileURL
             else { continue }
             // Counted among the tabs written, not the row: a private tab
             // before it moved the one in front along (upstream).
