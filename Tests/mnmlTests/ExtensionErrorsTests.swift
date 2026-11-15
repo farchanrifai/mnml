@@ -1,6 +1,6 @@
 import WebKit
 import XCTest
-@testable import Search
+@testable import mnml
 
 /// WebKit's extension errors are WKNSError proxies, not NSError instances.
 /// Search reads them without Swift's Error bridging, which crashed 1.0.7 on
