@@ -29,7 +29,7 @@
 #   - a notarytool profile: xcrun notarytool store-credentials "search"
 #     (MNML_NOTARY_PROFILE names it; default "mnml")
 #   - MNML_DOWNLOAD_URL, the https folder the three files are served from,
-#     for the appcast. Default https://officecommun.com/search, which is
+#     for the appcast. Default: the latest GitHub release of farchanrifai/mnml, which is
 #     where Updater.feed in Updater.swift looks.
 #
 # NOTES.md, next to this script, is what's new: newest release first, one
@@ -328,7 +328,7 @@ echo "packed: $ZIP"
 
 # What the updater reads. The first paragraph of NOTES.md, with the two
 # characters JSON minds escaped, is the line under the version in Settings.
-BASE="${MNML_DOWNLOAD_URL:-https://officecommun.com/search}"
+BASE="${MNML_DOWNLOAD_URL:-https://github.com/farchanrifai/mnml/releases/latest/download}"
 BASE="${BASE%/}"
 NOTES=""
 if [ -f NOTES.md ]; then

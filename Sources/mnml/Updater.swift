@@ -32,9 +32,10 @@ final class Updater: ObservableObject {
     /// Where the file lives. MNML_FEED, for a test run, points somewhere
     /// else — and is the only way plain http is accepted, so a build that
     /// was not handed the variable only ever listens to the real site.
-    // ponytail: no public feed yet, so updates are off unless MNML_FEED is set.
-    // Put mnml's own appcast URL back here once there is one.
-    static let feed: URL? = ProcessInfo.processInfo.environment["MNML_FEED"].flatMap(URL.init(string:))
+    /// The signed feed on the newest GitHub release: build.sh keeps the file
+    /// names the same from release to release, so this address never moves.
+    static let feed: URL? = URL(string: ProcessInfo.processInfo.environment["MNML_FEED"]
+        ?? "https://github.com/farchanrifai/mnml/releases/latest/download/appcast.json.zip")
 
     private static var overridden: Bool {
         ProcessInfo.processInfo.environment["MNML_FEED"] != nil
@@ -146,10 +147,10 @@ final class Updater: ObservableObject {
     func checkByHand() {
         switch stage {
         case .ready(let next):
-            say?("Search \(next.version) is ready — relaunch to use it")
+            say?("mnml \(next.version) is ready — relaunch to use it")
             return
         case .fetching(let next):
-            say?("Search \(next.version) is downloading…")
+            say?("mnml \(next.version) is downloading…")
             return
         default: break
         }
@@ -157,7 +158,7 @@ final class Updater: ObservableObject {
         say?("Checking for updates…")
         check { [weak self] found in
             guard let self else { return }
-            if found == nil { self.say?("Search is up to date"); return }
+            if found == nil { self.say?("mnml is up to date"); return }
             // The waiting branch or `take` announces the next state afterward.
         }
     }
@@ -194,8 +195,8 @@ final class Updater: ObservableObject {
     }
 
     /// The disk image, when the bundle can't be swapped where it is: fetched
-    /// by Search itself, never through a web page, and opened only if its
-    /// hash is the signed feed's and its signature is Office Commun's.
+    /// by mnml itself, never through a web page, and opened only if its
+    /// hash is the signed feed's and its signature is mnml's team's.
     @Published private(set) var fetchingDisk = false
     /// What a test run decided about a disk image, for the bench.
     static var diskVerdict = ""
@@ -203,7 +204,7 @@ final class Updater: ObservableObject {
     func openDisk() {
         guard case .offered(let release) = stage, !fetchingDisk else { return }
         fetchingDisk = true
-        say?("Downloading Search \(release.version)…")
+        say?("Downloading mnml \(release.version)…")
         Task.detached(priority: .utility) {
             let result: Result<URL, Error>
             do { result = .success(try await Swap.disk(release)) } catch { result = .failure(error) }
@@ -238,7 +239,7 @@ final class Updater: ObservableObject {
         case .none, .offered, .waiting: break
         }
         stage = .fetching(release)
-        say?("Search \(release.version) is downloading…")
+        say?("mnml \(release.version) is downloading…")
         Task.detached(priority: .utility) {
             let worked: Bool
             do {
@@ -294,7 +295,9 @@ final class Updater: ObservableObject {
         request.timeoutInterval = 12
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? true,
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              // Only a feed signed by mnml's team; a test feed may be plain.
+              let feedData = overridden && feed.pathExtension == "json" ? data : opened(data),
+              let json = try? JSONSerialization.jsonObject(with: feedData) as? [String: Any],
               let version = json["version"] as? String,
               let build = (json["build"] as? Int) ?? Int(json["build"] as? String ?? ""),
               let archive = link(json["url"]),
@@ -331,7 +334,7 @@ final class Updater: ObservableObject {
     nonisolated static let team = "P8HX673QTL"
     nonisolated static let feedIdentifier = "com.farchan.mnml.appcast"
 
-    /// The feed inside `packed`, if it is Office Commun's: appcast.json with
+    /// The feed inside `packed`, if it is mnml's: appcast.json with
     /// a code signature (codesign keeps it in the file's extended attributes,
     /// and ditto carries those in the ZIP) that holds up and meets the
     /// Developer ID requirement for the team and the feed's own identifier.
@@ -503,7 +506,7 @@ private enum Swap {
         guard let expected = release.dmgSha256 else { throw Refused.hash }
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("search-disk-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let dmg = folder.appendingPathComponent("Search \(release.version).dmg")
+        let dmg = folder.appendingPathComponent("mnml \(release.version).dmg")
         try await download(release.dmg, to: dmg)
         guard try digest(of: dmg) == expected else { throw Refused.hash }
         var code: SecStaticCode?

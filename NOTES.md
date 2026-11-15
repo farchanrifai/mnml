@@ -1,1 +1,3 @@
+Updates on their own. mnml now looks for a newer version at launch and every hour, from its GitHub releases, and has it ready for the next time you open it; Check for Updates is in the mnml menu. Only a feed and a build signed by mnml's own team are accepted. Also: mnml is signed and notarised as its own app, and adding it to 1Password no longer crashes it.
+
 The page as a card. mnml's page now floats as a rounded card on the window's frosted material, and the chat beside it is a card too; the column, the strip and the chat slide in smoothly, full screen included, and ⌘E opens the chat at once. Also: a tab in full screen is never put to sleep.
