@@ -14,8 +14,8 @@
        embedded in the app, which build.sh does when mnml.provisionprofile
        is next to it. The two identifiers are how macOS ties the app to that
        profile: without them the restricted entitlement is refused. -->
-  <key>com.apple.application-identifier</key><string>7BYKA895MC.com.farchan.mnml</string>
-  <key>com.apple.developer.team-identifier</key><string>7BYKA895MC</string>
+  <key>com.apple.application-identifier</key><string>P8HX673QTL.com.farchan.mnml</string>
+  <key>com.apple.developer.team-identifier</key><string>P8HX673QTL</string>
   <key>com.apple.developer.web-browser.public-key-credential</key><true/>
 </dict>
 </plist>

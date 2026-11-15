@@ -327,9 +327,9 @@ final class Updater: ObservableObject {
         return data
     }
 
-    /// The team that signs Search's releases, and with them its feed.
-    nonisolated static let team = "7BYKA895MC"
-    nonisolated static let feedIdentifier = "com.officecommun.search.appcast"
+    /// The team that signs mnml's releases, and with them its feed.
+    nonisolated static let team = "P8HX673QTL"
+    nonisolated static let feedIdentifier = "com.farchan.mnml.appcast"
 
     /// The feed inside `packed`, if it is Office Commun's: appcast.json with
     /// a code signature (codesign keeps it in the file's extended attributes,

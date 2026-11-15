@@ -142,8 +142,10 @@ enum ExtensionSocket {
             ended = true
             receiving?.cancel()
             receiving = nil
+            // No `task.delegate = nil`: CFNetwork throws when a started task's
+            // delegate is changed (abort on macOS 27), and a task lets go of
+            // its delegate on its own once it finishes, as cancel makes it.
             task?.cancel(with: .goingAway, reason: nil)
-            task?.delegate = nil
             task = nil
             port.messageHandler = nil
             port.disconnectHandler = nil
