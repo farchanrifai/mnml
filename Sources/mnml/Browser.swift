@@ -552,7 +552,7 @@ final class Browser: NSObject, ObservableObject {
     /// ⌘⇧M. Whatever is making noise in this tab stops making noise.
     func pauseMedia() {
         guard let tab = pageTarget else { return }
-        tab.web.pauseAllMediaPlayback()
+        tab.web.pauseAllMediaPlayback {}
         announce("Paused")
     }
 

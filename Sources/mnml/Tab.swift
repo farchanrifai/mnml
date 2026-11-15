@@ -1566,8 +1566,10 @@ final class Tab: ObservableObject, Identifiable {
         web.onSearch = nil
         web.stopLoading()
         // Detaching a view doesn't end capture while something still holds it.
-        web.setCameraCaptureState(.none, completionHandler: nil)
-        web.setMicrophoneCaptureState(.none, completionHandler: nil)
+        // Empty handlers, never nil: some WebKit builds (macOS 14 and 15) call
+        // the handler without checking it, and closing a tab crashed (upstream #1031).
+        web.setCameraCaptureState(.none) {}
+        web.setMicrophoneCaptureState(.none) {}
         web.navigationDelegate = nil
         web.uiDelegate = nil
         web.removeFromSuperview()

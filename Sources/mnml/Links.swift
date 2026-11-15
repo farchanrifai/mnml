@@ -74,7 +74,7 @@ final class Links: NSObject, NSApplicationDelegate {
         // launched the last app that had been "now playing" as soon as it
         // quit, and mnml came straight back. ponytail: a guess at what
         // Droppy reads; if it keeps its own memory of the app, this won't do.
-        for tab in Browsers.all.flatMap({ $0.tabs + $0.parkedTabs }) { tab.built?.pauseAllMediaPlayback() }
+        for tab in Browsers.all.flatMap({ $0.tabs + $0.parkedTabs }) { tab.built?.pauseAllMediaPlayback {} }
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         MPNowPlayingInfoCenter.default().playbackState = .stopped
         Browsers.flush()
