@@ -176,9 +176,7 @@ final class Updater: ObservableObject {
             lastChecked = Date()
             Store.settings.set(Date(), forKey: lastKey)
             guard let found, found.build > Updater.build, found.runsHere else {
-                // A build already swapped in stays ready whatever the feed
-                // says now.
-                if case .ready = stage {} else { stage = .none }
+                stage = Updater.nothingNewer(after: stage)
                 done(nil)
                 return
             }
@@ -191,6 +189,19 @@ final class Updater: ObservableObject {
                 stage = .waiting(found)
                 say?("mnml \(found.version) is out — it's in Settings")
             }
+        }
+    }
+
+    /// What a check that found nothing newer, or couldn't read the feed,
+    /// leaves.
+    nonisolated static func nothingNewer(after stage: Stage) -> Stage {
+        switch stage {
+        // A build already swapped in stays ready whatever the feed says
+        // now, and one on its way is left to land: forgotten here, `landed`
+        // would drop it, and the next check would swap again under the
+        // bundle this process is running from (see `take`).
+        case .fetching, .ready: return stage
+        case .none, .offered, .waiting: return .none
         }
     }
 
