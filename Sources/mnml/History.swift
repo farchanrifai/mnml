@@ -78,6 +78,8 @@ final class History: ObservableObject {
     /// it each time cost more than everything else a key press does.
     private var recentCache: [Trace]?
     private var saving: DispatchWorkItem?
+    /// A title changed that the file doesn't have yet (see retitle).
+    private var owed = false
     private var saveTurn = 0
     private let file: URL
     /// Visits counted at most: far more than anyone makes, and room to add.
@@ -248,9 +250,14 @@ final class History: ObservableObject {
     func retitle(_ url: URL, _ title: String) {
         let key = History.identity(for: url)
         guard !title.isEmpty, var seen = visits[key], seen.title != title else { return }
+        let first = seen.title.isEmpty
         seen.title = title
         visits[key] = seen
-        save()
+        // Only the title a page lands with is written at once. One that keeps
+        // changing after it (an inbox counting its mail) would rewrite the
+        // whole file each time, so it waits for the next write, or for
+        // quitting (upstream #1044).
+        if first { save() } else { owed = true }
     }
 
     func forget() {
@@ -574,7 +581,7 @@ final class History: ObservableObject {
     /// A quit cannot wait for the debounce to put its snapshot on Disk's
     /// queue. Commit it now; a previously scheduled callback stays obsolete.
     func flush() {
-        guard saving != nil else { return }
+        guard saving != nil || owed else { return }
         saving?.cancel()
         saving = nil
         saveTurn &+= 1
@@ -582,6 +589,7 @@ final class History: ObservableObject {
     }
 
     private func persist(now immediate: Bool = false) {
+        owed = false
         let now = Date()
         // A cap, so the file can't grow without end. What goes is what has
         // been visited least and longest ago.
