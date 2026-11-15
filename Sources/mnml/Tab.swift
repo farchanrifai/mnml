@@ -1031,25 +1031,29 @@ final class Tab: ObservableObject, Identifiable {
     /// it is still that scheme and host: a document that changed after the
     /// last check on this side gets nothing.
     func fill(user: String, password: String, onlyOn page: URL? = nil, done: ((Bool) -> Void)? = nil) {
-        var still = ""
-        if let page {
-            guard let scheme = page.scheme?.lowercased(), let host = page.host()?.lowercased() else { done?(false); return }
-            still = "location.protocol === `\(escape(scheme)):` && location.hostname.toLowerCase() === `\(escape(host))` && "
-        }
-        web.evaluateInSearch(
-            "\(still)window.__officeForms && window.__officeForms.fill(`\(escape(user))`, `\(escape(password))`)"
-        ) { result in
-            done?((result as? Bool) ?? false)
-        }
+        callForms("fill(user, password)", ["user": user, "password": password], onlyOn: page, done: done)
     }
 
     /// A first step's name alone, picked from the accounts under its box.
     func fillName(_ user: String, done: ((Bool) -> Void)? = nil) {
-        web.evaluateInSearch(
-            "window.__officeForms && window.__officeForms.name(`\(escape(user))`)"
-        ) { result in
-            done?((result as? Bool) ?? false)
+        callForms("name(user)", ["user": user], onlyOn: nil, done: done)
+    }
+
+    /// One of the page script's calls, its values handed over as arguments,
+    /// never written into the source (upstream #992). With a page, the script
+    /// first checks it is still that scheme and host; a page that can't be
+    /// checked gets nothing.
+    private func callForms(_ call: String, _ values: [String: Any], onlyOn page: URL?, done: ((Bool) -> Void)?) {
+        var arguments = values.merging(["scheme": "", "host": ""]) { own, _ in own }
+        if let page {
+            guard let scheme = page.scheme?.lowercased(), let host = page.host()?.lowercased() else { done?(false); return }
+            arguments["scheme"] = scheme + ":"
+            arguments["host"] = host
         }
+        web.callInSearch("""
+            if (scheme && (location.protocol !== scheme || location.hostname.toLowerCase() !== host)) return false;
+            return !!(window.__officeForms && window.__officeForms.\(call));
+            """, arguments: arguments) { done?(($0 as? Bool) ?? false) }
     }
 
     func picked(selector: String, label: String, note: String) {
@@ -2396,6 +2400,14 @@ extension WKWebView {
     /// or nil for none or an error.
     func evaluateInSearch(_ js: String, then: ((Any?) -> Void)? = nil) {
         evaluateJavaScript(js, in: nil, in: Web.world) { result in
+            then?(try? result.get())
+        }
+    }
+
+    /// As `evaluateInSearch`, for a function body: `arguments` arrive as
+    /// its named parameters, so what they hold is never part of the source.
+    func callInSearch(_ body: String, arguments: [String: Any], then: ((Any?) -> Void)? = nil) {
+        callAsyncJavaScript(body, arguments: arguments, in: nil, in: Web.world) { result in
             then?(try? result.get())
         }
     }
